@@ -9,12 +9,15 @@ export function MainMenu() {
         1–4 Taoist monks defend a Chinese village from the ghosts of Wu-Feng. A faithful
         re-implementation of Antoine Bauza's 2008 cooperative board game.
       </p>
-      <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
+      <div style={{ display: 'flex', gap: 12, marginTop: 16, flexWrap: 'wrap', justifyContent: 'center' }}>
         <button style={{ padding: '12px 24px', fontSize: 16 }} onClick={() => setUiMode('newGame')}>
           New Game (local)
         </button>
         <button style={{ padding: '12px 24px', fontSize: 16 }} onClick={() => setUiMode('onlineSetup')}>
           Online Multiplayer
+        </button>
+        <button style={{ padding: '12px 24px', fontSize: 16 }} onClick={() => setUiMode('rulebook')}>
+          Rulebook
         </button>
       </div>
       <div style={{ color: 'var(--ink-muted)', fontSize: 12, marginTop: 32 }}>

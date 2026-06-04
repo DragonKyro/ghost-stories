@@ -4,6 +4,7 @@ import { NewGame } from './ui/NewGame'
 import { OnlineSetup } from './ui/OnlineSetup'
 import { OnlineLobby } from './ui/OnlineLobby'
 import { GameView } from './ui/game/GameView'
+import { Rulebook } from './rulebook'
 
 export function App() {
   const uiMode = useGameStore((s) => s.uiMode)
@@ -16,6 +17,8 @@ export function App() {
       return <OnlineSetup />
     case 'onlineLobby':
       return <OnlineLobby />
+    case 'rulebook':
+      return <Rulebook />
     case 'inGame':
     case 'gameOver':
       return <GameView />

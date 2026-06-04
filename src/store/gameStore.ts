@@ -11,7 +11,7 @@ import type { Action } from '@/game/actions'
 import type { GameConfig, GameState, TaoistColor } from '@/game/types'
 import { useLogStore } from './logStore'
 
-export type UiMode = 'mainMenu' | 'newGame' | 'onlineSetup' | 'onlineLobby' | 'inGame' | 'gameOver'
+export type UiMode = 'mainMenu' | 'newGame' | 'onlineSetup' | 'onlineLobby' | 'inGame' | 'gameOver' | 'rulebook'
 
 export type UiOverlay =
   | { kind: 'none' }

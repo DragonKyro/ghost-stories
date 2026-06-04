@@ -15,6 +15,8 @@ import { YinPhaseRunner } from './YinPhaseRunner'
 import { AIDriver } from './AIDriver'
 import { ChatPanel } from './ChatPanel'
 import { useNetworkStore } from '@/store/networkStore'
+import { RulebookOverlay } from '@/rulebook'
+import { useState } from 'react'
 import { adjacentTiles, ghostInstanceAt, isCornerTile, reachableGhostSpaces } from '@/game/helpers'
 import { getGhostCard } from '@/game/ghostCatalogue'
 import type { GameState, GhostRef, TaoistColor, VillageTileId } from '@/game/types'
@@ -22,6 +24,7 @@ import type { GameState, GhostRef, TaoistColor, VillageTileId } from '@/game/typ
 export function GameView() {
   const game = useGameStore((s) => s.game)
   const overlay = useGameStore((s) => s.uiOverlay)
+  const [showRulebook, setShowRulebook] = useState(false)
 
   if (!game) return null
 
@@ -58,6 +61,21 @@ export function GameView() {
       <AIDriver />
       {overlay.kind === 'handoff' && <HandoffOverlay nextTaoist={overlay.nextTaoist} />}
       {game.phase === 'gameOver' && <GameOverOverlay game={game} />}
+
+      {/* Floating rulebook button */}
+      <button
+        onClick={() => setShowRulebook(true)}
+        title="Rulebook"
+        style={{
+          position: 'fixed', top: 16, right: 16,
+          width: 36, height: 36, borderRadius: '50%',
+          fontSize: 18, fontWeight: 700,
+          background: 'var(--bg-elevated)', border: '1px solid var(--accent)',
+          color: 'var(--accent)', cursor: 'pointer',
+          zIndex: 500,
+        }}
+      >?</button>
+      {showRulebook && <RulebookOverlay onClose={() => setShowRulebook(false)} />}
     </div>
   )
 }

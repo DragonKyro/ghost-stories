@@ -27,8 +27,8 @@ It is brutally hard. Most cooperative games are cooperative-difficult; Ghost Sto
 - [x] **Phase 2** — Hot-seat UI (SVG board, 4 rotated player boards, request-help dialog for every tile, exorcism dialog with dice rolls + Tao spending, place-Buddha selector, Yin-Yang flip-tile mode, Yin-phase auto-runner, pass-device handoff screen, event log, game-over overlay)
 - [x] **Phase 3** — Heuristic AI for missing seats (priority tree: critical exorcism → lethal-prevention → high-success exorcism → Buddha placement → critical tile actions → Tao accumulation → reposition; AIDriver paces moves at ~700ms/1.5s for visibility)
 - [x] **Phase 4** — Online multiplayer (Trystero WebRTC peer-to-peer) + in-game chat with history (host-authoritative lobby, stable UUID identity, 7 typed channels: hello / lobby / start / action / snap / reqSnap / chat; spectator mode for unrecognised UUIDs; snapshot rejoin including chat history)
+- [x] **Phase 6** — Self-contained rulebook with search (11 topics across 5 categories: overview / turn / mechanics / reference / modes; inline SVG diagrams for the haunting-figure track, village layout, and Tao dice; main-menu entry + floating in-game `?` button). Fixed two rulebook violations along the way: 3-player Nightmare/Hell incarnation count (was 3, now 4 per rulebook) and the solo bonuses (1 Tao of every color + 3 power tokens).
 - [ ] **Phase 5** — End-of-game stats
-- [ ] **Phase 6** — Self-contained rulebook with search
 - [ ] **Phase 7** — White Moon expansion (Su-Ling, villager families, moon crystals, mystic barrier)
 - [ ] **Phase 8** — Black Secret expansion (one player plays Wu-Feng — asymmetric)
 - [ ] **Phase 9** — Difficulty tuning + Hell-mode polish

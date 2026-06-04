@@ -340,14 +340,21 @@ Inline SVG (not external `.svg` files) so the components animate cleanly and don
   - **UI:** [src/ui/MainMenu.tsx](src/ui/MainMenu.tsx) has an Online button. [src/ui/OnlineSetup.tsx](src/ui/OnlineSetup.tsx) handles name + host/join. [src/ui/OnlineLobby.tsx](src/ui/OnlineLobby.tsx) is the host-authoritative lobby with seat claim/release, seat-type toggle, difficulty picker, lobby chat. [src/ui/game/ChatPanel.tsx](src/ui/game/ChatPanel.tsx) is the in-game chat with auto-scroll-at-bottom.
   - **Tests:** 8 new — 6 identity-layer tests + 2 protocol determinism tests proving two peers reduce identically from the same action sequence.
 - [ ] **Phase 5** — End-of-game match stats (Qi over time, ghosts exorcised per Taoist, dice luck, curse die history)
-- [ ] **Phase 6** — Self-contained rulebook with search
+- [x] **Phase 6** — Self-contained rulebook with search
+  - [src/rulebook/topics.tsx](src/rulebook/topics.tsx) — 11 topics across 5 categories (overview, turn, mechanics, reference, modes). Inline SVG diagrams for the haunting-figure track, 3×3 village layout with rotated boards, and the 5 Tao die faces. Each topic carries a `searchBlob` for free-text matching.
+  - [src/rulebook/index.tsx](src/rulebook/index.tsx) — `<Rulebook>` (full-page) + `<RulebookOverlay>` (modal). 260px sidebar with category headings, live search input, content pane.
+  - Main-menu entry routes to `uiMode: 'rulebook'`. In-game floating `?` button opens the overlay variant. NewGame screen has a Rulebook button next to Back.
 - [ ] **Phase 7** — White Moon expansion (Su-Ling, moon crystals, villager families, mystic barrier, devourer ghosts, new ghost cards, new tile: Kung-Fu School)
 - [ ] **Phase 8** — Black Secret expansion (Wu-Feng player, catacombs board, bloody mantras, blood brothers, demons, Shadow of Wu-Feng) — note this changes the multiplayer shape from full-coop to one-vs-many; lobby UI needs a mode toggle
 - [ ] **Phase 9** — Difficulty tuning + Hell-mode polish
 
 ## Where to start next
 
-Phases 0–4 complete; engine + UI + AI + online multiplayer are wired and tested (30/30 tests). A 4-player online game runs end-to-end with host-authoritative randomness and snapshot rejoin.
+Phases 0–4 and 6 complete; engine + UI + AI + online multiplayer + rulebook are wired and tested (34/34 tests). A 4-player online game runs end-to-end with host-authoritative randomness and snapshot rejoin, and a searchable rulebook is one click away from any screen.
+
+**Rulebook audit caught two bugs** (now fixed + regression-tested):
+- 3-player Nightmare / Hell had 3 incarnations instead of 4 (`incarnationCount` now reads `playerCount <= 2 ? 3 : 4`).
+- Solo missed the rulebook's solo bonuses (1 Tao of every color + 3 power tokens) and 1–3-player games missed the 1-power-token-each grant.
 
 **Phase 5 — End-of-game stats.** Per-Taoist Qi/Tao history, dice luck (rolls vs expected), curse-die distribution, ghosts exorcised per Taoist. Hook into `logStore.recordAction` to capture a per-turn snapshot stream, then build a charts panel on the game-over screen.
 

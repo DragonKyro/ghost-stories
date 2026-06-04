@@ -58,6 +58,37 @@ describe('createGame', () => {
     expect(incarnations).toHaveLength(4)
   })
 
+  it('inserts 4 incarnations on Nightmare with 3 players (only 1-2p gets 3)', () => {
+    const s = fresh({ difficulty: 'nightmare', seats: { red: 'human', blue: 'human', green: 'human' } })
+    const incarnations = s.ghostDeck.filter((id) => getGhostCard(id).isIncarnation)
+    expect(incarnations).toHaveLength(4)
+  })
+
+  it('inserts 3 incarnations on Nightmare with 1-2 players', () => {
+    const s2 = fresh({ difficulty: 'nightmare', seats: { red: 'human', blue: 'human' } })
+    expect(s2.ghostDeck.filter((id) => getGhostCard(id).isIncarnation)).toHaveLength(3)
+    const s1 = fresh({ difficulty: 'nightmare', seats: { red: 'human' } })
+    expect(s1.ghostDeck.filter((id) => getGhostCard(id).isIncarnation)).toHaveLength(3)
+  })
+
+  it('solo: 1 Tao of every color + 3 power tokens', () => {
+    const s = fresh({ seats: { red: 'human' } })
+    const t = s.taoists.red
+    expect(t.tao.red).toBe(1)
+    expect(t.tao.green).toBe(1)
+    expect(t.tao.blue).toBe(1)
+    expect(t.tao.yellow).toBe(1)
+    expect(t.tao.black).toBe(1) // Initiation default
+    expect(t.powerTokens).toBe(3)
+  })
+
+  it('1-3 player mode grants 1 power token each; 4p grants none', () => {
+    const four = fresh()
+    const three = fresh({ seats: { red: 'human', blue: 'human', green: 'human' } })
+    expect(four.taoists.red.powerTokens).toBe(0)
+    expect(three.taoists.red.powerTokens).toBe(1)
+  })
+
   it('trims 5 ghosts per missing player', () => {
     const full = fresh()
     const solo = fresh({ seats: { red: 'human' } })

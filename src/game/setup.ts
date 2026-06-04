@@ -113,6 +113,8 @@ function buildTaoists(
   const out = {} as Record<TaoistColor, TaoistState>
   const startQi = STARTING_QI_BY_DIFFICULTY[config.difficulty]
   const startYinYang = STARTING_YIN_YANG[config.difficulty]
+  const playerCount = Object.values(config.seats).filter(Boolean).length
+  const isSolo = playerCount === 1
 
   for (const color of ALL_TAOIST_COLORS) {
     const seat = config.seats[color]
@@ -120,15 +122,23 @@ function buildTaoists(
     const isAi = seat === 'ai'
     const isHuman = seat === 'human'
 
-    // Starting Tao bag: 1 of own color, plus black on Initiation. Neutral seats
-    // start empty (they don't act).
+    // Starting Tao bag.
+    //  Standard: 1 Tao of own color (+ 1 black on Initiation).
+    //  Solo (rulebook): 1 Tao of EACH color (+ black on Initiation) and 3 power tokens.
     const tao: Record<TaoColor, number> = { red: 0, green: 0, blue: 0, yellow: 0, black: 0 }
     if (!isNeutral) {
-      // Each Taoist starts with 1 Tao of their own color.
-      // Black-mapped Taoist (there isn't one in base — red/blue/green/yellow) — fall through.
-      const ownTao: TaoColor = color // TaoistColor is a subset of TaoColor
-      tao[ownTao] = 1
-      if (config.difficulty === 'initiation') tao.black = 1
+      if (isSolo) {
+        // Solo rulebook bonus: 1 Tao of each color, plus black on Initiation.
+        tao.red = 1
+        tao.green = 1
+        tao.blue = 1
+        tao.yellow = 1
+        if (config.difficulty === 'initiation') tao.black = 1
+      } else {
+        const ownTao: TaoColor = color // TaoistColor is a subset of TaoColor
+        tao[ownTao] = 1
+        if (config.difficulty === 'initiation') tao.black = 1
+      }
     }
 
     out[color] = {
@@ -144,7 +154,12 @@ function buildTaoists(
       tao,
       yinYang: !isNeutral && startYinYang,
       buddhasInHand: 0,
-      powerTokens: 0,
+      // Solo: 3 power tokens up front. Multiplayer: 1 power token (rulebook §
+      // "1, 2 or 3 Players": "give each player … a power token"). For 4
+      // players the base rules don't grant power tokens — preserve 0 for 4p
+      // and grant 1 to non-solo seats only when there's at least one neutral
+      // board (i.e. <4 players).
+      powerTokens: isNeutral ? 0 : isSolo ? 3 : (playerCount < 4 ? 1 : 0),
       tile: isNeutral ? null : centralTileId,
     }
   }
@@ -197,8 +212,8 @@ function buildDeck(
 
 function incarnationCount(difficulty: Difficulty, playerCount: number): number {
   if (difficulty === 'initiation' || difficulty === 'normal') return 1
-  // Nightmare / Hell
-  return playerCount >= 4 ? 4 : 3
+  // Nightmare / Hell: 4 normally, 3 only for 1-2 player games per rulebook.
+  return playerCount <= 2 ? 3 : 4
 }
 
 export function createGame(config: GameConfig): GameState {

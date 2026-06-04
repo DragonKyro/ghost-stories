@@ -4,10 +4,10 @@ import { TAOIST_COLORS, TAOIST_COLOR_HEX } from './shared/playerColors'
 import type { Difficulty, GameConfig, TaoistColor } from '@/game/types'
 
 const DIFFICULTIES: Array<{ id: Difficulty; label: string; desc: string }> = [
-  { id: 'initiation', label: 'Initiation', desc: '4 Qi · all Tao colors · 1 incarnation' },
-  { id: 'normal', label: 'Normal', desc: '3 Qi · no black Tao · 1 incarnation' },
-  { id: 'nightmare', label: 'Nightmare', desc: '3 Qi · 4 incarnations (3 if <4 players)' },
-  { id: 'hell', label: 'Hell', desc: 'Nightmare + no Yin-Yang token' },
+  { id: 'initiation', label: 'Initiation', desc: '4 Qi · 1 own + 1 black Tao · Yin-Yang · 1 incarnation' },
+  { id: 'normal', label: 'Normal', desc: '3 Qi · 1 own Tao (no black) · Yin-Yang · 1 incarnation' },
+  { id: 'nightmare', label: 'Nightmare', desc: '3 Qi · Yin-Yang · 4 incarnations (3 in 1-2p)' },
+  { id: 'hell', label: 'Hell', desc: 'Nightmare without the Yin-Yang token' },
 ]
 
 type Seat = 'human' | 'ai' | 'neutral'
@@ -40,7 +40,10 @@ export function NewGame() {
     <div style={{ maxWidth: 720, margin: '0 auto', padding: 32 }}>
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h2 style={{ margin: 0 }}>New Game</h2>
-        <button onClick={() => setUiMode('mainMenu')}>← Back</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => setUiMode('rulebook')}>📖 Rulebook</button>
+          <button onClick={() => setUiMode('mainMenu')}>← Back</button>
+        </div>
       </header>
 
       <section style={{ marginTop: 24 }}>
