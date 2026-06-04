@@ -324,7 +324,11 @@ Inline SVG (not external `.svg` files) so the components animate cleanly and don
   - HandoffOverlay between hot-seat turns
   - LogPanel reading from `logStore.recordAction`
   - GameOverOverlay on win/loss
-- [ ] **Phase 3** — Heuristic AI (priority tree, threat model, exorcism EV)
+- [x] **Phase 3** — Heuristic AI
+  - [src/ai/value.ts](src/ai/value.ts) — `exorcismSuccessProbability`, `planTaoSpend` (greedy min-spend planner, black-first because wilds can't substitute, expected colored yield per die for pessimistic planning), `ghostThreat`, `boardPressure`, `taoistHandValue`.
+  - [src/ai/main.ts](src/ai/main.ts) — `chooseAction(state, taoistId)` returns `Action | null`; null = end Yang phase. 7-tier priority tree: (1) critical exorcism when `hauntedCount >= 2`, (2) lethal-prevention when `qi <= 1`, (3) high-success exorcism (threshold 0.55), (4) Buddha placement on highest-pressure reachable board, (5) critical tile actions (Cemetery revive, Altar unhaunt, Night Watchman on most-haunted board, Sorcerer's Hut against dice-immune ghosts), (6) Tao accumulation (Herbalist if hand < 4, Tea House if Qi/hand low, Buddhist Temple when hand empty, Circle of Prayer on most-prevalent ghost color), (7) reposition toward highest-threat ghost via 1-step Chebyshev-shortest move.
+  - [src/ui/game/AIDriver.tsx](src/ui/game/AIDriver.tsx) — React component watching the store. When the active seat is AI, dispatches one action per ~700ms tick (~1.5s for exorcism so the dice roll is visible). Suspended when a human dialog overlay is open. On exception ends turn rather than spinning.
+  - 4 AI smoke tests: returns null on quiet state, ignores non-active seat queries, places a Buddha when available, drives 16 rounds end-to-end without throwing.
 - [ ] **Phase 4** — Online multiplayer (Trystero peer-to-peer) + in-game chat
 - [ ] **Phase 5** — End-of-game match stats (Qi over time, ghosts exorcised per Taoist, dice luck, curse die history)
 - [ ] **Phase 6** — Self-contained rulebook with search
@@ -334,15 +338,16 @@ Inline SVG (not external `.svg` files) so the components animate cleanly and don
 
 ## Where to start next
 
-Phases 0–2 complete; the engine is fully test-covered and a 4-human hot-seat game is playable end to end (run `npm run dev`).
+Phases 0–3 complete; engine + UI + AI are wired and tested. A solo game (1 human + 3 AI) plays end-to-end at Initiation difficulty.
 
-**Phase 3 — AI.** Implement `chooseAction(state, taoistId)` in [src/ai/main.ts](src/ai/main.ts) per the AI model section above (priority tree: critical exorcism → lethal-prevention → high-success exorcism → critical tile action → Buddha placement → Tao accumulation → reposition → end turn). The `AIDriver` React component should watch `game.phase === 'yang'` and the active seat being AI/neutral, then dispatch actions at ~700ms cadence. Neutral seats need no AI — they skip Yang entirely (engine already handles this in [src/game/actions/yin.ts](src/game/actions/yin.ts)).
+**Phase 4 — Online multiplayer.** Trystero `/torrent` WebRTC. Channels and stable-UUID protocol are described in the "Multiplayer model" section above. Implement [src/net/index.ts](src/net/index.ts) with `joinRoom(code) → { send, listen, peers, role }`, hook up the lobby UI alongside `NewGame.tsx`, and add the broadcast side of `gameStore.dispatch` (every successful dispatch sends an `{ action, byUuid }` envelope; receivers verify seat ownership before calling `applyLocal`). AI seats are owned by the host (only the host runs `AIDriver`).
 
-**Phase 2 leftover polish worth doing before Phase 3:**
+**Phase 2 / 3 polish backlog (still worth doing):**
 - Power-token spending UI (engine supports `spendPowerToken` but no button surfaces it)
 - Corner-tile dual exorcism (engine supports `ghosts: [r1, r2]`; UI currently caps at 1)
+- AI: corner-tile dual exorcism, better Tao spend (currently planning is pessimistic — many viable exorcisms slip below threshold)
+- AI: Pavilion / Yin-Yang usage (no current heuristics for these)
 - Bonecracker / Nameless arrival animations (left-stone events fire silently)
 - Pavilion of Heavenly Wind: surface the forced second Taoist move (currently auto-skipped)
 - Tile-action `arrival` sub-step (Taoist Altar / Tea House should chain a ghost arrival — currently the UI omits the payload)
-- Dual-exorcism corner rule + spending dialog improvements (multi-step Tao allocation feels clunky)
 - Wider screen sizes (the rotated boards consume horizontal space)

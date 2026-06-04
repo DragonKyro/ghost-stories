@@ -12,6 +12,7 @@ import { ExorcismDialog } from './ExorcismDialog'
 import { RequestHelpDialog } from './RequestHelpDialog'
 import { HandoffOverlay } from './HandoffOverlay'
 import { YinPhaseRunner } from './YinPhaseRunner'
+import { AIDriver } from './AIDriver'
 import { adjacentTiles, ghostInstanceAt, isCornerTile, reachableGhostSpaces } from '@/game/helpers'
 import { getGhostCard } from '@/game/ghostCatalogue'
 import type { GameState, GhostRef, TaoistColor, VillageTileId } from '@/game/types'
@@ -50,6 +51,7 @@ export function GameView() {
 
       {/* Modal overlays */}
       <YinPhaseRunner />
+      <AIDriver />
       {overlay.kind === 'handoff' && <HandoffOverlay nextTaoist={overlay.nextTaoist} />}
       {game.phase === 'gameOver' && <GameOverOverlay game={game} />}
     </div>

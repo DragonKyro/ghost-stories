@@ -8,7 +8,9 @@ The physical game is out of print and there is no official digital version — t
 
 ### Playable today
 
-**Local hot-seat (Phase 2 build):** 1–4 humans on the same device. Configure difficulty (Initiation / Normal / Nightmare / Hell) and per-seat assignment (human / AI placeholder / neutral board) from the New Game screen. The Yin phase auto-resolves; the active Taoist's Yang phase is fully interactive (move, request help, exorcise with dice, place Buddha, spend Yin-Yang). Pass-device handoff screen between turns. All 9 village tile actions, all 4 Taoist boards with both possible powers, win/loss detection for all three loss conditions and the incarnation-exorcism win.
+**Local hot-seat (Phase 2 build):** 1–4 humans on the same device. Configure difficulty (Initiation / Normal / Nightmare / Hell) and per-seat assignment (human / AI / neutral board) from the New Game screen. The Yin phase auto-resolves; the active Taoist's Yang phase is fully interactive (move, request help, exorcise with dice, place Buddha, spend Yin-Yang). Pass-device handoff screen between human turns. All 9 village tile actions, all 4 Taoist boards with both possible powers, win/loss detection for all three loss conditions and the incarnation-exorcism win.
+
+**AI seats (Phase 3 build):** Any seat can be set to AI from the New Game screen. The heuristic prioritises critical-now exorcism (preventing the 3rd haunting), lethal-prevention exorcism (saving a 1-Qi Taoist), high-success exorcism, Buddha placement on high-pressure boards, critical tile actions (Cemetery revive, Taoist Altar unhaunt, Night Watchman rollback, Sorcerer's Hut on dice-immune ghosts), Tao accumulation (Herbalist / Tea House / Buddhist Temple / Circle of Prayer), and repositioning toward the highest-threat ghost. Pure heuristic, stateless across turns. AI seats also enable solo play — pick one human seat + three AI seats for a 4-Taoist game.
 
 ## What is Ghost Stories?
 
@@ -21,7 +23,7 @@ It is brutally hard. Most cooperative games are cooperative-difficult; Ghost Sto
 - [x] **Phase 0** — Project scaffold
 - [x] **Phase 1** — Game logic engine (Yin / Yang phases, 9 village tiles, 8 Taoist powers, 9 Wu-Feng incarnations, 45 base ghost cards, neutral-board variant for 1-3 players, full win/loss detection)
 - [x] **Phase 2** — Hot-seat UI (SVG board, 4 rotated player boards, request-help dialog for every tile, exorcism dialog with dice rolls + Tao spending, place-Buddha selector, Yin-Yang flip-tile mode, Yin-phase auto-runner, pass-device handoff screen, event log, game-over overlay)
-- [ ] **Phase 3** — Heuristic AI for missing seats
+- [x] **Phase 3** — Heuristic AI for missing seats (priority tree: critical exorcism → lethal-prevention → high-success exorcism → Buddha placement → critical tile actions → Tao accumulation → reposition; AIDriver paces moves at ~700ms/1.5s for visibility)
 - [ ] **Phase 4** — Online multiplayer (Trystero WebRTC peer-to-peer) + in-game chat
 - [ ] **Phase 5** — End-of-game stats
 - [ ] **Phase 6** — Self-contained rulebook with search

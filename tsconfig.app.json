@@ -18,9 +18,8 @@
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
     "types": ["vitest/globals"],
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src"]
