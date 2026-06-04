@@ -56,14 +56,42 @@ export function applyStartTurn(state: GameState, payload: StartTurnPayload): Gam
   }
 
   // --- Step 3: arrival of a ghost (skip if active board is neutral/possessed) ---
-  if (!skipStep3 && payload.arrival) {
+  // Black Secret: if a human Wu-Feng is in the game and the drawn card is NOT
+  // an incarnation, hand off to the Wu-Feng intervention phase.
+  if (!skipStep3) {
+    if (!payload.arrival) throw new Error('startTurn: missing arrival payload for active board')
+    if (s.blackSecret) {
+      const card = getGhostCard(payload.arrival.cardId)
+      if (!card.isIncarnation) {
+        // Pop the card from the top of the deck so it lives in pending state.
+        s = {
+          ...s,
+          ghostDeck: s.ghostDeck.slice(1),
+          phase: 'wuFengIntervention',
+          pendingArrivalCardId: payload.arrival.cardId,
+        }
+        return s
+      }
+    }
     s = resolveArrival(s, payload.arrival)
     s = checkLossConditions(s)
     if (s.phase === 'gameOver') return s
-  } else if (!skipStep3 && !payload.arrival) {
-    throw new Error('startTurn: missing arrival payload for active board')
   }
 
+  return enterYangOrAdvance(s, skipStep3)
+}
+
+/**
+ * Helper called by `wuFengIntervene` (place choice). Continues the turn from
+ * `wuFengIntervention` → Yang.
+ */
+export function completeWuFengTurn(state: GameState): GameState {
+  let s = state
+  s = checkLossConditions(s)
+  if (s.phase === 'gameOver') return s
+  const activeColor = s.turnOrder[s.turnIndex] as TaoistColor
+  const activeTaoist = s.taoists[activeColor]
+  const skipStep3 = activeTaoist.isNeutral || !activeTaoist.alive
   return enterYangOrAdvance(s, skipStep3)
 }
 

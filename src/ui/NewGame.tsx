@@ -24,6 +24,8 @@ export function NewGame() {
   })
   const [difficulty, setDifficulty] = useState<Difficulty>('initiation')
   const [whiteMoon, setWhiteMoon] = useState(false)
+  const [blackSecret, setBlackSecret] = useState(false)
+  const [wuFengTag, setWuFengTag] = useState('Wu-Feng')
 
   const handleStart = () => {
     const seatConfig: GameConfig['seats'] = {}
@@ -34,10 +36,14 @@ export function NewGame() {
       alert('At least one seat must be human or AI.')
       return
     }
+    const expansions: NonNullable<GameConfig['expansions']> = []
+    if (whiteMoon) expansions.push('whiteMoon')
+    if (blackSecret) expansions.push('blackSecret')
     startGame({
       difficulty,
       seats: seatConfig,
-      expansions: whiteMoon ? ['whiteMoon'] : undefined,
+      expansions: expansions.length > 0 ? expansions : undefined,
+      wuFengPlayer: blackSecret ? { tag: wuFengTag.trim() || 'Wu-Feng' } : undefined,
     })
   }
 
@@ -115,6 +121,7 @@ export function NewGame() {
           border: `1px solid ${whiteMoon ? 'var(--accent)' : 'var(--rule)'}`,
           borderRadius: 6,
           cursor: 'pointer',
+          marginBottom: 6,
         }}>
           <input type="checkbox" checked={whiteMoon} onChange={(e) => setWhiteMoon(e.target.checked)} />
           <div>
@@ -125,6 +132,54 @@ export function NewGame() {
               Loses on 12 villager deaths. Kung-Fu School replaces Night Watchman. See the
               rulebook for what's simplified.
             </div>
+          </div>
+        </label>
+
+        <label style={{
+          display: 'flex',
+          gap: 12,
+          alignItems: 'flex-start',
+          padding: '10px 14px',
+          border: `1px solid ${blackSecret ? 'var(--accent)' : 'var(--rule)'}`,
+          borderRadius: 6,
+          cursor: 'pointer',
+        }}>
+          <input type="checkbox" checked={blackSecret} onChange={(e) => setBlackSecret(e.target.checked)} style={{ marginTop: 4 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600 }}>🩸 Black Secret — Enemy Wu-Feng player</div>
+            <div style={{ color: 'var(--ink-muted)', fontSize: 12 }}>
+              One player takes the role of Wu-Feng. Every Yin step 3, instead of the ghost
+              auto-placing, Wu-Feng chooses: place the ghost / summon a demon to the catacombs
+              (cost ≤ ghost resistance) / throw a curse (matching color, level pyramid). Adds
+              the Calligrapher tile (replaces Night Watchman). See the rulebook for what's
+              simplified (catacomb tokens, individual curse effects, Shadow of Wu-Feng,
+              Bloody Mantra Qi resolution, Blood Brothers).
+            </div>
+            {blackSecret && (
+              <div style={{ marginTop: 8 }}>
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
+                  Wu-Feng player tag:
+                  <input
+                    type="text"
+                    value={wuFengTag}
+                    onChange={(e) => setWuFengTag(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      flex: 1,
+                      padding: '4px 8px',
+                      background: 'var(--bg)',
+                      color: 'var(--ink)',
+                      border: '1px solid var(--rule)',
+                      borderRadius: 4,
+                    }}
+                  />
+                </label>
+                <div style={{ color: 'var(--ink-muted)', fontSize: 11, marginTop: 4 }}>
+                  In local play this is just a label. In a future online build it becomes a
+                  per-seat assignment.
+                </div>
+              </div>
+            )}
           </div>
         </label>
       </section>

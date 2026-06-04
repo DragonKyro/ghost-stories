@@ -344,6 +344,21 @@ Inline SVG (not external `.svg` files) so the components animate cleanly and don
   - [src/rulebook/topics.tsx](src/rulebook/topics.tsx) — 11 topics across 5 categories (overview, turn, mechanics, reference, modes). Inline SVG diagrams for the haunting-figure track, 3×3 village layout with rotated boards, and the 5 Tao die faces. Each topic carries a `searchBlob` for free-text matching.
   - [src/rulebook/index.tsx](src/rulebook/index.tsx) — `<Rulebook>` (full-page) + `<RulebookOverlay>` (modal). 260px sidebar with category headings, live search input, content pane.
   - Main-menu entry routes to `uiMode: 'rulebook'`. In-game floating `?` button opens the overlay variant. NewGame screen has a Rulebook button next to Back.
+- [~] **Phase 8** — Black Secret expansion (core in)
+  - **Types**: `GameConfig.expansions: 'blackSecret'`, `GameConfig.wuFengPlayer: { tag }`, new `GamePhase: 'wuFengIntervention'`, `BlackSecretState` (curses pyramid, catacombs demons, reserve demons, skeletons, mantras), `DemonState`, `CurseLevel`, `BloodyMantraCard`, `pendingArrivalCardId` on GameState.
+  - **Setup** ([src/game/setup.ts](src/game/setup.ts)): tile pool swaps Night Watchman → Calligrapher (composes with White Moon's swap of Night Watchman → Kung-Fu School). `buildBlackSecret` seeds 3 reserve demons, 3 skeletons, 6 mantras (3× lvl 2, 2× lvl 3, 1× lvl 4), empty curse pyramid.
+  - **Yin step 3** ([src/game/actions/yin.ts](src/game/actions/yin.ts)): when Black Secret is active and the drawn card is NOT an incarnation, pops the card off the deck, sets `phase: 'wuFengIntervention'`, stores card in `pendingArrivalCardId`, and returns. Incarnations fall through to the deterministic auto-place path.
+  - **Wu-Feng handler** ([src/game/actions/blackSecret.ts](src/game/actions/blackSecret.ts)): `applyWuFengIntervene` dispatches on the choice:
+    - **place** — validates color placement (must use natural board if open), validates target slot, then calls `placeGhost` (which fires on-arrival).
+    - **summon** — validates ghost-resistance-sum ≥ demon cost (2/3/4) and that the demon is still in reserve, moves demon to catacombs at chosen entrance square (0 = NW, 8 = SE), discards the ghost.
+    - **curse** — validates color match (black ghosts are wild), validates pyramid (level L needs ≥2 prior at L-1), increments the pyramid counter, applies the simplified Qi tax (1/1/2/3 Qi by level) and discards the ghost.
+    - Then `completeWuFengTurn` returns the engine to Yang.
+    - Exposed helpers: `availableDemonOptions`, `legalCurseColors`, `maxLegalCurseLevel`.
+  - **Dispatcher** ([src/game/engine.ts](src/game/engine.ts)): `wuFengIntervene` case wired.
+  - **UI**: NewGame Black-Secret toggle with Wu-Feng tag input ([src/ui/NewGame.tsx](src/ui/NewGame.tsx)); [src/ui/game/WuFengInterventionDialog.tsx](src/ui/game/WuFengInterventionDialog.tsx) renders when `phase === 'wuFengIntervention'` with three sections (Place / Summon / Curse) and live legality gating (summon costs ≤ resistance, curse colors filtered, max curse level from the pyramid); [src/ui/game/CatacombsPanel.tsx](src/ui/game/CatacombsPanel.tsx) sits in the side panel showing reserve demons, in-catacombs demons, curse pyramid by level, skeletons + mantras counts; Calligrapher tile glyph added.
+  - **Rulebook**: dedicated topic listing the full mechanic + explicit deferred-features section.
+  - **Tests** ([src/game/blackSecret.test.ts](src/game/blackSecret.test.ts)): 10 covering setup, Calligrapher swap, Wu-Feng tag, Yin-step-3 → wuFengIntervention transition, place flow, summon (reserve depletion + cost gate), curse (level 1 + Qi tax), curse pyramid violation, color mismatch on non-black ghost, and tile-pool composition with White Moon.
+
 - [~] **Phase 7** — White Moon expansion (core in)
   - **Types**: `GameConfig.expansions: 'whiteMoon'[]`, `WhiteMoonState`, `VillagerToken`, `VillagerFamilyId`, `GhostAbilityKind: 'devourer'`. `outcome.reason: 'villagerToll'` added.
   - **Catalogue**: 10 new ghost cards in [src/game/ghostCatalogue.ts](src/game/ghostCatalogue.ts) — 5 dedicated Devourers + 5 mixed. Added via `allWhiteMoonGhostIds()`.
@@ -370,6 +385,8 @@ Phases 0–4 and 6 complete; engine + UI + AI + online multiplayer + rulebook ar
 **Phase 5 — End-of-game stats.** Per-Taoist Qi/Tao history, dice luck (rolls vs expected), curse-die distribution, ghosts exorcised per Taoist. Hook into `logStore.recordAction` to capture a per-turn snapshot stream, then build a charts panel on the game-over screen.
 
 **Phase 7 follow-ups (White Moon polish).** Per-family death curses (`hua`/`zhou`/`li`/`sun` etc. each carry a unique penalty when their members die; the families are tracked but penalties are no-ops today). Per-family save rewards when an entire family lands on the Shelter. Su-Ling figure + the four corner receptacles + the Mystic Barrier endgame. Villager-moves-with-Taoist mechanic. Alternative Portal placement for the harder variant. Each of these touches the rulebook topic — keep its "what's simplified" list in sync as items land.
+
+**Phase 8 follow-ups (Black Secret polish).** Catacomb-tokens stack with their five distinct effects (Dirt / Buddha / Blood of the Just / Cursed Tablet / Bones / Blood of Su-Ling / Urn) plus demon "search" action revealing them. Demon Yin-phase actions (move + attack) before each player's Yin. Skeleton placement on player boards (Wu-Feng spends a per-turn skeleton). Individual curse effects (the 14 unique curses each have distinct effects — currently condensed to a level-scaled Qi tax). Bloody Mantra Qi accumulation (Qi from losses lands on Mantras of the player's choice; full Mantras resolve) and Blood Brother power-sharing at 1 Qi. Shadow of Wu-Feng (3 Urn tokens trigger). Online Wu-Feng seat assignment over the network layer.
 
 **Phase 2 / 3 polish backlog (still worth doing):**
 - Power-token spending UI (engine supports `spendPowerToken` but no button surfaces it)

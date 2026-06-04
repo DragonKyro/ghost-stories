@@ -153,5 +153,20 @@ export type Action =
       targetBoard: TaoistColor
       targetSpace: 0 | 1 | 2
     }
+  /**
+   * Black Secret: Wu-Feng player's decision at Yin step 3. Choose to:
+   *   - 'place' — place the drawn ghost on a board normally
+   *   - 'summon' — discard the ghost (must have resistance ≥ cost), summon a
+   *     demon of that cost into the catacombs at an entrance square
+   *   - 'curse' — discard the ghost, throw a curse of matching color + chosen
+   *     level (1..4). Black ghosts are wild-color jokers.
+   */
+  | {
+      type: 'wuFengIntervene'
+      choice:
+        | { kind: 'place'; targetBoard: TaoistColor; targetSpace: 0 | 1 | 2 }
+        | { kind: 'summon'; demonId: 'cost2' | 'cost3' | 'cost4'; entranceSquare: 0 | 8 } // 0=NW, 8=SE corners
+        | { kind: 'curse'; level: 1 | 2 | 3 | 4; color: TaoColor }
+    }
 
 export type ActionType = Action['type']

@@ -49,6 +49,7 @@ export type VillageTileKind =
   | 'pavilionOfHeavenlyWind'
   | 'teaHouse'
   | 'kungFuSchool' // White Moon
+  | 'calligrapher' // Black Secret
 
 export const ALL_VILLAGE_TILE_KINDS: VillageTileKind[] = [
   'circleOfPrayer',
@@ -133,6 +134,54 @@ export type WhiteMoonState = {
 
 export const WHITE_MOON_VILLAGERS_TOTAL = 24 // 4×3 + 4×2 + 4×1
 export const WHITE_MOON_MAX_VILLAGER_DEATHS = 12 // loss condition
+
+// ---- Black Secret expansion --------------------------------------------
+
+export type DemonId = 'cost2' | 'cost3' | 'cost4'
+
+/**
+ * Demons sit in the catacombs (Wu-Feng's side). When summoned they take 1
+ * action per turn before each player board's Yin phase.
+ */
+export type DemonState = {
+  id: DemonId
+  resistance: number // 1, 2, 3 — also their cost (sort order)
+  color: TaoColor // assigned at summon based on the spent ghost card's color
+  /** Square index 0..8 on the 3x3 catacombs board. Null when off the board. */
+  squareIdx: number | null
+}
+
+export type CurseLevel = 1 | 2 | 3 | 4
+
+/**
+ * Simplified curse pyramid: track count thrown at each level. Real curses
+ * are individual tokens with distinct effects; this build represents them as
+ * a counter and surfaces "cursed" status visually.
+ */
+export type CursePyramid = Record<CurseLevel, number>
+
+export type BloodyMantraCard = {
+  level: 2 | 3 | 4 // required Qi to resolve
+  qiOnCard: number // current Qi count placed by Taoists from Qi losses
+}
+
+export type BlackSecretState = {
+  /** Who is Wu-Feng (display tag for log purposes). */
+  wuFengTag: string
+  /** Curses thrown so far, by level. */
+  curses: CursePyramid
+  /**
+   * Demons sitting on the catacombs board (only those that have been summoned
+   * from Wu-Feng's hand). Demons start in Wu-Feng's reserve.
+   */
+  catacombsDemons: DemonState[]
+  /** Demons currently in Wu-Feng's reserve, available to be summoned. */
+  reserveDemons: DemonId[]
+  /** Skeletons available to Wu-Feng (max 3 per rulebook). */
+  skeletonsAvailable: number
+  /** Bloody Mantra cards in play: 3× lvl 2, 2× lvl 3, 1× lvl 4. */
+  bloodyMantras: BloodyMantraCard[]
+}
 
 // --- Taoist powers -------------------------------------------------------
 
@@ -290,6 +339,11 @@ export type GamePhase =
   | 'yin'
   | 'yang'
   | 'gameOver'
+  /**
+   * Black Secret: Wu-Feng's decision point at the start of Yin step 3 — pick
+   * between placing the ghost, summoning a demon, or throwing a curse.
+   */
+  | 'wuFengIntervention'
 
 export type GameConfig = {
   difficulty: Difficulty
@@ -301,7 +355,14 @@ export type GameConfig = {
    * Active expansions. Order matters for module composition (similar to the
    * Catan project's module stacking).
    */
-  expansions?: Array<'whiteMoon'>
+  expansions?: Array<'whiteMoon' | 'blackSecret'>
+  /**
+   * Black Secret only: UUID / display tag of the human Wu-Feng player. In
+   * solo play this can be the same identity as the Taoist player (one human
+   * plays both sides). When set, Black Secret intervention prompts surface
+   * for this identity.
+   */
+  wuFengPlayer?: { tag: string }
 }
 
 export type GameState = {
@@ -331,6 +392,13 @@ export type GameState = {
   rngState: number
   /** White Moon state. Null in base game. */
   whiteMoon?: WhiteMoonState
+  /** Black Secret state. Null in base game. */
+  blackSecret?: BlackSecretState
+  /**
+   * Black Secret: while in `wuFengIntervention` phase, the ghost card to be
+   * acted upon. Wu-Feng's decision will be a `wuFengIntervene` action.
+   */
+  pendingArrivalCardId?: string
 }
 
 // --- Actions (placeholder union; real one lives in `engine.ts`) ----------

@@ -15,6 +15,7 @@ import { applyYangAction } from './actions/yang'
 import { createGame } from './setup'
 import { resolveArrival } from './actions/yin'
 import { checkLossConditions, checkWin } from './actions/winLose'
+import { applyWuFengIntervene } from './actions/blackSecret'
 
 export { createGame } from './setup'
 export type { Action } from './actions'
@@ -39,6 +40,9 @@ export function applyAction(state: GameState, action: Action): GameState {
       s = checkLossConditions(checkWin(s))
       return s
     }
+
+    case 'wuFengIntervene':
+      return applyWuFengIntervene(state, action.choice)
 
     case 'moveTaoist':
     case 'requestHelp':

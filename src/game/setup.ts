@@ -12,6 +12,7 @@ import {
   TAOIST_POWERS_BY_COLOR,
   VILLAGER_FAMILIES_BY_SIZE,
   WHITE_MOON_BASIC_TILE_SET,
+  type BlackSecretState,
   type BoardColor,
   type BoardSide,
   type Difficulty,
@@ -243,11 +244,21 @@ export function createGame(config: GameConfig): GameState {
   }
 
   const whiteMoon = config.expansions?.includes('whiteMoon') ?? false
+  const blackSecret = config.expansions?.includes('blackSecret') ?? false
   const seed = config.rngSeed ?? Math.floor(Math.random() * 0x7fffffff)
   let rng = seedRng(seed)
 
   // White Moon basic game replaces Night Watchman with Kung-Fu School.
-  const tilePool = whiteMoon ? WHITE_MOON_BASIC_TILE_SET : ALL_VILLAGE_TILE_KINDS
+  // Black Secret adds the Calligrapher tile to the random pool (rulebook says
+  // shuffle from all available tiles and pick 9). We keep the simpler base
+  // shape: with Black Secret only, Calligrapher *replaces* Night Watchman so
+  // the player still gets 9 distinct tile kinds.
+  let tilePool = ALL_VILLAGE_TILE_KINDS
+  if (whiteMoon) tilePool = WHITE_MOON_BASIC_TILE_SET
+  if (blackSecret) {
+    // Replace Night Watchman with Calligrapher if Night Watchman is in the pool.
+    tilePool = tilePool.map((k) => (k === 'nightWatchmanBeat' ? 'calligrapher' : k))
+  }
   const v = buildVillage(rng, tilePool)
   rng = v.rng
 
@@ -304,6 +315,10 @@ export function createGame(config: GameConfig): GameState {
   // turns run a Yin-only mini-phase).
   const firstColor = TURN_ORDER.find((c) => !taoists[c].isNeutral) ?? TURN_ORDER[0]
 
+  const blackSecretState: BlackSecretState | undefined = blackSecret
+    ? buildBlackSecret(config)
+    : undefined
+
   return {
     config,
     phase: 'yin', // first turn starts at Yin
@@ -322,6 +337,26 @@ export function createGame(config: GameConfig): GameState {
     activeBoard: firstColor,
     rngState: rng,
     whiteMoon: whiteMoonState,
+    blackSecret: blackSecretState,
+  }
+}
+
+function buildBlackSecret(config: GameConfig): BlackSecretState {
+  return {
+    wuFengTag: config.wuFengPlayer?.tag ?? 'Wu-Feng',
+    curses: { 1: 0, 2: 0, 3: 0, 4: 0 },
+    catacombsDemons: [],
+    reserveDemons: ['cost2', 'cost3', 'cost4'],
+    skeletonsAvailable: 3,
+    // 3× lvl 2, 2× lvl 3, 1× lvl 4 per rulebook setup.
+    bloodyMantras: [
+      { level: 2, qiOnCard: 0 },
+      { level: 2, qiOnCard: 0 },
+      { level: 2, qiOnCard: 0 },
+      { level: 3, qiOnCard: 0 },
+      { level: 3, qiOnCard: 0 },
+      { level: 4, qiOnCard: 0 },
+    ],
   }
 }
 

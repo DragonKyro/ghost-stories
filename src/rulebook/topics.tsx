@@ -520,6 +520,103 @@ export const TOPICS: Topic[] = [
   },
 ]
 
+// ─── Black Secret expansion ─────────────────────────────────────
+TOPICS.push({
+  id: 'black-secret',
+  title: 'Black Secret expansion',
+  category: 'modes',
+  searchBlob: 'black secret expansion wu-feng enemy player asymmetric catacombs demon curse pyramid summon bloody mantra calligrapher skeleton shadow blood brother',
+  body: () => (
+    <div style={COMMON_TEXT_STYLE}>
+      <p>
+        Black Secret is an <strong>asymmetric</strong> expansion: one player takes the
+        role of <strong>Wu-Feng</strong>, the antagonist. Toggle it from the New Game screen
+        (you can run White Moon and Black Secret together).
+      </p>
+
+      <h4 style={heading}>The Wu-Feng player's intervention</h4>
+      <p>
+        At Yin step 3 of every turn, instead of the drawn ghost auto-placing on its color
+        board, Wu-Feng gets to choose one of three actions on the drawn ghost card:
+      </p>
+      <ul>
+        <li>
+          <strong>① Place</strong> — place the ghost on a board normally (respecting color
+          placement). The ghost's on-arrival ability fires as usual.
+        </li>
+        <li>
+          <strong>② Summon a demon</strong> — discard the ghost (the card is its cost) and
+          summon one of Wu-Feng's three demons (cost 2 / 3 / 4) into the catacombs.
+          The ghost's total resistance must be ≥ the demon's cost. Demon enters at one of
+          the two catacomb-board entrances (NW or SE corner).
+        </li>
+        <li>
+          <strong>③ Throw a curse</strong> — discard the ghost and place a curse on the
+          pyramid. The curse color must match the ghost color (black ghosts are wild
+          jokers). Curses follow a pyramid: level <em>L</em> requires at least 2 prior
+          curses at level <em>L-1</em>. In this implementation curses apply a simplified Qi
+          tax (lvl 1-2: 1 Qi, lvl 3: 2 Qi, lvl 4: 3 Qi) to the active player.
+        </li>
+      </ul>
+      <p style={{ color: 'var(--ink-muted)', fontSize: 13 }}>
+        Incarnations of Wu-Feng are not eligible for intervention — they always place
+        normally per base-game rules.
+      </p>
+
+      <h4 style={heading}>The Catacombs</h4>
+      <p>
+        Wu-Feng commands a 3×3 catacombs board with three demons in his reserve (cost 2 /
+        3 / 4). Each demon, once summoned, sits on the catacombs board and (in the full
+        rulebook) takes one action per Taoist Yin phase. In this implementation demons are
+        tracked in the catacombs but do not yet move or attack — they're visible in the
+        side panel.
+      </p>
+
+      <h4 style={heading}>Bloody Mantras and Blood Brothers</h4>
+      <p>
+        Wu-Feng's board starts with 6 Bloody Mantra cards (3× level 2, 2× level 3, 1×
+        level 4). In the full rules, Qi the Taoists lose lands on Mantras of the player's
+        choice; when a Mantra fills, it resolves a powerful effect. The Blood Brother power
+        gives a single-Qi Taoist access to the opposite board's power. These are
+        scaffolded in the state but not yet wired up in this build.
+      </p>
+
+      <h4 style={heading}>Skeletons and the Shadow of Wu-Feng</h4>
+      <p>
+        Wu-Feng has 3 skeleton tokens he can place on the player boards (treated as
+        ghosts with resistance 1 of the board color). The 3 Urn catacomb tokens trigger
+        the Shadow of Wu-Feng — an invincible roaming threat. Both are deferred in this
+        build.
+      </p>
+
+      <h4 style={heading}>The Calligrapher tile</h4>
+      <p>
+        Black Secret swaps Night Watchman's Beat out for the Calligrapher: remove a
+        Bloody Mantra and replace it with a fresh one of the same level, or place a Qi
+        token from the reserve on a Mantra of your choice. (Both effects are placeholders
+        in this build until Mantra resolution lands.)
+      </p>
+
+      <h4 style={heading}>What's simplified in this implementation</h4>
+      <p style={{ color: 'var(--ink-muted)', fontSize: 13 }}>
+        The asymmetric loop is in: Wu-Feng intervenes on every Yin step 3, picks
+        place/summon/curse, manages reserve demons, builds the curse pyramid. Several
+        flavour mechanics are deferred:
+      </p>
+      <ul style={{ color: 'var(--ink-muted)', fontSize: 13 }}>
+        <li><strong>Catacomb tokens</strong> — the 36 face-down tokens (Dirt, Buddha, Blood of the Just, Cursed Tablet, Bones, Blood of Su-Ling, Urn) and demon search action are not yet implemented.</li>
+        <li><strong>Demon movement</strong> — demons sit in the catacombs once summoned but don't yet take Yin actions or pose threats to in-catacomb Taoists.</li>
+        <li><strong>Per-curse effects</strong> — the 14 distinct curses each have unique effects in the rulebook; this build condenses them into a level-scaled Qi tax.</li>
+        <li><strong>Bloody Mantra resolution</strong> — Qi from losses doesn't yet land on Mantras and they don't trigger their effects.</li>
+        <li><strong>Blood Brothers</strong> — single-Qi shared powers are not yet wired.</li>
+        <li><strong>Shadow of Wu-Feng</strong> — the invincible roaming threat from finding the 3 Urn tokens is deferred.</li>
+        <li><strong>Skeleton placement</strong> — Wu-Feng cannot yet place skeletons on player boards.</li>
+        <li><strong>Online assignment</strong> — Wu-Feng's identity is a local tag right now; future versions will tie it to a network UUID for real online play.</li>
+      </ul>
+    </div>
+  ),
+})
+
 // ─── White Moon expansion ───────────────────────────────────────
 TOPICS.push({
   id: 'white-moon',

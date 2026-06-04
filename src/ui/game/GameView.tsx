@@ -17,6 +17,8 @@ import { ChatPanel } from './ChatPanel'
 import { useNetworkStore } from '@/store/networkStore'
 import { RulebookOverlay } from '@/rulebook'
 import { useState } from 'react'
+import { WuFengInterventionDialog } from './WuFengInterventionDialog'
+import { CatacombsPanel } from './CatacombsPanel'
 import { adjacentTiles, ghostInstanceAt, isCornerTile, reachableGhostSpaces } from '@/game/helpers'
 import { getGhostCard } from '@/game/ghostCatalogue'
 import type { GameState, GhostRef, TaoistColor, VillageTileId } from '@/game/types'
@@ -52,6 +54,7 @@ export function GameView() {
             <ConnectionStatus />
           </ul>
         </div>
+        <CatacombsPanel game={game} />
         <LogPanel />
         <ChatPanel />
       </div>
@@ -60,6 +63,7 @@ export function GameView() {
       <YinPhaseRunner />
       <AIDriver />
       {overlay.kind === 'handoff' && <HandoffOverlay nextTaoist={overlay.nextTaoist} />}
+      {game.phase === 'wuFengIntervention' && <WuFengInterventionDialog game={game} />}
       {game.phase === 'gameOver' && <GameOverOverlay game={game} />}
 
       {/* Floating rulebook button */}

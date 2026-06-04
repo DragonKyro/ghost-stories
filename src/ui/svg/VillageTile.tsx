@@ -18,6 +18,7 @@ const TILE_LABELS: Record<VillageTileKind, string> = {
   pavilionOfHeavenlyWind: 'Pavilion',
   teaHouse: 'Tea House',
   kungFuSchool: 'Kung-Fu School',
+  calligrapher: 'Calligrapher',
 }
 
 // Each kind gets a distinct icon glyph. These are placeholders — clear,
@@ -116,6 +117,23 @@ const TILE_GLYPHS: Record<VillageTileKind, ReactElement> = {
         fill="#d4a857"
       />
       <path d="M48 54 L72 54 M48 60 L72 60 M48 66 L72 66" stroke="#241b15" strokeWidth={1} />
+    </>
+  ),
+  // Calligrapher (Black Secret) — ink brush stroke + scroll
+  calligrapher: (
+    <>
+      <rect x={36} y={42} width={48} height={36} fill="#f4e9d6" stroke="#241b15" strokeWidth={1} />
+      {/* Brush stroke calligraphy */}
+      <path
+        d="M44 52 Q55 56 60 50 Q65 44 76 50 M44 64 Q55 70 60 64 Q65 58 76 64"
+        stroke="#241b15"
+        strokeWidth={2}
+        fill="none"
+        strokeLinecap="round"
+      />
+      {/* Brush handle */}
+      <line x1={80} y1={36} x2={88} y2={28} stroke="#8a7e6b" strokeWidth={3} strokeLinecap="round" />
+      <circle cx={80} cy={36} r={3} fill="#241b15" />
     </>
   ),
 }
