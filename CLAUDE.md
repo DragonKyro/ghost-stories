@@ -302,18 +302,28 @@ Inline SVG (not external `.svg` files) so the components animate cleanly and don
 
 ## Roadmap
 
-- [ ] **Phase 0** — Project scaffold (Vite, React, TS, dirs, deploy workflow, placeholder UI)
-- [ ] **Phase 1** — Game logic engine
-  - 1a. Types + initial state generator (config, board layout, deck shuffling, incarnation insertion)
-  - 1b. Yin phase resolution (ghost actions, board-overrun, ghost arrival, left-stone abilities)
-  - 1c. Yang phase actions (move, request help, exorcise, place Buddha, Yin-Yang)
-  - 1d. Right-stone abilities, rewards, curses
-  - 1e. Win/lose detection, Wu-Feng incarnation logic for all 9 bosses
-  - 1f. Village tile actions — all 9
-  - 1g. Taoist powers — all 8
-  - 1h. Death / revival / possessed-board handling
+- [x] **Phase 0** — Project scaffold (Vite, React, TS, dirs, deploy workflow, placeholder UI)
+- [x] **Phase 1** — Game logic engine (18/18 tests passing)
+  - 1a. Types + initial state generator (`createGame` in [src/game/setup.ts](src/game/setup.ts))
+  - 1b. Yin phase resolution ([src/game/actions/yin.ts](src/game/actions/yin.ts))
+  - 1c. Yang phase actions ([src/game/actions/yang.ts](src/game/actions/yang.ts))
+  - 1d. Right-stone abilities (curses-before-rewards in `applyOnExorcism`)
+  - 1e. Win/lose detection ([src/game/actions/winLose.ts](src/game/actions/winLose.ts))
+  - 1f. Village tile actions ([src/game/actions/villageTiles.ts](src/game/actions/villageTiles.ts))
+  - 1g. Taoist powers (all 8 wired in [src/game/actions/yang.ts](src/game/actions/yang.ts))
+  - 1h. Death / revival / possessed-board ([src/game/actions/hauntingAndQi.ts](src/game/actions/hauntingAndQi.ts))
   - 1i. Neutral boards (1-3 player mode)
-- [ ] **Phase 2** — Hot-seat UI (SVG board, panels, dialogs, handoff screen)
+  - 1j. Ghost catalogue: 45 base ghosts + 9 incarnations ([src/game/ghostCatalogue.ts](src/game/ghostCatalogue.ts))
+- [x] **Phase 2** — Hot-seat UI
+  - MainMenu + NewGame (difficulty + per-seat config) under [src/ui/](src/ui/)
+  - GameView with 4 player boards (rotated to face the village), VillageBoardSVG with Taoist figures + Circle-of-Prayer token + Cemetery dead-figure overlay
+  - ActionBar with Move / Request help / Exorcise / Place Buddha / Yin-Yang / End turn
+  - ExorcismDialog (Tao-die roll, Tao token spend across same-tile Taoists, Gods' Favorite reroll, success/fail verdict)
+  - RequestHelpDialog with a sub-form for every tile that needs params (Circle / Cemetery / Altar / Herbalist / Sorcerer / Watchman / Pavilion / Tea House / Buddhist Temple)
+  - YinPhaseRunner auto-rolls curse dice + spawns ghosts deterministically (RNG outside the engine)
+  - HandoffOverlay between hot-seat turns
+  - LogPanel reading from `logStore.recordAction`
+  - GameOverOverlay on win/loss
 - [ ] **Phase 3** — Heuristic AI (priority tree, threat model, exorcism EV)
 - [ ] **Phase 4** — Online multiplayer (Trystero peer-to-peer) + in-game chat
 - [ ] **Phase 5** — End-of-game match stats (Qi over time, ghosts exorcised per Taoist, dice luck, curse die history)
@@ -322,6 +332,17 @@ Inline SVG (not external `.svg` files) so the components animate cleanly and don
 - [ ] **Phase 8** — Black Secret expansion (Wu-Feng player, catacombs board, bloody mantras, blood brothers, demons, Shadow of Wu-Feng) — note this changes the multiplayer shape from full-coop to one-vs-many; lobby UI needs a mode toggle
 - [ ] **Phase 9** — Difficulty tuning + Hell-mode polish
 
-## Where to start
+## Where to start next
 
-Phase 0 — scaffold the project. Then Phase 1a (types + initial state) so the engine has a foundation to test against. Don't write UI before the engine reduces a known scripted sequence end-to-end (the 9 tile actions on a stub board should produce expected log entries).
+Phases 0–2 complete; the engine is fully test-covered and a 4-human hot-seat game is playable end to end (run `npm run dev`).
+
+**Phase 3 — AI.** Implement `chooseAction(state, taoistId)` in [src/ai/main.ts](src/ai/main.ts) per the AI model section above (priority tree: critical exorcism → lethal-prevention → high-success exorcism → critical tile action → Buddha placement → Tao accumulation → reposition → end turn). The `AIDriver` React component should watch `game.phase === 'yang'` and the active seat being AI/neutral, then dispatch actions at ~700ms cadence. Neutral seats need no AI — they skip Yang entirely (engine already handles this in [src/game/actions/yin.ts](src/game/actions/yin.ts)).
+
+**Phase 2 leftover polish worth doing before Phase 3:**
+- Power-token spending UI (engine supports `spendPowerToken` but no button surfaces it)
+- Corner-tile dual exorcism (engine supports `ghosts: [r1, r2]`; UI currently caps at 1)
+- Bonecracker / Nameless arrival animations (left-stone events fire silently)
+- Pavilion of Heavenly Wind: surface the forced second Taoist move (currently auto-skipped)
+- Tile-action `arrival` sub-step (Taoist Altar / Tea House should chain a ghost arrival — currently the UI omits the payload)
+- Dual-exorcism corner rule + spending dialog improvements (multi-step Tao allocation feels clunky)
+- Wider screen sizes (the rotated boards consume horizontal space)

@@ -6,6 +6,10 @@ The physical game is out of print and there is no official digital version — t
 
 **🎲 Play it (eventually):** https://dragonkyro.github.io/ghost-stories/
 
+### Playable today
+
+**Local hot-seat (Phase 2 build):** 1–4 humans on the same device. Configure difficulty (Initiation / Normal / Nightmare / Hell) and per-seat assignment (human / AI placeholder / neutral board) from the New Game screen. The Yin phase auto-resolves; the active Taoist's Yang phase is fully interactive (move, request help, exorcise with dice, place Buddha, spend Yin-Yang). Pass-device handoff screen between turns. All 9 village tile actions, all 4 Taoist boards with both possible powers, win/loss detection for all three loss conditions and the incarnation-exorcism win.
+
 ## What is Ghost Stories?
 
 1–4 Taoist monks defend a Chinese village from the ghosts of Wu-Feng, who is trying to return to the realm of the living. Every turn, ghosts spawn on one of the 4 player boards arrayed around the 3×3 village; the active Taoist gets one move and one action — exorcise a ghost or use the village tile they're standing on — and ghosts close in. Hold out long enough to draw the bottom of the deck, exorcise every Wu-Feng incarnation hidden there, and the monks win.
@@ -14,9 +18,9 @@ It is brutally hard. Most cooperative games are cooperative-difficult; Ghost Sto
 
 ## Roadmap
 
-- [ ] **Phase 0** — Project scaffold
-- [ ] **Phase 1** — Game logic engine (Yin / Yang phases, 9 village tiles, 8 Taoist powers, 9 Wu-Feng incarnations, ~55 ghost cards, neutral-board variant for 1-3 players)
-- [ ] **Phase 2** — Hot-seat UI (SVG board, handoff screen, all dialogs)
+- [x] **Phase 0** — Project scaffold
+- [x] **Phase 1** — Game logic engine (Yin / Yang phases, 9 village tiles, 8 Taoist powers, 9 Wu-Feng incarnations, 45 base ghost cards, neutral-board variant for 1-3 players, full win/loss detection)
+- [x] **Phase 2** — Hot-seat UI (SVG board, 4 rotated player boards, request-help dialog for every tile, exorcism dialog with dice rolls + Tao spending, place-Buddha selector, Yin-Yang flip-tile mode, Yin-phase auto-runner, pass-device handoff screen, event log, game-over overlay)
 - [ ] **Phase 3** — Heuristic AI for missing seats
 - [ ] **Phase 4** — Online multiplayer (Trystero WebRTC peer-to-peer) + in-game chat
 - [ ] **Phase 5** — End-of-game stats

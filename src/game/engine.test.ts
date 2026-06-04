@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { createGame, applyAction } from './engine'
 import { allBaseGhostIds, allIncarnationIds, getGhostCard, incarnationCardId } from './ghostCatalogue'
 import type { GameConfig, GameState } from './types'
-import type { Action, ArrivingGhost } from './actions'
+import type { Action } from './actions'
 
 const fixedSeed = 42
 const baseConfig: GameConfig = {
@@ -93,10 +93,6 @@ describe('createGame', () => {
 describe('Yin phase: ghost arrival', () => {
   function topOfDeck(s: GameState): string {
     return s.ghostDeck[0]
-  }
-
-  function arrivalFromTop(s: GameState, board: 'red' | 'blue' | 'green' | 'yellow', space: 0 | 1 | 2 = 0): ArrivingGhost {
-    return { cardId: topOfDeck(s), targetBoard: board, targetSpace: space }
   }
 
   it("places a colored ghost on its matching board", () => {
