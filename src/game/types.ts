@@ -121,12 +121,35 @@ export type GhostAbilityKind =
   | 'rewardCurseDie'
   | 'incarnationReturnQiYinYang'
 
-export type GhostAbility = {
-  kind: GhostAbilityKind
-  // Some abilities carry tuning data (e.g. dieCaptor count, tormentor variant).
-  // Encoded as a JSON-friendly bag for now; will tighten when the catalogue lands.
-  params?: Record<string, unknown>
+// Ability param shapes per kind. Keeping these narrow so handlers can match on
+// `kind` and statically know what `params` carries.
+export type GhostAbilityParams = {
+  arriveAddGhost: { count?: number } // default 1
+  arriveHauntTile: Record<string, never>
+  arriveLoseQi: { amount?: number } // default 1
+  arriveHaunterSetup: Record<string, never>
+  arriveDirectHaunt: Record<string, never>
+  haunter: Record<string, never>
+  tormentor: Record<string, never>
+  powerBlocker: Record<string, never>
+  taoBlocker: Record<string, never>
+  dieCaptor: { count?: number } // default 1
+  diceImmune: Record<string, never>
+  groupEffect: { effect: 'taoBlocker' | 'powerBlocker' }
+  rewardQiOrYinYang: Record<string, never>
+  rewardTaoOne: Record<string, never>
+  rewardTaoTwo: Record<string, never>
+  rewardLoseTao: Record<string, never>
+  rewardCurseDie: Record<string, never>
+  incarnationReturnQiYinYang: Record<string, never>
 }
+
+export type GhostAbility = {
+  [K in GhostAbilityKind]: {
+    kind: K
+    params?: GhostAbilityParams[K]
+  }
+}[GhostAbilityKind]
 
 export type GhostStone = 'left' | 'center' | 'right'
 

@@ -1,19 +1,57 @@
-// Engine entry point. Phase 1 lands here.
+// Engine entry point.
 //
 // Contract:
-//   applyAction(state, action) => state    // pure, deterministic
-//   createGame(config) => GameState        // initial state from config + seeded deck/layout
+//   createGame(config) => GameState        — initial state from config
+//   applyAction(state, action) => GameState — pure, deterministic reduction
 //
-// All randomness flows through the action payload — see CLAUDE.md "Determinism".
-// Action handlers live in `src/game/actions/*` and are wired by the dispatcher in
-// this file. Right now this file is a stub so the UI / type layers compile.
+// Every random outcome arrives in the action payload as data, so all peers
+// reduce identically. The setup-time RNG (deck shuffle, layout) is seeded from
+// `config.rngSeed` and lives on `GameState.rngState`.
 
-import type { Action, GameConfig, GameState } from './types'
+import type { GameState } from './types'
+import type { Action } from './actions'
+import { applyStartTurn } from './actions/yin'
+import { applyYangAction } from './actions/yang'
+import { createGame } from './setup'
+import { resolveArrival } from './actions/yin'
+import { checkLossConditions, checkWin } from './actions/winLose'
 
-export function createGame(_config: GameConfig): GameState {
-  throw new Error('createGame: not yet implemented (Phase 1a)')
+export { createGame } from './setup'
+export type { Action } from './actions'
+
+export function applyAction(state: GameState, action: Action): GameState {
+  if (state.phase === 'gameOver') return state
+
+  switch (action.type) {
+    case 'startTurn':
+      return applyStartTurn(state, action.payload)
+
+    case 'spawnIncarnation': {
+      // Manual incarnation placement (tests / scripted setups). The card must
+      // be at the top of the deck for the engine to honour it; in production
+      // the deck is the source of truth.
+      const arr = {
+        cardId: state.ghostDeck[0],
+        targetBoard: action.targetBoard,
+        targetSpace: action.targetSpace,
+      }
+      let s = resolveArrival(state, arr)
+      s = checkLossConditions(checkWin(s))
+      return s
+    }
+
+    case 'moveTaoist':
+    case 'requestHelp':
+    case 'exorcise':
+    case 'placeBuddha':
+    case 'useYinYang':
+    case 'usePower':
+    case 'spendPowerToken':
+    case 'endYangPhase':
+      return applyYangAction(state, action)
+  }
 }
 
-export function applyAction(_state: GameState, _action: Action): GameState {
-  throw new Error('applyAction: not yet implemented (Phase 1)')
-}
+// Silence unused-export linter; createGame is the canonical entry point but
+// useGame/uiStore may import the type directly.
+void createGame
