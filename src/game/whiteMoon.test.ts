@@ -235,7 +235,7 @@ describe('White Moon: villager fleeing on Haunter card→stone1', () => {
 })
 
 describe('White Moon: receptacle placement → Mystic Barrier', () => {
-  it('completing 4 receptacles triggers Mystic Barrier on endYangPhase', () => {
+  it('completing 4 receptacles enters Mystic Barrier phase on endYangPhase', () => {
     let s = fresh()
     // Manually fill all 4 receptacles and queue Mystic Barrier.
     s = {
@@ -247,19 +247,37 @@ describe('White Moon: receptacle placement → Mystic Barrier', () => {
         mysticBarrierPending: true,
       },
     }
-    // Plant a ghost on each board to verify discardThreeGhosts-style sweep.
-    const ghostId = allWhiteMoonGhostIds()[0]
-    for (const c of ['red', 'blue', 'green', 'yellow'] as const) {
-      const sp = [...s.boards[c].ghostSpaces]
-      sp[0] = { cardId: ghostId, hauntingFigurePos: 'card', hasMantra: false }
-      s = { ...s, boards: { ...s.boards, [c]: { ...s.boards[c], ghostSpaces: sp as typeof s.boards[typeof c]['ghostSpaces'] } } }
-    }
-    const discardBefore = s.discardPile.length
     s = applyAction(s, { type: 'endYangPhase', taoistId: `taoist-${s.turnOrder[s.turnIndex]}` })
-    // Mystic Barrier discarded one ghost per non-neutral board (here 4).
-    expect(s.discardPile.length).toBeGreaterThan(discardBefore)
-    // Receptacles reset; pending cleared.
+    // We now enter an interactive phase rather than auto-resolve.
+    expect(s.phase).toBe('mysticBarrier')
+    expect(s.whiteMoon!.mysticBarrierCrystals).toBe(4)
+    expect(s.whiteMoon!.mysticBarrierBoard).toBeTruthy()
     expect(s.whiteMoon!.mysticBarrierPending).toBe(false)
+  })
+
+  it('4 skip choices end the Mystic Barrier phase and advance the turn', () => {
+    let s = fresh()
+    s = {
+      ...s,
+      phase: 'yang',
+      whiteMoon: {
+        ...s.whiteMoon!,
+        receptacles: { ne: true, nw: true, se: true, sw: true },
+        mysticBarrierPending: true,
+      },
+    }
+    s = applyAction(s, { type: 'endYangPhase', taoistId: `taoist-${s.turnOrder[s.turnIndex]}` })
+    // Cycle 4 skips for each board.
+    for (let i = 0; i < 4; i++) {
+      const currentBoard = s.whiteMoon!.mysticBarrierBoard!
+      s = applyAction(s, {
+        type: 'mysticBarrierChoice',
+        taoistId: `taoist-${currentBoard}`,
+        choice: { kind: 'skip' },
+      } as Action)
+    }
+    // Phase resets, crystals back to reserve, receptacles cleared.
+    expect(s.phase).toBe('yin')
     expect(s.whiteMoon!.receptacles).toEqual({ ne: false, nw: false, se: false, sw: false })
   })
 })

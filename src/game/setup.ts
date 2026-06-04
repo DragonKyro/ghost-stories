@@ -271,18 +271,38 @@ export function createGame(config: GameConfig): GameState {
   let village = v.village
   let whiteMoonState: WhiteMoonState | undefined
   if (whiteMoon) {
+    // Pick the portal tile based on the variant.
+    const placement = config.portalPlacement ?? 'center'
+    const candidates = village.filter((t) => {
+      if (placement === 'center') return t.coord.col === 1 && t.coord.row === 1
+      if (placement === 'corner') {
+        const c = t.coord
+        return (c.col === 0 || c.col === 2) && (c.row === 0 || c.row === 2)
+      }
+      // 'edge' — the 4 cardinal-edge tiles.
+      const c = t.coord
+      return (c.col === 1 && (c.row === 0 || c.row === 2))
+        || (c.row === 1 && (c.col === 0 || c.col === 2))
+    })
+    let portalIdx: number
+    {
+      const [rngNew, idx] = nextInt(rng, candidates.length)
+      portalIdx = idx
+      rng = rngNew
+    }
+    const portalTileId = candidates[portalIdx].id
+
     const stackResult = buildVillagerStacks(rng)
     rng = stackResult.rng
+    // Assign villager stacks to the 8 non-portal tiles in order.
+    let stackCursor = 0
     village = village.map((t) => {
-      if (t.id === central) {
+      if (t.id === portalTileId) {
         return { ...t, hasPortal: true }
       }
-      const stackIdx = (t.coord.row * 3 + t.coord.col)
-      // 8 non-central tiles map to stack indices 0..7 (skip center=4)
-      const mapping = [0, 1, 2, 3, /* center */ -1, 4, 5, 6, 7]
-      const sIdx = mapping[stackIdx]
-      if (sIdx < 0) return t
-      return { ...t, villagerStack: stackResult.stacks[sIdx] }
+      const stack = stackResult.stacks[stackCursor++]
+      if (!stack) return t
+      return { ...t, villagerStack: stack }
     })
     whiteMoonState = {
       saved: [],

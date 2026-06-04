@@ -35,7 +35,82 @@ export function RequestHelpDialog(props: Props) {
     case 'nightWatchmanBeat': return <NightWatchmanForm {...props} />
     case 'teaHouse': return <TeaHouseForm {...props} />
     case 'pavilionOfHeavenlyWind': return <PavilionForm {...props} />
+    case 'kungFuSchool': return <KungFuSchoolPlaceholder {...props} />
+    case 'calligrapher': return <CalligrapherForm {...props} />
   }
+}
+
+function KungFuSchoolPlaceholder({ onClose }: Props) {
+  return (
+    <Modal title="Kung-Fu School" onClose={onClose}>
+      <p style={{ fontSize: 12 }}>
+        Use this tile via the Action Bar's exorcism flow with the "ownBoard" or "blackGhosts"
+        scope. (Full UI form pending.)
+      </p>
+      <Footer><button onClick={onClose}>Close</button></Footer>
+    </Modal>
+  )
+}
+
+function CalligrapherForm({ game, taoistId, onClose }: Props) {
+  const dispatch = useGameStore((s) => s.dispatch)
+  const mantras = game.blackSecret?.bloodyMantras ?? []
+  const [swapIdx, setSwapIdx] = useState<number | null>(null)
+  const [placeIdx, setPlaceIdx] = useState<number | null>(null)
+  if (mantras.length === 0) {
+    return (
+      <Modal title="Calligrapher" onClose={onClose}>
+        <p>No Bloody Mantras in play.</p>
+        <Footer><button onClick={onClose}>Close</button></Footer>
+      </Modal>
+    )
+  }
+  const submit = () => {
+    dispatch({
+      type: 'requestHelp',
+      taoistId,
+      params: {
+        kind: 'calligrapher',
+        swapMantra: swapIdx != null ? { mantraIdx: swapIdx } : undefined,
+        placeQi: placeIdx != null ? { mantraIdx: placeIdx } : undefined,
+      },
+    })
+    onClose()
+  }
+  return (
+    <Modal title="Calligrapher" onClose={onClose}>
+      <p style={{ fontSize: 12 }}>
+        Optionally: swap a Bloody Mantra (replace it with a fresh one of the same level),
+        and/or place 1 Qi on a Mantra. Pick one or both, or neither.
+      </p>
+      <div style={{ marginTop: 8 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Swap which mantra?</div>
+        <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+          <button onClick={() => setSwapIdx(null)} style={{ border: swapIdx === null ? '2px solid var(--accent)' : '1px solid var(--rule)', fontSize: 11 }}>(none)</button>
+          {mantras.map((m, i) => (
+            <button key={i} onClick={() => setSwapIdx(i)} style={{ border: swapIdx === i ? '2px solid var(--accent)' : '1px solid var(--rule)', fontSize: 11 }}>
+              lvl {m.level} ({m.qiOnCard}/{m.level})
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>Place 1 Qi on which mantra?</div>
+        <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+          <button onClick={() => setPlaceIdx(null)} style={{ border: placeIdx === null ? '2px solid var(--accent)' : '1px solid var(--rule)', fontSize: 11 }}>(none)</button>
+          {mantras.map((m, i) => (
+            <button key={i} onClick={() => setPlaceIdx(i)} style={{ border: placeIdx === i ? '2px solid var(--accent)' : '1px solid var(--rule)', fontSize: 11 }}>
+              lvl {m.level} ({m.qiOnCard}/{m.level})
+            </button>
+          ))}
+        </div>
+      </div>
+      <Footer>
+        <button onClick={onClose}>Cancel</button>
+        <button onClick={submit} style={primary}>Apply</button>
+      </Footer>
+    </Modal>
+  )
 }
 
 function useDispatchAndClose(taoistId: TaoistId, onClose: () => void) {

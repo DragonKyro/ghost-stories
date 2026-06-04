@@ -26,6 +26,14 @@ export type LobbyState = {
   // Seat types per color: 'human' (claimed by a uuid), 'ai', or 'neutral'.
   seatTypes: Record<TaoistColor, 'human' | 'ai' | 'neutral'>
   difficulty: Difficulty
+  /** Set to true when Black Secret is on. */
+  blackSecret?: boolean
+  /** UUID of the Wu-Feng player (Black Secret only). */
+  wuFengUuid?: string | null
+  /** White Moon toggle. */
+  whiteMoon?: boolean
+  /** Portal placement variant (White Moon). */
+  portalPlacement?: 'center' | 'edge' | 'corner'
   // Set to true when the host clicks Start. Lobby freezes once true.
   started: boolean
 }

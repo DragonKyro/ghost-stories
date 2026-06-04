@@ -24,6 +24,7 @@ export function NewGame() {
   })
   const [difficulty, setDifficulty] = useState<Difficulty>('initiation')
   const [whiteMoon, setWhiteMoon] = useState(false)
+  const [portalPlacement, setPortalPlacement] = useState<'center' | 'edge' | 'corner'>('center')
   const [blackSecret, setBlackSecret] = useState(false)
   const [wuFengTag, setWuFengTag] = useState('Wu-Feng')
 
@@ -44,6 +45,7 @@ export function NewGame() {
       seats: seatConfig,
       expansions: expansions.length > 0 ? expansions : undefined,
       wuFengPlayer: blackSecret ? { tag: wuFengTag.trim() || 'Wu-Feng' } : undefined,
+      portalPlacement: whiteMoon ? portalPlacement : undefined,
     })
   }
 
@@ -123,15 +125,31 @@ export function NewGame() {
           cursor: 'pointer',
           marginBottom: 6,
         }}>
-          <input type="checkbox" checked={whiteMoon} onChange={(e) => setWhiteMoon(e.target.checked)} />
-          <div>
+          <input type="checkbox" checked={whiteMoon} onChange={(e) => setWhiteMoon(e.target.checked)} style={{ marginTop: 4 }} />
+          <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 600 }}>🌙 White Moon</div>
             <div style={{ color: 'var(--ink-muted)', fontSize: 12 }}>
-              Villagers (24 across 12 families), Devourer ghosts, Moon Crystals (from the
-              Herbalist's white face, spendable like wild Tao). Save villagers via the Portal.
-              Loses on 12 villager deaths. Kung-Fu School replaces Night Watchman. See the
-              rulebook for what's simplified.
+              Villagers (24 across 12 families with full per-family death curses + save rewards),
+              Devourer ghosts, Moon Crystals (Herbalist white face / corner-receptacle placement /
+              Mystic Barrier). Save villagers via the Portal. Su-Ling cancels the ghost in front
+              of her. Loses on 12 villager deaths. Kung-Fu School replaces Night Watchman.
             </div>
+            {whiteMoon && (
+              <div style={{ marginTop: 8 }}>
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
+                  Portal placement:
+                  <select
+                    value={portalPlacement}
+                    onChange={(e) => setPortalPlacement(e.target.value as 'center' | 'edge' | 'corner')}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <option value="center">Center (easy)</option>
+                    <option value="edge">Edge (medium)</option>
+                    <option value="corner">Corner (hard)</option>
+                  </select>
+                </label>
+              </div>
+            )}
           </div>
         </label>
 

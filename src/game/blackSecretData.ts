@@ -47,24 +47,62 @@ export function buildCatacombDeck(taoistCount: number): CatacombToken[] {
 }
 
 /**
- * Per-curse effects (simplified). Each level has a representative effect; the
- * actual rulebook has 14 distinct curses with unique effects. This is a
- * curated subset that touches the key levers (Qi loss, Tao discard, haunting,
- * power lock, ladder removal — last one is omitted since we don't model
- * ladders).
+ * Per-curse effects. The rulebook ships 14 distinct curses across 4 levels;
+ * we implement each as a discrete `CurseEffect` so Wu-Feng can pick which one
+ * to throw within a level. The pool sizes (5/4/3/2) match the rulebook
+ * pyramid.
  */
 export type CurseEffect =
-  | 'activePlayerLosesQi' // 1 Qi
-  | 'activePlayerLosesTao' // discard 1 Tao
-  | 'allPlayersLoseTao' // each player discards 1 Tao
-  | 'hauntFirstActiveTile' // first active tile haunted
-  | 'allPlayersLoseQi' // each living player loses 1 Qi (level 4!)
+  // Level 1 (5 curses)
+  | 'activePlayerLosesQi' // active player loses 1 Qi
+  | 'activePlayerLosesTao' // active player discards 1 Tao token
+  | 'activePlayerLosesYinYang' // active player loses their Yin-Yang token
+  | 'hauntActivePlayersBoardLine' // active player's board: advance every haunting figure 1 step
+  | 'returnAllCircleTokens' // any Tao token on the Circle of Prayer goes back to supply
+  // Level 2 (4 curses)
+  | 'allPlayersLoseTao' // every player discards 1 Tao
+  | 'allPlayersLoseQi1' // every alive Taoist loses 1 Qi (lvl 2 variant)
+  | 'lockOnePlayerPower' // active player's board power inactivates this turn
+  | 'inactiveTaoMarkerOn' // sets the Inactive Tao marker
+  // Level 3 (3 curses)
+  | 'hauntFirstActiveTile' // first active tile gets haunted
+  | 'returnAllInactiveTaoists' // (placeholder — not modeled here, falls back to lvl 3 Qi tax)
+  | 'allPlayersLoseQi2' // every alive Taoist loses 1 Qi (lvl 3 variant)
+  // Level 4 (2 curses)
+  | 'allPlayersLoseQi' // every alive Taoist loses 1 Qi (lvl 4)
+  | 'hauntTwoTiles' // two tiles haunted at once
 
 import type { CurseLevel } from './types'
 
+export const CURSE_POOL_BY_LEVEL: Record<CurseLevel, CurseEffect[]> = {
+  1: [
+    'activePlayerLosesQi',
+    'activePlayerLosesTao',
+    'activePlayerLosesYinYang',
+    'hauntActivePlayersBoardLine',
+    'returnAllCircleTokens',
+  ],
+  2: [
+    'allPlayersLoseTao',
+    'allPlayersLoseQi1',
+    'lockOnePlayerPower',
+    'inactiveTaoMarkerOn',
+  ],
+  3: [
+    'hauntFirstActiveTile',
+    'returnAllInactiveTaoists',
+    'allPlayersLoseQi2',
+  ],
+  4: [
+    'allPlayersLoseQi',
+    'hauntTwoTiles',
+  ],
+}
+
+// Engine fallback when Wu-Feng doesn't specify a particular curse.
 export const DEFAULT_CURSE_EFFECT_BY_LEVEL: Record<CurseLevel, CurseEffect> = {
   1: 'activePlayerLosesQi',
-  2: 'activePlayerLosesTao',
+  2: 'allPlayersLoseTao',
   3: 'hauntFirstActiveTile',
   4: 'allPlayersLoseQi',
 }

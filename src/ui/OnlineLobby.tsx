@@ -17,6 +17,11 @@ export function OnlineLobby() {
   const releaseSeat = useNetworkStore((s) => s.releaseSeat)
   const setSeatType = useNetworkStore((s) => s.setSeatType)
   const setDifficulty = useNetworkStore((s) => s.setDifficulty)
+  const setBlackSecret = useNetworkStore((s) => s.setBlackSecret)
+  const claimWuFeng = useNetworkStore((s) => s.claimWuFeng)
+  const releaseWuFeng = useNetworkStore((s) => s.releaseWuFeng)
+  const setWhiteMoon = useNetworkStore((s) => s.setWhiteMoon)
+  const setPortalPlacement = useNetworkStore((s) => s.setPortalPlacement)
   const startOnlineGame = useNetworkStore((s) => s.startOnlineGame)
   const leave = useNetworkStore((s) => s.leave)
   const game = useGameStore((s) => s.game)
@@ -131,6 +136,51 @@ export function OnlineLobby() {
             </div>
           ) : (
             <p style={{ color: 'var(--ink-muted)' }}>{lobby.difficulty}</p>
+          )}
+
+          <h3 style={{ marginTop: 24 }}>Expansions</h3>
+          {isHost ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+                <input type="checkbox" checked={!!lobby.whiteMoon} onChange={(e) => setWhiteMoon(e.target.checked)} />
+                🌙 White Moon
+              </label>
+              {lobby.whiteMoon && (
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, marginLeft: 24 }}>
+                  Portal:
+                  <select
+                    value={lobby.portalPlacement ?? 'center'}
+                    onChange={(e) => setPortalPlacement(e.target.value as 'center' | 'edge' | 'corner')}
+                  >
+                    <option value="center">center</option>
+                    <option value="edge">edge</option>
+                    <option value="corner">corner</option>
+                  </select>
+                </label>
+              )}
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+                <input type="checkbox" checked={!!lobby.blackSecret} onChange={(e) => setBlackSecret(e.target.checked)} />
+                🩸 Black Secret
+              </label>
+              {lobby.blackSecret && (
+                <div style={{ marginLeft: 24, fontSize: 12 }}>
+                  Wu-Feng: {lobby.wuFengUuid ? (
+                    <>
+                      <strong>{lobby.members[lobby.wuFengUuid]?.name ?? '?'}</strong>
+                      {lobby.wuFengUuid === myUuid && <button onClick={releaseWuFeng} style={{ marginLeft: 8 }}>release</button>}
+                    </>
+                  ) : (
+                    <button onClick={claimWuFeng}>Claim Wu-Feng</button>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>
+              {lobby.whiteMoon && '🌙 White Moon'}{lobby.whiteMoon && lobby.blackSecret && ' · '}
+              {lobby.blackSecret && '🩸 Black Secret'}{lobby.blackSecret && lobby.wuFengUuid && ` (Wu-Feng: ${lobby.members[lobby.wuFengUuid]?.name ?? '?'})`}
+              {!lobby.whiteMoon && !lobby.blackSecret && 'none'}
+            </div>
           )}
 
           {isHost && (

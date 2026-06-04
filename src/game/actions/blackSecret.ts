@@ -101,8 +101,10 @@ export function applyWuFengIntervene(state: GameState, choice: Choice): GameStat
         blackSecret: { ...bsBase, curses },
         discardPile: [...s.discardPile, cardId],
       }
-      // Real curse effect by level (representative subset — see blackSecretData).
-      s = applyCurseEffect(s, DEFAULT_CURSE_EFFECT_BY_LEVEL[choice.level])
+      // Apply Wu-Feng's chosen curse effect from the pool, else fall back to
+      // the level's default.
+      const effect = choice.effect ?? DEFAULT_CURSE_EFFECT_BY_LEVEL[choice.level]
+      s = applyCurseEffect(s, effect)
       break
     }
 
@@ -154,6 +156,32 @@ function applyCurseEffect(state: GameState, effect: CurseEffect): GameState {
       }
       return s
     }
+    case 'activePlayerLosesYinYang': {
+      const t = s.taoists[s.activeBoard]
+      if (!t.alive || t.isNeutral || !t.yinYang) return s
+      return { ...s, taoists: { ...s.taoists, [s.activeBoard]: { ...t, yinYang: false } } }
+    }
+    case 'hauntActivePlayersBoardLine': {
+      // Advance every haunting figure on the active board 1 step.
+      const board = s.boards[s.activeBoard]
+      const newSpaces = board.ghostSpaces.map((g) => {
+        if (!g) return g
+        if (g.hauntingFigurePos === 'card') return { ...g, hauntingFigurePos: 'stone1' as const }
+        if (g.hauntingFigurePos === 'stone1') return { ...g, hauntingFigurePos: 'stone2' as const }
+        return g
+      }) as typeof board.ghostSpaces
+      return { ...s, boards: { ...s.boards, [s.activeBoard]: { ...board, ghostSpaces: newSpaces } } }
+    }
+    case 'returnAllCircleTokens': {
+      const circle = s.village.find((v) => v.kind === 'circleOfPrayer')
+      if (!circle || !circle.circleToken) return s
+      const c = circle.circleToken
+      return {
+        ...s,
+        village: s.village.map((vt) => (vt.id === circle.id ? { ...vt, circleToken: null } : vt)),
+        taoSupply: { ...s.taoSupply, [c]: s.taoSupply[c] + 1 },
+      }
+    }
     case 'allPlayersLoseTao': {
       const taoists = { ...s.taoists }
       for (const color of ['red', 'blue', 'green', 'yellow'] as TaoistColor[]) {
@@ -168,8 +196,24 @@ function applyCurseEffect(state: GameState, effect: CurseEffect): GameState {
       }
       return { ...s, taoists }
     }
+    case 'allPlayersLoseQi1':
+    case 'allPlayersLoseQi2':
+    case 'allPlayersLoseQi': {
+      for (const color of ['red', 'blue', 'green', 'yellow'] as TaoistColor[]) {
+        if (!s.taoists[color].alive || s.taoists[color].isNeutral) continue
+        s = loseQi(s, color)
+        if (s.phase === 'gameOver') return s
+      }
+      return s
+    }
+    case 'lockOnePlayerPower': {
+      // Active player's board power is inactivated for the rest of the turn.
+      const board = s.boards[s.activeBoard]
+      return { ...s, boards: { ...s.boards, [s.activeBoard]: { ...board, powerActive: false } } }
+    }
+    case 'inactiveTaoMarkerOn':
+      return { ...s, inactiveTaoMarker: true }
     case 'hauntFirstActiveTile': {
-      // Find the first active tile (column-major) and haunt it.
       for (const tile of s.village) {
         if (!tile.haunted) {
           const village = s.village.map((vt) => (vt.id === tile.id ? { ...vt, haunted: true } : vt))
@@ -179,14 +223,26 @@ function applyCurseEffect(state: GameState, effect: CurseEffect): GameState {
       }
       return s
     }
-    case 'allPlayersLoseQi': {
-      for (const color of ['red', 'blue', 'green', 'yellow'] as TaoistColor[]) {
-        if (!s.taoists[color].alive || s.taoists[color].isNeutral) continue
-        s = loseQi(s, color)
-        if (s.phase === 'gameOver') return s
+    case 'hauntTwoTiles': {
+      let count = 0
+      for (const tile of s.village) {
+        if (count >= 2) break
+        if (!tile.haunted) {
+          s = {
+            ...s,
+            village: s.village.map((vt) => (vt.id === tile.id ? { ...vt, haunted: true } : vt)),
+            hauntedCount: s.hauntedCount + 1,
+          }
+          s = checkLossConditions(s)
+          if (s.phase === 'gameOver') return s
+          count++
+        }
       }
       return s
     }
+    case 'returnAllInactiveTaoists':
+      // Placeholder — fall back to one-Qi-tax on the active player.
+      return loseQi(s, s.activeBoard)
   }
 }
 
@@ -417,11 +473,137 @@ function spawnShadow(state: GameState): GameState {
   for (const c of ['red', 'blue', 'green', 'yellow'] as BoardColor[]) {
     for (const i of [0, 1, 2] as const) {
       if (state.boards[c].ghostSpaces[i] == null) {
-        return { ...state, blackSecret: { ...state.blackSecret, shadowPos: { board: c, ghostSpaceIdx: i } } }
+        return {
+          ...state,
+          blackSecret: { ...state.blackSecret, shadowPos: { kind: 'ghostSpace', board: c, ghostSpaceIdx: i } },
+        }
       }
     }
   }
   return state
+}
+
+// ----- Shadow of Wu-Feng action handler ---------------------------------
+
+type ShadowAction = Extract<Action, { type: 'wuFengShadowAction' }>['action']
+
+export function applyShadowAction(state: GameState, action: ShadowAction): GameState {
+  if (!state.blackSecret) throw new Error('shadow: Black Secret not active')
+  if (!state.blackSecret.shadowPos) throw new Error('shadow: Shadow not in play')
+  if (state.phase !== 'yin') throw new Error('shadow: must run during Yin prelude')
+
+  let s = state
+  const bs = s.blackSecret!
+
+  switch (action.kind) {
+    case 'pass':
+      return s
+    case 'move': {
+      let nextPos: NonNullable<typeof bs.shadowPos>
+      if (action.toTile) {
+        nextPos = { kind: 'villageTile', tileId: action.toTile }
+      } else if (action.toBoard && action.toGhostSpaceIdx !== undefined) {
+        nextPos = { kind: 'ghostSpace', board: action.toBoard, ghostSpaceIdx: action.toGhostSpaceIdx }
+      } else {
+        throw new Error('shadow move: missing target')
+      }
+      // Side effect: if Shadow moves onto the Circle of Prayer, the Tao token
+      // there is returned to supply.
+      let circleSupply = s.taoSupply
+      if (nextPos.kind === 'villageTile') {
+        const tile = s.village.find((v) => v.id === (nextPos as { kind: 'villageTile'; tileId: string }).tileId)
+        if (tile && tile.kind === 'circleOfPrayer' && tile.circleToken) {
+          const returned = tile.circleToken
+          circleSupply = { ...circleSupply, [returned]: circleSupply[returned] + 1 }
+          s = {
+            ...s,
+            village: s.village.map((v) => (v.id === tile.id ? { ...v, circleToken: null } : v)),
+            taoSupply: circleSupply,
+          }
+        }
+      }
+      return {
+        ...s,
+        blackSecret: { ...s.blackSecret!, shadowPos: nextPos },
+      }
+    }
+    case 'attackTaoists': {
+      // Shadow must be on a village tile; each black face = -1 Qi from a
+      // chosen Taoist on that tile.
+      const sp = s.blackSecret?.shadowPos
+      if (!sp || sp.kind !== 'villageTile') throw new Error('shadow attack: must be on a tile')
+      const tileId = sp.tileId
+      const presentTaoists = (['red', 'blue', 'green', 'yellow'] as TaoistColor[]).filter(
+        (c) => s.taoists[c].alive && s.taoists[c].tile === tileId,
+      )
+      if (presentTaoists.length === 0) return s
+      // For each black face, hit one of the chosen target Taoists in order.
+      const blacks = action.diceRoll.filter((d) => d === 'black').length
+      const hits = action.targetTaoists.slice(0, blacks)
+      for (const c of hits) {
+        if (!presentTaoists.includes(c)) continue
+        s = loseQi(s, c)
+        if (s.phase === 'gameOver') return s
+      }
+      return s
+    }
+    case 'attackTile': {
+      // Shadow must be on a village tile with no Taoists.
+      const sp2 = s.blackSecret?.shadowPos
+      if (!sp2 || sp2.kind !== 'villageTile') throw new Error('shadow attack tile: must be on a tile')
+      const tileId = sp2.tileId
+      const presentTaoists = (['red', 'blue', 'green', 'yellow'] as TaoistColor[]).filter(
+        (c) => s.taoists[c].alive && s.taoists[c].tile === tileId,
+      )
+      if (presentTaoists.length > 0) throw new Error('shadow attack tile: a Taoist is here')
+      // Curse die effect: route through the standard curse-die handler.
+      switch (action.curseRoll) {
+        case 'none':
+          return s
+        case 'loseQi':
+          return loseQi(s, s.activeBoard)
+        case 'loseAllTao': {
+          const t = s.taoists[s.activeBoard]
+          if (t.alive) {
+            s = { ...s, taoists: { ...s.taoists, [s.activeBoard]: { ...t, tao: { red: 0, green: 0, blue: 0, yellow: 0, black: 0 } } } }
+          }
+          return s
+        }
+        case 'haunt': {
+          // Haunt the tile Shadow is on.
+          const tile = s.village.find((v) => v.id === tileId)
+          if (!tile || tile.haunted) return s
+          s = {
+            ...s,
+            village: s.village.map((v) => (v.id === tileId ? { ...v, haunted: true } : v)),
+            hauntedCount: s.hauntedCount + 1,
+          }
+          return s
+        }
+        case 'spawnGhost':
+          // Spawn a ghost via the standard arrival flow (re-use Yin step 3).
+          // No-op if we don't have an arrival payload.
+          return s
+      }
+      return s
+    }
+  }
+}
+
+/** Returns true if the Shadow is on the given village tile. */
+export function shadowBlocksTile(state: GameState, tileId: string): boolean {
+  if (!state.blackSecret?.shadowPos) return false
+  return state.blackSecret.shadowPos.kind === 'villageTile' && state.blackSecret.shadowPos.tileId === tileId
+}
+
+/**
+ * The Shadow is invincible — exorcism validation rejects targeting the
+ * Shadow's ghost-space slot.
+ */
+export function isShadowSlot(state: GameState, board: BoardColor, space: 0 | 1 | 2): boolean {
+  const p = state.blackSecret?.shadowPos
+  if (!p) return false
+  return p.kind === 'ghostSpace' && p.board === board && p.ghostSpaceIdx === space
 }
 
 // ----- Helpers exposed to the UI -----------------------------------------

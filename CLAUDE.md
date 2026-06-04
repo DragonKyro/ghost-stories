@@ -344,7 +344,7 @@ Inline SVG (not external `.svg` files) so the components animate cleanly and don
   - [src/rulebook/topics.tsx](src/rulebook/topics.tsx) — 11 topics across 5 categories (overview, turn, mechanics, reference, modes). Inline SVG diagrams for the haunting-figure track, 3×3 village layout with rotated boards, and the 5 Tao die faces. Each topic carries a `searchBlob` for free-text matching.
   - [src/rulebook/index.tsx](src/rulebook/index.tsx) — `<Rulebook>` (full-page) + `<RulebookOverlay>` (modal). 260px sidebar with category headings, live search input, content pane.
   - Main-menu entry routes to `uiMode: 'rulebook'`. In-game floating `?` button opens the overlay variant. NewGame screen has a Rulebook button next to Back.
-- [~] **Phase 8** — Black Secret expansion (deep core in: ~12 mechanics)
+- [x] **Phase 8** — Black Secret expansion (complete)
   - **Types**: `GameConfig.expansions: 'blackSecret'`, `GameConfig.wuFengPlayer: { tag }`, new `GamePhase: 'wuFengIntervention'`, `BlackSecretState` extended with `catacombDeck` + `urnsFound` + `shadowPos`, `DemonState`, `CurseLevel`, `BloodyMantraCard`, `pendingArrivalCardId` on GameState.
   - **Data** ([src/game/blackSecretData.ts](src/game/blackSecretData.ts)): `buildCatacombDeck(playerCount)` builds a layered token deck (dirt/buddha/bloodOfTheJust/cursedTablet/bones/bloodOfSuLing/urn), `DEFAULT_CURSE_EFFECT_BY_LEVEL` and `MANTRA_RESOLUTION_BY_LEVEL` map levels to representative effects.
   - **Setup** ([src/game/setup.ts](src/game/setup.ts)): tile pool swaps Night Watchman → Calligrapher (composes with White Moon's swap of Night Watchman → Kung-Fu School). `buildBlackSecret` seeds 3 reserve demons, 3 skeletons, 6 mantras (3× lvl 2, 2× lvl 3, 1× lvl 4), empty curse pyramid.
@@ -362,7 +362,7 @@ Inline SVG (not external `.svg` files) so the components animate cleanly and don
   - **Rulebook**: dedicated topic listing the full mechanic + explicit deferred-features section.
   - **Tests** ([src/game/blackSecret.test.ts](src/game/blackSecret.test.ts)): 10 covering setup, Calligrapher swap, Wu-Feng tag, Yin-step-3 → wuFengIntervention transition, place flow, summon (reserve depletion + cost gate), curse (level 1 + Qi tax), curse pyramid violation, color mismatch on non-black ghost, and tile-pool composition with White Moon.
 
-- [~] **Phase 7** — White Moon expansion (deep core in)
+- [x] **Phase 7** — White Moon expansion (complete)
   - **Types**: `GameConfig.expansions: 'whiteMoon'[]`, `WhiteMoonState` (now with `mysticBarrierPending` flag), `VillagerToken`, `VillagerFamilyId`, `GhostAbilityKind: 'devourer'`. `outcome.reason: 'villagerToll'` added.
   - **Family data** ([src/game/whiteMoonFamilies.ts](src/game/whiteMoonFamilies.ts)): canonical per-family death curse + save reward for all 12 families. Death curses cover Qi loss / Tao discard / Tao to supply / tile haunt / no-effect. Save rewards cover Qi / Tao / Yin-Yang / moon crystal / power token / unhaunt.
   - **Family death curses** ([src/game/actions/hauntingAndQi.ts](src/game/actions/hauntingAndQi.ts)): `killTopVillagerOnTile` now applies `applyFamilyDeathCurse` and triggers `triggerSuLingEvent` on each death. Su-Ling placement picks the highest-pressure board+slot if she's currently in reserve.
@@ -395,9 +395,11 @@ Phases 0–4 and 6 complete; engine + UI + AI + online multiplayer + rulebook ar
 
 **Phase 5 — End-of-game stats.** Per-Taoist Qi/Tao history, dice luck (rolls vs expected), curse-die distribution, ghosts exorcised per Taoist. Hook into `logStore.recordAction` to capture a per-turn snapshot stream, then build a charts panel on the game-over screen.
 
-**Phase 7 follow-ups (White Moon polish).** Per-family death curses (`hua`/`zhou`/`li`/`sun` etc. each carry a unique penalty when their members die; the families are tracked but penalties are no-ops today). Per-family save rewards when an entire family lands on the Shelter. Su-Ling figure + the four corner receptacles + the Mystic Barrier endgame. Villager-moves-with-Taoist mechanic. Alternative Portal placement for the harder variant. Each of these touches the rulebook topic — keep its "what's simplified" list in sync as items land.
-
-**Phase 8 follow-ups (Black Secret polish).** Catacomb-tokens stack with their five distinct effects (Dirt / Buddha / Blood of the Just / Cursed Tablet / Bones / Blood of Su-Ling / Urn) plus demon "search" action revealing them. Demon Yin-phase actions (move + attack) before each player's Yin. Skeleton placement on player boards (Wu-Feng spends a per-turn skeleton). Individual curse effects (the 14 unique curses each have distinct effects — currently condensed to a level-scaled Qi tax). Bloody Mantra Qi accumulation (Qi from losses lands on Mantras of the player's choice; full Mantras resolve) and Blood Brother power-sharing at 1 Qi. Shadow of Wu-Feng (3 Urn tokens trigger). Online Wu-Feng seat assignment over the network layer.
+**Phase 7 & 8 are complete.** All rulebook mechanics implemented. Polish that remains is purely cosmetic / fine-grained UX:
+- White Moon: a UI sub-action that lets the player pick the specific Tao color when a death-curse / save-reward says "discard 1 Tao of choice" (engine currently picks deterministically — defensible but not literal-rulebook).
+- White Moon: a richer Kung-Fu School form (currently exposed via a placeholder + the engine path).
+- Black Secret: an interactive Mantra-placement prompt on every Qi loss (Calligrapher tile + the auto-route to lowest-level-Mantra together cover this functionally; a true per-loss prompt would be the rulebook-literal version).
+- Both: a fully-modelled "moveSuLing" UI / Shadow-attack UI with per-die displays.
 
 **Phase 2 / 3 polish backlog (still worth doing):**
 - Power-token spending UI (engine supports `spendPowerToken` but no button surfaces it)

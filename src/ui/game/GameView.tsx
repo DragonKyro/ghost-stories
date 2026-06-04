@@ -19,6 +19,7 @@ import { RulebookOverlay } from '@/rulebook'
 import { useState } from 'react'
 import { WuFengInterventionDialog } from './WuFengInterventionDialog'
 import { CatacombsPanel } from './CatacombsPanel'
+import { MysticBarrierDialog } from './MysticBarrierDialog'
 import { adjacentTiles, ghostInstanceAt, isCornerTile, reachableGhostSpaces } from '@/game/helpers'
 import { getGhostCard } from '@/game/ghostCatalogue'
 import type { GameState, GhostRef, TaoistColor, VillageTileId } from '@/game/types'
@@ -64,6 +65,7 @@ export function GameView() {
       <AIDriver />
       {overlay.kind === 'handoff' && <HandoffOverlay nextTaoist={overlay.nextTaoist} />}
       {game.phase === 'wuFengIntervention' && <WuFengInterventionDialog game={game} />}
+      {game.phase === 'mysticBarrier' && <MysticBarrierDialog game={game} />}
       {game.phase === 'gameOver' && <GameOverOverlay game={game} />}
 
       {/* Floating rulebook button */}

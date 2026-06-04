@@ -77,6 +77,11 @@ type NetworkStore = {
   releaseSeat: (color: TaoistColor) => void
   setSeatType: (color: TaoistColor, type: 'human' | 'ai' | 'neutral') => void
   setDifficulty: (d: Difficulty) => void
+  setBlackSecret: (on: boolean) => void
+  claimWuFeng: () => void
+  releaseWuFeng: () => void
+  setWhiteMoon: (on: boolean) => void
+  setPortalPlacement: (p: 'center' | 'edge' | 'corner') => void
   startOnlineGame: () => void
 
   // Chat
@@ -190,6 +195,46 @@ export const useNetworkStore = create<NetworkStore>((set, get) => ({
     if (conn) conn.send.lobby(next)
   },
 
+  setBlackSecret: (on) => {
+    const { role, conn, lobby } = get()
+    if (role !== 'host' || !lobby) return
+    const next: LobbyState = { ...lobby, blackSecret: on, wuFengUuid: on ? lobby.wuFengUuid : null }
+    set({ lobby: next })
+    if (conn) conn.send.lobby(next)
+  },
+
+  claimWuFeng: () => {
+    const { role, conn, lobby, myUuid } = get()
+    if (role !== 'host' || !lobby) return
+    const next: LobbyState = { ...lobby, wuFengUuid: myUuid }
+    set({ lobby: next })
+    if (conn) conn.send.lobby(next)
+  },
+
+  releaseWuFeng: () => {
+    const { role, conn, lobby } = get()
+    if (role !== 'host' || !lobby) return
+    const next: LobbyState = { ...lobby, wuFengUuid: null }
+    set({ lobby: next })
+    if (conn) conn.send.lobby(next)
+  },
+
+  setWhiteMoon: (on) => {
+    const { role, conn, lobby } = get()
+    if (role !== 'host' || !lobby) return
+    const next: LobbyState = { ...lobby, whiteMoon: on }
+    set({ lobby: next })
+    if (conn) conn.send.lobby(next)
+  },
+
+  setPortalPlacement: (p) => {
+    const { role, conn, lobby } = get()
+    if (role !== 'host' || !lobby) return
+    const next: LobbyState = { ...lobby, portalPlacement: p }
+    set({ lobby: next })
+    if (conn) conn.send.lobby(next)
+  },
+
   startOnlineGame: () => {
     const { role, conn, lobby } = get()
     if (role !== 'host' || !conn || !lobby) return
@@ -221,7 +266,18 @@ export const useNetworkStore = create<NetworkStore>((set, get) => ({
 
     // Host runs createGame locally to obtain the deterministic state, then
     // broadcasts it.
-    useGameStore.getState().startGame({ difficulty: lobby.difficulty, seats })
+    const expansionsList: Array<'whiteMoon' | 'blackSecret'> = []
+    if (lobby.whiteMoon) expansionsList.push('whiteMoon')
+    if (lobby.blackSecret) expansionsList.push('blackSecret')
+    useGameStore.getState().startGame({
+      difficulty: lobby.difficulty,
+      seats,
+      expansions: expansionsList.length > 0 ? expansionsList : undefined,
+      portalPlacement: lobby.portalPlacement,
+      wuFengPlayer: lobby.blackSecret && lobby.wuFengUuid
+        ? { tag: lobby.members[lobby.wuFengUuid]?.name ?? 'Wu-Feng', uuid: lobby.wuFengUuid }
+        : undefined,
+    })
     const game = useGameStore.getState().game
     if (!game) return
     const startMsg: StartMsg = { gameState: game, seatUuids }
@@ -317,6 +373,14 @@ function makeHandlers(
         const seatUuid = get().seatUuids[color]
         if (seatUuid && seatUuid !== m.byUuid) return
       }
+      // Black Secret: Wu-Feng actions are restricted to the bound Wu-Feng UUID.
+      const game = useGameStore.getState().game
+      const wuFengUuid = game?.config.wuFengPlayer?.uuid
+      const isWuFengAction =
+        action.type === 'wuFengIntervene'
+        || action.type === 'wuFengDemonActions'
+        || action.type === 'wuFengShadowAction'
+      if (isWuFengAction && wuFengUuid && wuFengUuid !== m.byUuid) return
       useGameStore.getState().applyLocal(m.action)
     },
 

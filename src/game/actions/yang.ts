@@ -49,7 +49,10 @@ import { loseQi, unhauntTile } from './hauntingAndQi'
 import { checkLossConditions, checkWin } from './winLose'
 
 export function applyYangAction(state: GameState, action: YangAction): GameState {
-  if (state.phase !== 'yang') throw new Error(`yang action in phase=${state.phase}`)
+  // mysticBarrierChoice fires during phase 'mysticBarrier', not 'yang'.
+  if (action.type !== 'mysticBarrierChoice' && state.phase !== 'yang') {
+    throw new Error(`yang action in phase=${state.phase}`)
+  }
 
   switch (action.type) {
     case 'moveTaoist':
@@ -85,6 +88,9 @@ export function applyYangAction(state: GameState, action: YangAction): GameState
 
     case 'moveSuLing':
       return moveSuLing(state, action.taoistId, action.toBoard, action.toGhostSpaceIdx)
+
+    case 'mysticBarrierChoice':
+      return applyMysticBarrierChoice(state, action.taoistId, action.choice)
 
     case 'endYangPhase':
       return endYangPhase(state)
@@ -303,6 +309,11 @@ function doExorcise(state: GameState, action: Extract<YangAction, { type: 'exorc
   for (const ref of action.ghosts) {
     if (!reachable.has(`${ref.board}/${ref.space}`)) {
       throw new Error('exorcise: target not adjacent to taoist')
+    }
+    // Shadow of Wu-Feng (Black Secret) is invincible.
+    const sp = state.blackSecret?.shadowPos
+    if (sp?.kind === 'ghostSpace' && sp.board === ref.board && sp.ghostSpaceIdx === ref.space) {
+      throw new Error('exorcise: Shadow of Wu-Feng is invincible')
     }
   }
 
@@ -752,53 +763,168 @@ function endYangPhase(state: GameState): GameState {
   s = checkLossConditions(s)
   if (s.phase === 'gameOver') return s
   // White Moon: Mystic Barrier fires before turn advance when all 4
-  // receptacles are filled. Simplified resolution — for each non-neutral
-  // board, exorcise the strongest non-incarnation ghost (no rewards/curses).
-  // Reset receptacles and return crystals to the central reserve.
+  // receptacles are filled. The first board to choose is the one LEFT of the
+  // active player (rulebook). Crystals start at 4 in the Barrier pool.
   if (s.whiteMoon?.mysticBarrierPending) {
-    s = applyMysticBarrier(s)
-    s = checkWin(s)
-    if (s.phase === 'gameOver') return s
+    const activeIdx = s.turnOrder.indexOf(s.activeBoard)
+    // "Left of active" = the seat with the lower index (cyclic). Trystero
+    // tables sit clockwise; left = previous in turnOrder = (activeIdx-1 mod N).
+    const leftIdx = (activeIdx - 1 + s.turnOrder.length) % s.turnOrder.length
+    const firstBoard = s.turnOrder[leftIdx] as TaoistColor
+    return {
+      ...s,
+      phase: 'mysticBarrier',
+      whiteMoon: {
+        ...s.whiteMoon,
+        mysticBarrierBoard: firstBoard,
+        mysticBarrierCrystals: 4,
+        mysticBarrierPending: false,
+      },
+    }
   }
   return advanceTurn(s)
 }
 
-function applyMysticBarrier(state: GameState): GameState {
-  if (!state.whiteMoon) return state
+/**
+ * Apply one Mystic Barrier choice. Advances `mysticBarrierBoard` to the next
+ * non-neutral board (clockwise from the active player). When all 4 boards
+ * have chosen, the phase ends, leftover crystals + receptacle reset happen,
+ * and the turn advances.
+ */
+export function applyMysticBarrierChoice(
+  state: GameState,
+  taoistId: import('../types').TaoistId,
+  choice: Extract<import('../actions').YangAction, { type: 'mysticBarrierChoice' }>['choice'],
+): GameState {
+  if (state.phase !== 'mysticBarrier') throw new Error('mysticBarrierChoice: wrong phase')
+  if (!state.whiteMoon || !state.whiteMoon.mysticBarrierBoard) throw new Error('mysticBarrierChoice: no current board')
+  const me = taoistById(state, taoistId)
+  if (!me.alive) throw new Error('mysticBarrierChoice: dead')
+  const wm = state.whiteMoon
+  const board: TaoistColor = wm.mysticBarrierBoard!
+
   let s = state
-  for (const c of ['red', 'blue', 'green', 'yellow'] as TaoistColor[]) {
-    if (s.taoists[c].isNeutral) continue
-    // Pick the highest-resistance non-incarnation ghost on this board.
-    const board = s.boards[c]
-    let best: { spaceIdx: 0 | 1 | 2; cardId: string; res: number } | null = null
-    for (const i of [0, 1, 2] as const) {
-      const g = board.ghostSpaces[i]
-      if (!g) continue
-      const card = getGhostCard(g.cardId)
-      if (card.isIncarnation) continue
-      const res = Object.values(card.resistance).reduce((a, b) => a + b, 0)
-      if (!best || res > best.res) best = { spaceIdx: i, cardId: g.cardId, res }
+  switch (choice.kind) {
+    case 'skip':
+      break
+    case 'saveVillager': {
+      if ((wm.mysticBarrierCrystals ?? 0) <= 0) throw new Error('mysticBarrierChoice: no crystals left')
+      // Save the top villager from the Portal tile, or any visible villager
+      // if the Portal is empty.
+      const portal = s.village.find((v) => v.hasPortal)
+      let tileId: string | null = null
+      if (portal && portal.villagerStack && portal.villagerStack.length > 0) {
+        tileId = portal.id
+      } else {
+        const anyTile = s.village.find((v) => (v.villagerStack?.length ?? 0) > 0)
+        if (anyTile) tileId = anyTile.id
+      }
+      if (!tileId) {
+        // No one to save — still costs a crystal.
+        s = {
+          ...s,
+          whiteMoon: { ...s.whiteMoon!, mysticBarrierCrystals: (s.whiteMoon!.mysticBarrierCrystals ?? 0) - 1, moonCrystalReserve: (s.whiteMoon!.moonCrystalReserve ?? 0) + 1 },
+        }
+        break
+      }
+      const tile = s.village.find((v) => v.id === tileId)!
+      const top = tile.villagerStack![tile.villagerStack!.length - 1]
+      const newStack = tile.villagerStack!.slice(0, -1)
+      s = {
+        ...s,
+        village: s.village.map((v) => (v.id === tileId ? { ...v, villagerStack: newStack } : v)),
+        whiteMoon: {
+          ...s.whiteMoon!,
+          saved: [...s.whiteMoon!.saved, top],
+          mysticBarrierCrystals: (s.whiteMoon!.mysticBarrierCrystals ?? 0) - 1,
+          moonCrystalReserve: (s.whiteMoon!.moonCrystalReserve ?? 0) + 1,
+        },
+      }
+      // No family-save reward during Mystic Barrier per rulebook (the saved
+      // villager just goes to the Shelter — family rewards apply normally if
+      // the family completes).
+      break
     }
-    if (!best) continue
-    const newSpaces = [...s.boards[c].ghostSpaces] as GameState['boards'][typeof c]['ghostSpaces']
-    newSpaces[best.spaceIdx] = null
+    case 'exorcise': {
+      // Target ghost must be on the current board, NOT an incarnation.
+      if (choice.targetGhost.board !== board) {
+        throw new Error(`mysticBarrierChoice: target ghost not on ${board}`)
+      }
+      const ghost = s.boards[board].ghostSpaces[choice.targetGhost.space]
+      if (!ghost) throw new Error('mysticBarrierChoice: no ghost there')
+      const card = getGhostCard(ghost.cardId)
+      if (card.isIncarnation) throw new Error('mysticBarrierChoice: cannot exorcise incarnation')
+      // Build virtual "spent" entries from crystals (each crystal = wild Tao
+      // of chosen color, taken from the Barrier pool not the actor's pool).
+      const available = wm.mysticBarrierCrystals ?? 0
+      if (choice.crystalsAsColor.length > available) {
+        throw new Error('mysticBarrierChoice: not enough crystals in barrier pool')
+      }
+      const spent = choice.crystalsAsColor.map((c) => ({ from: taoistId, color: c }))
+      const verdict = validateExorcism(s, [choice.targetGhost], choice.diceRoll, spent, { whiteIsWild: true })
+      if (!verdict.ok) {
+        // Failure spends nothing, but Mystic Barrier rule: the dice roll is
+        // a one-shot — we still consume the chosen crystals.
+        s = {
+          ...s,
+          whiteMoon: {
+            ...s.whiteMoon!,
+            mysticBarrierCrystals: available - choice.crystalsAsColor.length,
+            moonCrystalReserve: (s.whiteMoon!.moonCrystalReserve ?? 0) + choice.crystalsAsColor.length,
+          },
+        }
+        break
+      }
+      // Success: discard ghost without right-stone abilities (rulebook).
+      const newSpaces = [...s.boards[board].ghostSpaces] as GameState['boards'][typeof board]['ghostSpaces']
+      newSpaces[choice.targetGhost.space] = null
+      s = {
+        ...s,
+        boards: { ...s.boards, [board]: { ...s.boards[board], ghostSpaces: newSpaces } },
+        discardPile: [...s.discardPile, ghost.cardId],
+        whiteMoon: {
+          ...s.whiteMoon!,
+          mysticBarrierCrystals: available - choice.crystalsAsColor.length,
+          moonCrystalReserve: (s.whiteMoon!.moonCrystalReserve ?? 0) + choice.crystalsAsColor.length,
+        },
+      }
+      break
+    }
+  }
+
+  // Advance to the next board (clockwise from the active player). Skip the
+  // active player's board last; once we've cycled all 4, the phase ends.
+  const order = s.turnOrder
+  const startIdx = order.indexOf(s.activeBoard)
+  // Mystic Barrier proceeds left-of-active, then further left, etc. (CCW).
+  // `visited` = how many boards have completed so far (0 = current is the
+  // first chooser). When visited >= N-1, the current call IS the last board's
+  // choice, so the phase ends after applying it.
+  const curIdx = order.indexOf(board)
+  const visited = ((startIdx - 1 - curIdx) + order.length) % order.length
+  if (visited >= order.length - 1) {
+    // All 4 boards done — return remaining crystals to reserve, clear, advance.
+    const remaining = s.whiteMoon!.mysticBarrierCrystals ?? 0
     s = {
       ...s,
-      boards: { ...s.boards, [c]: { ...s.boards[c], ghostSpaces: newSpaces } },
-      discardPile: [...s.discardPile, best.cardId],
+      phase: 'yin',
+      whiteMoon: {
+        ...s.whiteMoon!,
+        receptacles: { ne: false, nw: false, se: false, sw: false },
+        moonCrystalReserve: (s.whiteMoon!.moonCrystalReserve ?? 0) + remaining,
+        mysticBarrierCrystals: 0,
+        mysticBarrierBoard: null,
+      },
     }
+    return advanceTurn(s)
   }
-  // Return all 4 crystals to reserve, clear receptacles, reset trigger.
-  s = {
+  // Next board = one more counter-clockwise.
+  const nextIdx = (curIdx - 1 + order.length) % order.length
+  const nextBoard = order[nextIdx] as TaoistColor
+  return {
     ...s,
-    whiteMoon: {
-      ...s.whiteMoon!,
-      receptacles: { ne: false, nw: false, se: false, sw: false },
-      moonCrystalReserve: s.whiteMoon!.moonCrystalReserve + 4,
-      mysticBarrierPending: false,
-    },
+    whiteMoon: { ...s.whiteMoon!, mysticBarrierBoard: nextBoard },
   }
-  return s
 }
 
 // Surface only the legality check for callers that want to gate buttons.

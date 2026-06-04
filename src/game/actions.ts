@@ -108,6 +108,25 @@ export type YangAction =
   // event). Only the active player may execute this. Empty haunting icons are
   // ghost-space slots WITHOUT a ghost in them.
   | { type: 'moveSuLing'; taoistId: TaoistId; toBoard: TaoistColor; toGhostSpaceIdx: 0 | 1 | 2 }
+  /**
+   * White Moon Mystic Barrier per-board choice. While `phase === 'mysticBarrier'`,
+   * the active "current board" picks one of:
+   *   - 'saveVillager' — return 1 crystal to the reserve, save the top villager
+   *     from the Portal tile (or any visible villager if Portal is empty).
+   *   - 'exorcise' — roll 4 Tao dice + spend up to 4 crystals (no Tao tokens
+   *     allowed). Discard a chosen ghost on this board if successful.
+   *   - 'skip' — pass on this board.
+   * The engine then advances `mysticBarrierBoard` to the next board (clockwise).
+   * When all 4 boards have chosen, the phase ends and the turn advances.
+   */
+  | {
+      type: 'mysticBarrierChoice'
+      taoistId: TaoistId
+      choice:
+        | { kind: 'saveVillager' }
+        | { kind: 'exorcise'; targetGhost: GhostRef; diceRoll: TaoDieFace[]; crystalsAsColor: Array<TaoColor> }
+        | { kind: 'skip' }
+    }
   | { type: 'endYangPhase'; taoistId: TaoistId }
 
 export type HelpParams =
@@ -131,6 +150,18 @@ export type HelpParams =
    * all targets are discarded silently. Otherwise nothing happens.
    */
   | { kind: 'kungFuSchool'; scope: 'ownBoard' | 'blackGhosts'; diceRoll: TaoDieFace[]; spentTao: Array<{ from: TaoistId; color: TaoColor }>; spentMoonCrystals?: Array<{ from: TaoistId; asColor: TaoColor }> }
+  /**
+   * Black Secret: Calligrapher tile. Pick one or both:
+   *   - swapMantra: discard a chosen Bloody Mantra and replace with a fresh
+   *     one of the SAME level (or a chosen level if more than one available).
+   *   - placeQi: place 1 Qi from the reserve on a Bloody Mantra of choice
+   *     (no Qi loss to a Taoist).
+   */
+  | {
+      kind: 'calligrapher'
+      swapMantra?: { mantraIdx: number }
+      placeQi?: { mantraIdx: number }
+    }
 
 export type YinYangEffect =
   | { kind: 'requestHelpAnywhere'; tile: VillageTileId; params: HelpParams }
@@ -175,7 +206,7 @@ export type Action =
       choice:
         | { kind: 'place'; targetBoard: TaoistColor; targetSpace: 0 | 1 | 2 }
         | { kind: 'summon'; demonId: 'cost2' | 'cost3' | 'cost4'; entranceSquare: 0 | 8 } // 0=NW, 8=SE corners
-        | { kind: 'curse'; level: 1 | 2 | 3 | 4; color: TaoColor }
+        | { kind: 'curse'; level: 1 | 2 | 3 | 4; color: TaoColor; effect?: import('./blackSecretData').CurseEffect }
         | { kind: 'skeleton'; targetBoard: TaoistColor; targetSpace: 0 | 1 | 2 }
     }
   /**
@@ -192,6 +223,24 @@ export type Action =
         | { demonIdx: number; kind: 'move'; toSquare: number }
         | { demonIdx: number; kind: 'search' }
       >
+    }
+  /**
+   * Black Secret: Shadow of Wu-Feng action. Runs after demon actions and
+   * before Yin step 1. The Shadow can:
+   *   - move to any village tile or any ghost-space slot (no adjacency limit)
+   *   - attack the Taoist(s) on its current tile: roll 3 Tao dice; each
+   *     black face removes 1 Qi from a chosen Taoist on that tile.
+   *   - attack a village tile if alone there: roll the curse die / spawn a
+   *     ghost / haunt the tile.
+   * The Shadow is invincible — players cannot exorcise it.
+   */
+  | {
+      type: 'wuFengShadowAction'
+      action:
+        | { kind: 'move'; toBoard?: TaoistColor; toGhostSpaceIdx?: 0 | 1 | 2; toTile?: VillageTileId }
+        | { kind: 'attackTaoists'; diceRoll: TaoDieFace[]; targetTaoists: TaoistColor[] }
+        | { kind: 'attackTile'; curseRoll: CurseFace; arrival?: ArrivingGhost }
+        | { kind: 'pass' }
     }
 
 export type ActionType = Action['type']

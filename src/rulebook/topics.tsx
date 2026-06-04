@@ -630,21 +630,50 @@ TOPICS.push({
 
       <h4 style={heading}>The Calligrapher tile</h4>
       <p>
-        Black Secret swaps Night Watchman's Beat out for the Calligrapher. Currently
-        wired only as a tile-kind placeholder — the rulebook's options (replace a Bloody
-        Mantra with a fresh one of the same level, or place a Qi token on a Mantra of
-        choice) are scheduled for a follow-up.
+        Black Secret swaps Night Watchman's Beat out for the Calligrapher. Acting Taoists
+        may pick one or both of: <strong>swap a Bloody Mantra</strong> (discard a chosen
+        Mantra and replace with a fresh one of the same level), or <strong>place 1 Qi from
+        the reserve on a Mantra of choice</strong> (no Qi loss for any Taoist). This is the
+        manual override for the engine's automatic Qi → lowest-level-Mantra placement.
       </p>
 
-      <h4 style={heading}>What's still simplified</h4>
-      <ul style={{ color: 'var(--ink-muted)', fontSize: 13 }}>
-        <li><strong>Per-demon Wu-Feng UI</strong> — the engine accepts move/search per demon, but the YinPhaseRunner currently auto-searches every demon. A Wu-Feng demon-action dialog is the next polish item.</li>
-        <li><strong>Curse choice within a level</strong> — engine picks the default representative effect; a future build will let Wu-Feng pick from the level's pool.</li>
-        <li><strong>Calligrapher tile action</strong> — placeholder until Mantra-swap and Qi-placement UI lands.</li>
-        <li><strong>Mantra placement choice</strong> — engine routes Qi onto the lowest-level open Mantra; rulebook gives the Taoist the choice.</li>
-        <li><strong>Shadow of Wu-Feng movement</strong> — Shadow enters play on 3 urns but doesn't yet take actions.</li>
-        <li><strong>Online Wu-Feng identity</strong> — local tag only; UUID-tied seat assignment is on the online polish list.</li>
+      <h4 style={heading}>Shadow of Wu-Feng — full mechanics</h4>
+      <p>
+        On the 3rd Urn token, the Shadow enters play on the first empty ghost space. Each
+        Yin prelude Wu-Feng picks one Shadow action:
+      </p>
+      <ul>
+        <li><strong>Pass</strong> — Shadow does nothing.</li>
+        <li><strong>Move</strong> — Shadow may teleport to any village tile or any empty ghost-space slot. Moving onto the Circle of Prayer returns its Tao token to the supply.</li>
+        <li><strong>Attack Taoists</strong> — Shadow must be on a village tile. Wu-Feng rolls 3 Tao dice; each black face = -1 Qi from a chosen Taoist on the same tile.</li>
+        <li><strong>Attack tile</strong> — Shadow must be alone on a tile. Roll the curse die for haunt / Qi loss / Tao loss / no-effect.</li>
       </ul>
+      <p>
+        The Shadow is <strong>invincible</strong> — players cannot exorcise it (the
+        exorcism handler throws). Its presence on a village tile blocks all
+        <em> requestHelp</em> actions on that tile.
+      </p>
+
+      <h4 style={heading}>14 distinct curses</h4>
+      <p>
+        Wu-Feng picks from a per-level curse pool when throwing a curse (5 lvl-1, 4 lvl-2,
+        3 lvl-3, 2 lvl-4 = 14 total). Examples:
+      </p>
+      <ul style={{ fontSize: 12 }}>
+        <li><strong>Lvl 1</strong>: Qi loss, Tao discard, Yin-Yang loss, advance all haunting figures on the active board, return any Circle of Prayer token to supply.</li>
+        <li><strong>Lvl 2</strong>: all players lose 1 Tao, all players lose 1 Qi (lvl 2), lock the active player's board power, set the Inactive Tao marker.</li>
+        <li><strong>Lvl 3</strong>: haunt the first active tile, return inactive Taoists (placeholder Qi tax), all players lose 1 Qi.</li>
+        <li><strong>Lvl 4</strong>: all players lose 1 Qi, haunt two tiles at once.</li>
+      </ul>
+
+      <h4 style={heading}>Online Wu-Feng identity</h4>
+      <p>
+        In online lobbies the host enables Black Secret and a player claims the Wu-Feng
+        role. The Wu-Feng UUID is committed at game start, after which only that peer can
+        dispatch <code>wuFengIntervene</code>, <code>wuFengDemonActions</code>, and{' '}
+        <code>wuFengShadowAction</code> — incoming envelopes from any other UUID are
+        dropped by the network layer.
+      </p>
     </div>
   ),
 })
@@ -776,26 +805,36 @@ TOPICS.push({
         prescribes.
       </p>
 
-      <h4 style={heading}>What's still simplified</h4>
-      <ul style={{ color: 'var(--ink-muted)', fontSize: 13 }}>
-        <li>
-          <strong>Portal placement</strong> — defaults to the central tile (basic-game
-          variant). The rulebook's harder variants place it on peripheral tiles for bonus
-          score; not yet a setting.
-        </li>
-        <li>
-          <strong>Mystic Barrier nuances</strong> — the engine runs a single non-interactive
-          sweep. The rulebook's full Mystic Barrier rotates board-by-board and gives each
-          board a choice (save a villager off the Portal tile vs. roll 4 dice + crystals
-          to clear ghosts). Our resolution favours ghost-clearing across the board.
-        </li>
-        <li>
-          <strong>Death-curse / save-reward sub-choices</strong> — when a curse asks the
-          active player to discard or place a Tao token of choice, the engine picks the
-          first available token deterministically; a UI sub-action for fine-grained choices
-          can land later.
-        </li>
+      <h4 style={heading}>Portal placement variants</h4>
+      <p>
+        New Game's "Portal placement" picker controls the difficulty: <strong>center</strong>
+        (easy, default), <strong>edge</strong> (4 cardinal-edge tiles, medium), or
+        <strong>corner</strong> (4 corners, hard). The portal lands on a random tile from
+        the chosen set; villager stacks fill every non-portal tile.
+      </p>
+
+      <h4 style={heading}>Mystic Barrier — per-board interactive resolution</h4>
+      <p>
+        When the 4th receptacle fills, the engine enters a dedicated{' '}
+        <code>'mysticBarrier'</code> phase. Starting from the board left of the active
+        player and proceeding counter-clockwise, each board picks one of three options:
+      </p>
+      <ul>
+        <li><strong>Save villager</strong> — spend 1 crystal to save the top villager from the Portal tile (or any visible villager if the Portal is empty).</li>
+        <li><strong>Exorcise</strong> — roll 4 Tao dice + spend up to 4 crystals as wild Tao to discard one non-incarnation ghost on the current board (no rewards/curses).</li>
+        <li><strong>Skip</strong> — pass on this board.</li>
       </ul>
+      <p>
+        After all 4 boards have chosen, leftover crystals return to the central reserve,
+        the four receptacles reset, and the turn advances.
+      </p>
+
+      <p style={{ color: 'var(--ink-muted)', fontSize: 13, marginTop: 12 }}>
+        Tao-color sub-choices for death-curse / save-reward "discard 1 Tao of choice" are
+        resolved deterministically by the engine (first non-empty color in black→yellow
+        →green→blue→red order). The Calligrapher tile exposes manual Mantra Qi placement
+        when Black Secret is also active.
+      </p>
     </div>
   ),
 })

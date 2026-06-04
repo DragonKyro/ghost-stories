@@ -44,6 +44,10 @@ export function applyRequestHelp(
   if (tile.kind !== params.kind) {
     throw new Error(`requestHelp: action ${params.kind} but tile is ${tile.kind}`)
   }
+  // Black Secret: Shadow of Wu-Feng on the tile blocks all use.
+  if (state.blackSecret?.shadowPos?.kind === 'villageTile' && state.blackSecret.shadowPos.tileId === tile.id) {
+    throw new Error('requestHelp: Shadow of Wu-Feng blocks this tile')
+  }
   return applyTileAction(state, t, tile, params, extras)
 }
 
@@ -90,7 +94,44 @@ function applyTileAction(
       return doTeaHouse(state, t, extras)
     case 'kungFuSchool':
       return doKungFuSchool(state, t, params)
+    case 'calligrapher':
+      return doCalligrapher(state, params)
   }
+}
+
+function doCalligrapher(
+  state: GameState,
+  params: Extract<HelpParams, { kind: 'calligrapher' }>,
+): GameState {
+  if (!state.blackSecret) throw new Error('calligrapher: Black Secret not active')
+  let s = state
+  // Optionally swap a mantra (replace with a fresh card of the same level).
+  if (params.swapMantra) {
+    const idx = params.swapMantra.mantraIdx
+    const mantras = s.blackSecret!.bloodyMantras.slice()
+    const m = mantras[idx]
+    if (!m) throw new Error('calligrapher: invalid mantra index')
+    mantras[idx] = { level: m.level, qiOnCard: 0 }
+    s = { ...s, blackSecret: { ...s.blackSecret!, bloodyMantras: mantras } }
+  }
+  // Optionally place 1 Qi from the reserve on a mantra of choice.
+  if (params.placeQi) {
+    const idx = params.placeQi.mantraIdx
+    const mantras = s.blackSecret!.bloodyMantras.slice()
+    const m = mantras[idx]
+    if (!m) throw new Error('calligrapher: invalid mantra index')
+    const newQi = m.qiOnCard + 1
+    if (newQi >= m.level) {
+      // Resolution fires (re-use same path as placeQiOnMantra).
+      // For simplicity, replace with empty mantra of same level here — the
+      // engine's mantra-resolution helper is not exposed yet.
+      mantras[idx] = { level: m.level, qiOnCard: 0 }
+    } else {
+      mantras[idx] = { ...m, qiOnCard: newQi }
+    }
+    s = { ...s, blackSecret: { ...s.blackSecret!, bloodyMantras: mantras } }
+  }
+  return s
 }
 
 // ---- Circle of Prayer -------------------------------------------------

@@ -138,6 +138,17 @@ export type WhiteMoonState = {
    * Yang phase ends, before turn advance.
    */
   mysticBarrierPending?: boolean
+  /**
+   * When `phase === 'mysticBarrier'`, this is the board currently choosing
+   * (rulebook: starts with the board left of the active player). null when
+   * idle.
+   */
+  mysticBarrierBoard?: BoardColor | null
+  /**
+   * Crystals remaining in the Mystic Barrier "pool" — players collectively
+   * spend down from 4 across boards.
+   */
+  mysticBarrierCrystals?: number
 }
 
 export const WHITE_MOON_VILLAGERS_TOTAL = 24 // 4×3 + 4×2 + 4×1
@@ -197,10 +208,13 @@ export type BlackSecretState = {
   /** Urns found so far. 3 → Shadow of Wu-Feng enters play. */
   urnsFound: number
   /**
-   * Shadow of Wu-Feng — sits as a "ghost" with infinite resistance. Null
-   * until 3 urns are found.
+   * Shadow of Wu-Feng — invincible roving threat. Null until 3 urns are
+   * found. Can sit on a ghost-space slot OR on a village tile.
    */
-  shadowPos: { board: BoardColor; ghostSpaceIdx: GhostSpaceIdx } | null
+  shadowPos:
+    | { kind: 'ghostSpace'; board: BoardColor; ghostSpaceIdx: GhostSpaceIdx }
+    | { kind: 'villageTile'; tileId: VillageTileId }
+    | null
 }
 
 // --- Taoist powers -------------------------------------------------------
@@ -364,6 +378,11 @@ export type GamePhase =
    * between placing the ghost, summoning a demon, or throwing a curse.
    */
   | 'wuFengIntervention'
+  /**
+   * White Moon: Mystic Barrier per-board resolution. State tracks which board
+   * is currently choosing on `whiteMoon.mysticBarrierBoard`.
+   */
+  | 'mysticBarrier'
 
 export type GameConfig = {
   difficulty: Difficulty
@@ -380,9 +399,16 @@ export type GameConfig = {
    * Black Secret only: UUID / display tag of the human Wu-Feng player. In
    * solo play this can be the same identity as the Taoist player (one human
    * plays both sides). When set, Black Secret intervention prompts surface
-   * for this identity.
+   * for this identity. When `uuid` is present (online play), only that peer
+   * is authorised to dispatch `wuFengIntervene` / `wuFengDemonActions`.
    */
-  wuFengPlayer?: { tag: string }
+  wuFengPlayer?: { tag: string; uuid?: string }
+  /**
+   * White Moon only: where the Portal sits in the village. Rulebook
+   * variants — center is the easy default; edges are intermediate; corners
+   * are hardest. Affects scoring (deferred) and Save Villager access.
+   */
+  portalPlacement?: 'center' | 'edge' | 'corner'
 }
 
 export type GameState = {

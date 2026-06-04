@@ -80,7 +80,7 @@ export function CatacombsPanel({ game }: { game: GameState }) {
         Catacomb deck: {bs.catacombDeck.length}
         {bs.shadowPos && (
           <div style={{ color: '#c1392b', fontWeight: 600 }}>
-            ⚠ Shadow of Wu-Feng in play at {bs.shadowPos.board}/{bs.shadowPos.ghostSpaceIdx}
+            ⚠ Shadow of Wu-Feng at {bs.shadowPos.kind === 'villageTile' ? `tile ${bs.shadowPos.tileId}` : `${bs.shadowPos.board}/${bs.shadowPos.ghostSpaceIdx}`}
           </div>
         )}
       </div>

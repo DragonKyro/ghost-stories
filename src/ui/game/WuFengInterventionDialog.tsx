@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { useGameStore } from '@/store/gameStore'
 import { getGhostCard } from '@/game/ghostCatalogue'
 import { availableDemonOptions, legalCurseColors, maxLegalCurseLevel } from '@/game/actions/blackSecret'
+import { CURSE_POOL_BY_LEVEL, type CurseEffect } from '@/game/blackSecretData'
 import type { CurseLevel, GameState, TaoColor, TaoistColor } from '@/game/types'
 
 const TAO_HEX: Record<TaoColor, string> = {
@@ -179,7 +180,10 @@ function CurseSection({ game }: { game: GameState }) {
   const maxLevel = maxLegalCurseLevel(game)
   const [color, setColor] = useState<TaoColor>(colors[0])
   const [level, setLevel] = useState<CurseLevel>(1)
-  const qiCost = level <= 2 ? 1 : level === 3 ? 2 : 3
+  const pool = CURSE_POOL_BY_LEVEL[level]
+  const [effect, setEffect] = useState<CurseEffect>(pool[0])
+  // Reset effect when level changes (since pool changes).
+  if (!pool.includes(effect)) setEffect(pool[0])
   return (
     <Section title="③ Throw a curse">
       <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
@@ -210,13 +214,28 @@ function CurseSection({ game }: { game: GameState }) {
           </button>
         ))}
       </div>
-      <div style={{ fontSize: 11, color: 'var(--ink-muted)' }}>
-        Active player loses {qiCost} Qi (simplified curse effect — see rulebook for what's deferred).
+      <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginTop: 4 }}>
+        Pick curse from the level-{level} pool:
+      </div>
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+        {pool.map((e) => (
+          <button
+            key={e}
+            onClick={() => setEffect(e)}
+            style={{
+              border: effect === e ? '2px solid var(--accent)' : '1px solid var(--rule)',
+              fontSize: 10,
+            }}
+            title={e}
+          >
+            {e}
+          </button>
+        ))}
       </div>
       <button
         style={{ ...primary, marginTop: 8 }}
         disabled={colors.length === 0}
-        onClick={() => dispatch({ type: 'wuFengIntervene', choice: { kind: 'curse', level, color } })}
+        onClick={() => dispatch({ type: 'wuFengIntervene', choice: { kind: 'curse', level, color, effect } })}
       >
         Curse
       </button>

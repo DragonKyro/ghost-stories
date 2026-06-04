@@ -253,6 +253,135 @@ describe('Black Secret: Blood Brothers', () => {
   })
 })
 
+describe('Black Secret: Shadow of Wu-Feng', () => {
+  it('is invincible (exorcism throws)', async () => {
+    let s = fresh()
+    s = { ...s, phase: 'yang' }
+    const active = s.turnOrder[s.turnIndex] as TaoistColor
+    // Find a village tile that's adjacent to board/space 0.
+    const { reachableGhostSpaces } = await import('@/game/helpers')
+    const reachTile = s.village.find((v) => {
+      const reach = reachableGhostSpaces(s, v.id)
+      return reach.some((r) => r.board === active && r.space === 0)
+    })!
+    // Place Shadow on a ghost-space slot and move actor to the reaching tile.
+    s = {
+      ...s,
+      taoists: { ...s.taoists, [active]: { ...s.taoists[active], tile: reachTile.id } },
+      blackSecret: { ...s.blackSecret!, shadowPos: { kind: 'ghostSpace', board: active, ghostSpaceIdx: 0 } },
+      // Plant a "ghost" placeholder so the targeting passes the slot-occupied check.
+      boards: {
+        ...s.boards,
+        [active]: {
+          ...s.boards[active],
+          ghostSpaces: [{ cardId: 'wm-ghost-1', hauntingFigurePos: 'card', hasMantra: false }, null, null] as typeof s.boards[typeof active]['ghostSpaces'],
+        },
+      },
+    }
+    // Try to exorcise the Shadow slot.
+    expect(() =>
+      applyAction(s, {
+        type: 'exorcise',
+        taoistId: `taoist-${active}`,
+        ghosts: [{ board: active, space: 0 }],
+        diceRoll: ['red', 'red', 'red'],
+        spentTao: [],
+      } as Action),
+    ).toThrow(/Shadow/)
+  })
+
+  it('blocks tile use when on a village tile', () => {
+    let s = fresh()
+    s = { ...s, phase: 'yang' }
+    const active = s.turnOrder[s.turnIndex] as TaoistColor
+    const t = s.taoists[active]
+    const tile = s.village.find((v) => v.id === t.tile)!
+    s = {
+      ...s,
+      blackSecret: { ...s.blackSecret!, shadowPos: { kind: 'villageTile', tileId: tile.id } },
+    }
+    // Try to use the tile.
+    expect(() =>
+      applyAction(s, {
+        type: 'requestHelp',
+        taoistId: `taoist-${active}`,
+        params: { kind: tile.kind } as any,
+      } as Action),
+    ).toThrow(/Shadow/)
+  })
+})
+
+describe('Black Secret: pick-from-pool curses', () => {
+  it('Wu-Feng picks lvl 1 hauntActivePlayersBoardLine effect', () => {
+    let s = fresh()
+    const { payload } = buildYinPayload(s)
+    if (getGhostCard(s.ghostDeck[0]).isIncarnation) return
+    s = applyAction(s, { type: 'startTurn', payload })
+    const card = getGhostCard(s.pendingArrivalCardId!)
+    const color = card.color === 'black' ? 'red' : card.color
+    const active = s.turnOrder[s.turnIndex] as TaoistColor
+    // Plant a Haunter ghost so the effect has something to advance.
+    s = {
+      ...s,
+      boards: {
+        ...s.boards,
+        [active]: {
+          ...s.boards[active],
+          ghostSpaces: [{ cardId: 'ghost-red-1', hauntingFigurePos: 'card', hasMantra: false }, null, null] as typeof s.boards[typeof active]['ghostSpaces'],
+        },
+      },
+    }
+    s = applyAction(s, {
+      type: 'wuFengIntervene',
+      choice: { kind: 'curse', level: 1, color, effect: 'hauntActivePlayersBoardLine' },
+    } as Action)
+    // Haunting figure advanced from card → stone1.
+    expect(s.boards[active].ghostSpaces[0]?.hauntingFigurePos).toBe('stone1')
+  })
+})
+
+describe('Black Secret: Calligrapher tile', () => {
+  it('placeQi adds 1 Qi to the chosen mantra', () => {
+    let s = fresh()
+    s = { ...s, phase: 'yang' }
+    const active = s.turnOrder[s.turnIndex] as TaoistColor
+    // Move actor onto Calligrapher tile.
+    const cal = s.village.find((v) => v.kind === 'calligrapher')!
+    s = {
+      ...s,
+      taoists: { ...s.taoists, [active]: { ...s.taoists[active], tile: cal.id } },
+    }
+    const beforeQi = s.blackSecret!.bloodyMantras[0].qiOnCard
+    s = applyAction(s, {
+      type: 'requestHelp',
+      taoistId: `taoist-${active}`,
+      params: { kind: 'calligrapher', placeQi: { mantraIdx: 0 } },
+    } as Action)
+    expect(s.blackSecret!.bloodyMantras[0].qiOnCard).toBe(beforeQi + 1)
+  })
+
+  it('swapMantra resets a mantra\'s Qi counter', () => {
+    let s = fresh()
+    s = { ...s, phase: 'yang' }
+    const active = s.turnOrder[s.turnIndex] as TaoistColor
+    const cal = s.village.find((v) => v.kind === 'calligrapher')!
+    s = {
+      ...s,
+      taoists: { ...s.taoists, [active]: { ...s.taoists[active], tile: cal.id } },
+      blackSecret: {
+        ...s.blackSecret!,
+        bloodyMantras: s.blackSecret!.bloodyMantras.map((m, i) => i === 0 ? { ...m, qiOnCard: 1 } : m),
+      },
+    }
+    s = applyAction(s, {
+      type: 'requestHelp',
+      taoistId: `taoist-${active}`,
+      params: { kind: 'calligrapher', swapMantra: { mantraIdx: 0 } },
+    } as Action)
+    expect(s.blackSecret!.bloodyMantras[0].qiOnCard).toBe(0)
+  })
+})
+
 describe('Black Secret + White Moon: tile pool', () => {
   it('does not include Night Watchman when either expansion is on', () => {
     const wmOnly = createGame({ ...cfg, expansions: ['whiteMoon'] })

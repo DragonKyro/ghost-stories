@@ -15,7 +15,7 @@ import { applyYangAction } from './actions/yang'
 import { createGame } from './setup'
 import { resolveArrival } from './actions/yin'
 import { checkLossConditions, checkWin } from './actions/winLose'
-import { applyWuFengIntervene, applyWuFengDemonActions } from './actions/blackSecret'
+import { applyWuFengIntervene, applyWuFengDemonActions, applyShadowAction } from './actions/blackSecret'
 
 export { createGame } from './setup'
 export type { Action } from './actions'
@@ -47,6 +47,9 @@ export function applyAction(state: GameState, action: Action): GameState {
     case 'wuFengDemonActions':
       return applyWuFengDemonActions(state, action.moves)
 
+    case 'wuFengShadowAction':
+      return applyShadowAction(state, action.action)
+
     case 'moveTaoist':
     case 'requestHelp':
     case 'exorcise':
@@ -57,6 +60,7 @@ export function applyAction(state: GameState, action: Action): GameState {
     case 'saveVillager':
     case 'placeMoonCrystal':
     case 'moveSuLing':
+    case 'mysticBarrierChoice':
     case 'endYangPhase':
       return applyYangAction(state, action)
   }
