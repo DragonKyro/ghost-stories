@@ -354,6 +354,84 @@ const BASE_GHOSTS: GhostCardDef[] = [
   },
 ]
 
+// ---- 10 White Moon ghost cards ----------------------------------------
+//
+// The expansion brings new abilities (Devourer) and Su-Ling interactions.
+// These are added to the deck only when `whiteMoon` is an active expansion.
+
+const WHITE_MOON_GHOSTS: GhostCardDef[] = [
+  {
+    id: 'wm-ghost-1',
+    name: 'Shroud of Yi',
+    color: 'red',
+    resistance: res({ red: 2, black: 1 }),
+    abilities: { left: [], center: [{ kind: 'devourer' }], right: [] },
+  },
+  {
+    id: 'wm-ghost-2',
+    name: 'Bone Whisperer',
+    color: 'green',
+    resistance: res({ green: 2, black: 1 }),
+    abilities: { left: [], center: [{ kind: 'devourer' }], right: [] },
+  },
+  {
+    id: 'wm-ghost-3',
+    name: 'Tide Eater',
+    color: 'blue',
+    resistance: res({ blue: 2, black: 1 }),
+    abilities: { left: [], center: [{ kind: 'devourer' }], right: [] },
+  },
+  {
+    id: 'wm-ghost-4',
+    name: 'Marsh Devourer',
+    color: 'yellow',
+    resistance: res({ yellow: 2, black: 1 }),
+    abilities: { left: [], center: [{ kind: 'devourer' }], right: [] },
+  },
+  {
+    id: 'wm-ghost-5',
+    name: 'Hollow Reaper',
+    color: 'black',
+    resistance: res({ red: 1, blue: 1, black: 1 }),
+    abilities: { left: [], center: [{ kind: 'devourer' }, { kind: 'haunter' }], right: [] },
+  },
+  {
+    id: 'wm-ghost-6',
+    name: 'Wind Caller',
+    color: 'red',
+    resistance: res({ red: 2 }),
+    abilities: { left: [{ kind: 'arriveHauntTile' }], center: [{ kind: 'haunter' }], right: [] },
+  },
+  {
+    id: 'wm-ghost-7',
+    name: 'Black Widow',
+    color: 'black',
+    resistance: res({ black: 3 }),
+    abilities: { left: [], center: [{ kind: 'tormentor' }], right: [{ kind: 'rewardQiOrYinYang' }] },
+  },
+  {
+    id: 'wm-ghost-8',
+    name: 'Lantern Cult',
+    color: 'green',
+    resistance: res({ green: 2, blue: 1 }),
+    abilities: { left: [], center: [{ kind: 'devourer' }], right: [{ kind: 'rewardTaoOne' }] },
+  },
+  {
+    id: 'wm-ghost-9',
+    name: 'Shapeless Evil',
+    color: 'yellow',
+    resistance: res({ yellow: 3 }),
+    abilities: { left: [{ kind: 'arriveHauntTile' }], center: [{ kind: 'haunter' }], right: [] },
+  },
+  {
+    id: 'wm-ghost-10',
+    name: 'Crimson Hand',
+    color: 'red',
+    resistance: res({ red: 1, green: 1, blue: 1 }),
+    abilities: { left: [], center: [{ kind: 'devourer' }, { kind: 'tormentor' }], right: [] },
+  },
+]
+
 // ---- 9 Wu-Feng incarnations -------------------------------------------
 
 const INCARNATIONS: GhostCardDef[] = [
@@ -488,7 +566,7 @@ const INCARNATIONS: GhostCardDef[] = [
 ]
 
 const ALL: Map<string, GhostCardDef> = new Map()
-for (const g of [...BASE_GHOSTS, ...INCARNATIONS]) {
+for (const g of [...BASE_GHOSTS, ...WHITE_MOON_GHOSTS, ...INCARNATIONS]) {
   if (ALL.has(g.id)) throw new Error(`duplicate ghost id: ${g.id}`)
   ALL.set(g.id, g)
 }
@@ -501,6 +579,10 @@ export function getGhostCard(id: string): GhostCardDef {
 
 export function allBaseGhostIds(): string[] {
   return BASE_GHOSTS.map((g) => g.id)
+}
+
+export function allWhiteMoonGhostIds(): string[] {
+  return WHITE_MOON_GHOSTS.map((g) => g.id)
 }
 
 export function incarnationCardId(id: WuFengIncarnationId): string {

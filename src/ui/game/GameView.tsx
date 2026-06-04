@@ -281,6 +281,16 @@ function ConnectionStatus() {
   )
 }
 
+function lossReasonText(reason: string): string {
+  switch (reason) {
+    case 'allDead': return 'All Taoists are dead.'
+    case 'thirdHaunting': return 'A 3rd village tile was haunted.'
+    case 'deckExhausted': return 'The ghost deck ran out while a Wu-Feng incarnation remained.'
+    case 'villagerToll': return '12 villagers died.'
+    default: return `Reason: ${reason}`
+  }
+}
+
 function GameOverOverlay({ game }: { game: GameState }) {
   const setUiMode = useGameStore((s) => s.setUiMode)
   return (
@@ -295,7 +305,7 @@ function GameOverOverlay({ game }: { game: GameState }) {
           {game.outcome?.kind === 'win' ? '★ Victory' : '✗ Defeat'}
         </h2>
         <p style={{ color: 'var(--ink-muted)' }}>
-          {game.outcome?.kind === 'loss' && `Reason: ${game.outcome.reason}`}
+          {game.outcome?.kind === 'loss' && lossReasonText(game.outcome.reason)}
           {game.outcome?.kind === 'win' && 'The last incarnation of Wu-Feng is exorcised.'}
         </p>
         <button style={{ marginTop: 16, padding: '12px 24px' }} onClick={() => setUiMode('mainMenu')}>

@@ -47,6 +47,8 @@ export function applyAction(state: GameState, action: Action): GameState {
     case 'useYinYang':
     case 'usePower':
     case 'spendPowerToken':
+    case 'saveVillager':
+    case 'placeMoonCrystal':
     case 'endYangPhase':
       return applyYangAction(state, action)
   }

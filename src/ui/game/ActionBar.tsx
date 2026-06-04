@@ -25,6 +25,13 @@ export function ActionBar({ game }: { game: GameState }) {
       game.boards[activeColor].activePowerId,
     )
 
+  // White Moon: save-villager available when standing on the portal with villagers there.
+  const onPortal = (() => {
+    if (!game.whiteMoon) return false
+    const tile = game.village.find((v) => v.id === active.tile)
+    return !!tile?.hasPortal && !!tile.villagerStack && tile.villagerStack.length > 0 && !tile.haunted
+  })()
+
   return (
     <div style={{
       display: 'flex',
@@ -68,6 +75,15 @@ export function ActionBar({ game }: { game: GameState }) {
       <button disabled={!active.yinYang} onClick={() => setOverlay({ kind: 'yinYang' })}>
         Yin-Yang
       </button>
+
+      {onPortal && (
+        <button
+          onClick={() => dispatch({ type: 'saveVillager', taoistId })}
+          style={{ background: '#2f8f5d', color: '#f4e9d6' }}
+        >
+          🌙 Save Villager
+        </button>
+      )}
 
       {powerCanInvoke && (
         <button onClick={() => {

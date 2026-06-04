@@ -5,11 +5,13 @@
 // selection, board/side assignment) routes through the seeded RNG so two peers
 // with the same config + seed reduce identically.
 
-import { allBaseGhostIds, incarnationCardId, allIncarnationIds } from './ghostCatalogue'
+import { allBaseGhostIds, allWhiteMoonGhostIds, incarnationCardId, allIncarnationIds } from './ghostCatalogue'
 import { nextInt, seedRng, shuffle, type RngState } from './rng'
 import {
   ALL_VILLAGE_TILE_KINDS,
   TAOIST_POWERS_BY_COLOR,
+  VILLAGER_FAMILIES_BY_SIZE,
+  WHITE_MOON_BASIC_TILE_SET,
   type BoardColor,
   type BoardSide,
   type Difficulty,
@@ -21,6 +23,8 @@ import {
   type TaoistState,
   type VillageTile,
   type VillageTileId,
+  type VillagerToken,
+  type WhiteMoonState,
   type WuFengIncarnationId,
 } from './types'
 
@@ -62,9 +66,12 @@ const TAO_SUPPLY_INITIAL: Record<TaoColor, number> = {
 
 const tileId = (col: number, row: number): VillageTileId => `tile-${col}-${row}` as VillageTileId
 
-function buildVillage(rng: RngState): { rng: RngState; village: VillageTile[] } {
+function buildVillage(
+  rng: RngState,
+  tilePool: typeof ALL_VILLAGE_TILE_KINDS,
+): { rng: RngState; village: VillageTile[] } {
   // Randomize the 9 tile kinds across the 3x3.
-  const [rng2, kinds] = shuffle(rng, ALL_VILLAGE_TILE_KINDS)
+  const [rng2, kinds] = shuffle(rng, tilePool)
   const village: VillageTile[] = []
   for (let row = 0; row < 3; row++) {
     for (let col = 0; col < 3; col++) {
@@ -174,10 +181,12 @@ function findCentralTile(village: VillageTile[]): VillageTileId {
 
 // Build the ghost deck. Rules:
 //  - Shuffle all base ghosts (subset of the catalogue's 45).
-//  - 1-3 player mode: remove 5 cards per missing player (unseen).
+//  - White Moon: add the 10 expansion ghost cards, then remove 10 random cards
+//    (1-3p: remove additional 5/10/15 per missing player as in the rulebook).
+//  - 1-3 player mode (base only): remove 5 cards per missing player (unseen).
 //  - Insert N incarnations (chosen by difficulty) into the bottom region:
 //      - Normal/Initiation: 1 incarnation, exactly 10 cards from the bottom.
-//      - Nightmare/Hell: 4 incarnations (3 if <4 players), spaced every 10
+//      - Nightmare/Hell: 4 incarnations (3 if 1-2 players), spaced every 10
 //        cards from the bottom.
 function buildDeck(
   rng: RngState,
@@ -185,16 +194,28 @@ function buildDeck(
 ): { rng: RngState; deck: string[] } {
   const playerCount = Object.values(config.seats).filter(Boolean).length
   const missing = 4 - playerCount
+  const whiteMoon = config.expansions?.includes('whiteMoon') ?? false
 
   // Pick incarnations (shuffle, then take N).
   const [r1, allIncs] = shuffle(rng, allIncarnationIds())
   const wantIncs = incarnationCount(config.difficulty, playerCount)
   const chosen: WuFengIncarnationId[] = allIncs.slice(0, wantIncs)
 
-  // Shuffle base ghosts.
-  const [r2, base] = shuffle(r1, allBaseGhostIds())
-  // Remove 5 per missing player (without looking).
-  const trimmed = base.slice(0, base.length - 5 * missing)
+  // Shuffle base ghosts, plus White Moon ghosts if active.
+  const pool = whiteMoon ? [...allBaseGhostIds(), ...allWhiteMoonGhostIds()] : allBaseGhostIds()
+  const [r2, shuffled] = shuffle(r1, pool)
+
+  // White Moon trims:
+  //   - Remove 10 random cards (per rulebook setup).
+  //   - Then 1/2/3p: remove an extra 5 per missing player just like base.
+  // Base mode keeps the 5-per-missing-player trim.
+  let trimAmount: number
+  if (whiteMoon) {
+    trimAmount = 10 + 5 * missing
+  } else {
+    trimAmount = 5 * missing
+  }
+  const trimmed = shuffled.slice(0, shuffled.length - trimAmount)
 
   // Insert incarnations at positions 10, 20, 30, ... from the bottom.
   // Top of deck = index 0 (we draw from index 0).
@@ -221,13 +242,45 @@ export function createGame(config: GameConfig): GameState {
     throw new Error('createGame: at least one seat must be human or ai')
   }
 
+  const whiteMoon = config.expansions?.includes('whiteMoon') ?? false
   const seed = config.rngSeed ?? Math.floor(Math.random() * 0x7fffffff)
   let rng = seedRng(seed)
 
-  const v = buildVillage(rng)
+  // White Moon basic game replaces Night Watchman with Kung-Fu School.
+  const tilePool = whiteMoon ? WHITE_MOON_BASIC_TILE_SET : ALL_VILLAGE_TILE_KINDS
+  const v = buildVillage(rng, tilePool)
   rng = v.rng
 
   const central = findCentralTile(v.village)
+
+  // White Moon: portal sits on the central tile (rulebook default), and 8
+  // stacks of 3 villagers fill the 8 non-central tiles. Only the top villager
+  // is visible.
+  let village = v.village
+  let whiteMoonState: WhiteMoonState | undefined
+  if (whiteMoon) {
+    const stackResult = buildVillagerStacks(rng)
+    rng = stackResult.rng
+    village = village.map((t) => {
+      if (t.id === central) {
+        return { ...t, hasPortal: true }
+      }
+      const stackIdx = (t.coord.row * 3 + t.coord.col)
+      // 8 non-central tiles map to stack indices 0..7 (skip center=4)
+      const mapping = [0, 1, 2, 3, /* center */ -1, 4, 5, 6, 7]
+      const sIdx = mapping[stackIdx]
+      if (sIdx < 0) return t
+      return { ...t, villagerStack: stackResult.stacks[sIdx] }
+    })
+    whiteMoonState = {
+      saved: [],
+      dead: [],
+      moonCrystalReserve: 12,
+      moonCrystalsByTaoist: { red: 0, blue: 0, green: 0, yellow: 0 },
+      receptacles: { ne: false, nw: false, se: false, sw: false },
+      suLingPos: null,
+    }
+  }
 
   const b = buildBoards(rng, config.difficulty)
   rng = b.rng
@@ -256,7 +309,7 @@ export function createGame(config: GameConfig): GameState {
     phase: 'yin', // first turn starts at Yin
     turnIndex: TURN_ORDER.indexOf(firstColor),
     turnOrder: [...TURN_ORDER],
-    village: v.village,
+    village,
     boards: b.boards,
     taoists,
     ghostDeck: d.deck,
@@ -268,7 +321,33 @@ export function createGame(config: GameConfig): GameState {
     inactiveTaoMarker: false,
     activeBoard: firstColor,
     rngState: rng,
+    whiteMoon: whiteMoonState,
   }
+}
+
+/**
+ * Build 8 stacks of villagers, randomized.
+ *
+ * Villager pool: 12 families × (3/2/1 members) = 24 tokens.
+ * 8 stacks × 3 = 24 slots.
+ */
+function buildVillagerStacks(rng: RngState): { rng: RngState; stacks: VillagerToken[][] } {
+  const all: VillagerToken[] = []
+  for (const family of VILLAGER_FAMILIES_BY_SIZE[3]) {
+    for (let i = 0; i < 3; i++) all.push({ family, index: i })
+  }
+  for (const family of VILLAGER_FAMILIES_BY_SIZE[2]) {
+    for (let i = 0; i < 2; i++) all.push({ family, index: i })
+  }
+  for (const family of VILLAGER_FAMILIES_BY_SIZE[1]) {
+    all.push({ family, index: 0 })
+  }
+  const [rng2, shuffled] = shuffle(rng, all)
+  const stacks: VillagerToken[][] = []
+  for (let s = 0; s < 8; s++) {
+    stacks.push(shuffled.slice(s * 3, s * 3 + 3))
+  }
+  return { rng: rng2, stacks }
 }
 
 // Re-exported so engine.ts doesn't have to know about setup.ts internals.

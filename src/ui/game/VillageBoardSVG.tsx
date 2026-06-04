@@ -77,6 +77,44 @@ export function VillageBoardSVG({ game, onTileClick, highlightTiles, highlightCo
                 }}
               />
             )}
+            {/* Portal marker (White Moon) */}
+            {tile.hasPortal && (
+              <div
+                title="Portal"
+                style={{
+                  position: 'absolute',
+                  top: 4,
+                  left: 4,
+                  fontSize: 14,
+                }}
+              >
+                🌙
+              </div>
+            )}
+            {/* Villager badge — top of stack with family + size */}
+            {tile.villagerStack && tile.villagerStack.length > 0 && (() => {
+              const top = tile.villagerStack[tile.villagerStack.length - 1]
+              const remaining = tile.villagerStack.length
+              return (
+                <div
+                  title={`Villager: ${top.family} (${remaining} on tile)`}
+                  style={{
+                    position: 'absolute',
+                    top: 4,
+                    right: 4,
+                    padding: '1px 5px',
+                    background: '#2f8f5d',
+                    color: '#f4e9d6',
+                    fontSize: 9,
+                    borderRadius: 8,
+                    border: '1px solid #f4e9d6',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  👤 {top.family} ×{remaining}
+                </div>
+              )
+            })()}
             {/* Taoist figures on this tile */}
             <div style={{ position: 'absolute', top: 18, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: -8, pointerEvents: 'none' }}>
               {(byTile[tile.id] ?? []).map((color, i) => (

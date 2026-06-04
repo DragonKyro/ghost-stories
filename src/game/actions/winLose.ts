@@ -2,7 +2,7 @@
 // the conditions.
 
 import { getGhostCard } from '../ghostCatalogue'
-import type { GameState, TaoistColor } from '../types'
+import { WHITE_MOON_MAX_VILLAGER_DEATHS, type GameState, type TaoistColor } from '../types'
 
 export function checkLossConditions(state: GameState): GameState {
   if (state.phase === 'gameOver') return state
@@ -19,6 +19,11 @@ export function checkLossConditions(state: GameState): GameState {
   // 2) Third tile haunted.
   if (state.hauntedCount >= 3) {
     return { ...state, phase: 'gameOver', outcome: { kind: 'loss', reason: 'thirdHaunting' } }
+  }
+
+  // 2b) White Moon: 12th villager dead.
+  if (state.whiteMoon && state.whiteMoon.dead.length >= WHITE_MOON_MAX_VILLAGER_DEATHS) {
+    return { ...state, phase: 'gameOver', outcome: { kind: 'loss', reason: 'villagerToll' } }
   }
 
   // 3) Deck exhausted while an incarnation is still in play or in the deck.

@@ -48,6 +48,7 @@ export type VillageTileKind =
   | 'nightWatchmanBeat'
   | 'pavilionOfHeavenlyWind'
   | 'teaHouse'
+  | 'kungFuSchool' // White Moon
 
 export const ALL_VILLAGE_TILE_KINDS: VillageTileKind[] = [
   'circleOfPrayer',
@@ -61,6 +62,19 @@ export const ALL_VILLAGE_TILE_KINDS: VillageTileKind[] = [
   'teaHouse',
 ]
 
+/** White Moon basic game replaces Night Watchman's Beat with Kung-Fu School. */
+export const WHITE_MOON_BASIC_TILE_SET: VillageTileKind[] = [
+  'circleOfPrayer',
+  'buddhistTemple',
+  'cemetery',
+  'taoistAltar',
+  'herbalistShop',
+  'sorcerersHut',
+  'kungFuSchool',
+  'pavilionOfHeavenlyWind',
+  'teaHouse',
+]
+
 export type VillageTile = {
   id: VillageTileId
   coord: VillageCoord
@@ -68,7 +82,57 @@ export type VillageTile = {
   haunted: boolean
   // Tile-specific state. circleOfPrayer holds an optional Tao token (`circleToken`).
   circleToken?: TaoColor | null
+  /**
+   * White Moon: stack of villagers (top-of-stack last). Only the top villager
+   * is "visible" / acts as the haunting-shield. Empty in base game.
+   */
+  villagerStack?: VillagerToken[]
+  /**
+   * White Moon: the portal sits on one village tile, enabling the Save
+   * Villager action there.
+   */
+  hasPortal?: boolean
 }
+
+// ---- White Moon expansion -----------------------------------------------
+
+export type VillagerFamilyId =
+  // 3-person families
+  | 'hua' | 'zhou' | 'li' | 'sun'
+  // 2-person families
+  | 'miao' | 'xiang' | 'sheng' | 'wu'
+  // 1-person families
+  | 'chang' | 'teng' | 'long' | 'weng'
+
+export const VILLAGER_FAMILIES_BY_SIZE: Record<3 | 2 | 1, VillagerFamilyId[]> = {
+  3: ['hua', 'zhou', 'li', 'sun'],
+  2: ['miao', 'xiang', 'sheng', 'wu'],
+  1: ['chang', 'teng', 'long', 'weng'],
+}
+
+/** A single villager token. `index` is its position within the family (0..size-1). */
+export type VillagerToken = {
+  family: VillagerFamilyId
+  index: number
+}
+
+export type WhiteMoonState = {
+  /** Villager tokens on the Shelter board (saved). */
+  saved: VillagerToken[]
+  /** Villager tokens on the Graveyard board (dead). */
+  dead: VillagerToken[]
+  /** Moon crystals in the central reserve. */
+  moonCrystalReserve: number
+  /** Moon crystals held by each Taoist. */
+  moonCrystalsByTaoist: Record<TaoistColor, number>
+  /** Moon crystals placed into the 4 receptacles (one per corner). */
+  receptacles: { ne: boolean; nw: boolean; se: boolean; sw: boolean }
+  /** Su-Ling's position. null = in reserve. */
+  suLingPos: { board: BoardColor; ghostSpaceIdx: GhostSpaceIdx } | null
+}
+
+export const WHITE_MOON_VILLAGERS_TOTAL = 24 // 4×3 + 4×2 + 4×1
+export const WHITE_MOON_MAX_VILLAGER_DEATHS = 12 // loss condition
 
 // --- Taoist powers -------------------------------------------------------
 
@@ -108,6 +172,7 @@ export type GhostAbilityKind =
   // center-stone (each yin phase)
   | 'haunter'
   | 'tormentor'
+  | 'devourer' // White Moon
   | 'powerBlocker'
   | 'taoBlocker'
   | 'dieCaptor'
@@ -131,6 +196,7 @@ export type GhostAbilityParams = {
   arriveDirectHaunt: Record<string, never>
   haunter: Record<string, never>
   tormentor: Record<string, never>
+  devourer: Record<string, never>
   powerBlocker: Record<string, never>
   taoBlocker: Record<string, never>
   dieCaptor: { count?: number } // default 1
@@ -231,6 +297,11 @@ export type GameConfig = {
   seats: Partial<Record<TaoistColor, 'human' | 'ai'>>
   // Optional seed override for tests.
   rngSeed?: number
+  /**
+   * Active expansions. Order matters for module composition (similar to the
+   * Catan project's module stacking).
+   */
+  expansions?: Array<'whiteMoon'>
 }
 
 export type GameState = {
@@ -255,9 +326,11 @@ export type GameState = {
   // doesn't have to derive it.
   activeBoard: BoardColor
   // Winner: only ever 'taoists' on win; on loss we set `loss` instead.
-  outcome?: { kind: 'win' } | { kind: 'loss'; reason: 'allDead' | 'thirdHaunting' | 'deckExhausted' }
+  outcome?: { kind: 'win' } | { kind: 'loss'; reason: 'allDead' | 'thirdHaunting' | 'deckExhausted' | 'villagerToll' }
   // Deterministic RNG state for any engine-side randomness (placement coin-flips, etc).
   rngState: number
+  /** White Moon state. Null in base game. */
+  whiteMoon?: WhiteMoonState
 }
 
 // --- Actions (placeholder union; real one lives in `engine.ts`) ----------

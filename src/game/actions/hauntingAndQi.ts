@@ -11,12 +11,18 @@ import type {
   GhostSpaceIdx,
   TaoistColor,
   TaoistState,
+  VillageTileId,
 } from '../types'
 
 /**
  * Haunts the first active village tile in front of the given ghost space. If
  * the first tile is already haunted, walks down the haunting line until an
  * active tile is found. Updates `state.hauntedCount`.
+ *
+ * White Moon: villagers on the target tile are killed instead of haunting it
+ * (the tile remains active). All villagers on the targeted tile die per
+ * rulebook ("upon the death of a Sheng family member" rule applies — the
+ * mass-death effect handles via repeated `killTopVillager` calls).
  *
  * Returns the new state. If no tile in the line is active, the state is
  * unchanged (the rulebook treats this as nothing happens).
@@ -26,6 +32,10 @@ export function hauntFirstTileInFront(state: GameState, board: BoardColor, space
   for (const coord of line) {
     const tile = tileByCoord(state, coord)
     if (!tile.haunted) {
+      // White Moon: villagers on this tile die instead of haunting it.
+      if (state.whiteMoon && tile.villagerStack && tile.villagerStack.length > 0) {
+        return killAllVillagersOnTile(state, tile.id)
+      }
       const next = state.village.map((t) =>
         t.id === tile.id ? { ...t, haunted: true } : t,
       )
@@ -37,6 +47,50 @@ export function hauntFirstTileInFront(state: GameState, board: BoardColor, space
     }
   }
   return state
+}
+
+// ----- White Moon villager helpers ---------------------------------------
+
+/**
+ * Kill all villagers currently on a tile (top stack from top to bottom).
+ * Adds them to the Graveyard. Per-family death curses are placeholders here —
+ * see the rulebook topic for what's simplified.
+ */
+export function killAllVillagersOnTile(state: GameState, tileId: VillageTileId): GameState {
+  if (!state.whiteMoon) return state
+  const tile = state.village.find((t) => t.id === tileId)
+  if (!tile || !tile.villagerStack || tile.villagerStack.length === 0) return state
+  const dying = [...tile.villagerStack]
+  const village = state.village.map((t) =>
+    t.id === tileId ? { ...t, villagerStack: [] } : t,
+  )
+  const whiteMoon = {
+    ...state.whiteMoon,
+    dead: [...state.whiteMoon.dead, ...dying],
+  }
+  return { ...state, village, whiteMoon }
+}
+
+/**
+ * Kill just the top villager of a tile (Devourer ability). Reveals the next
+ * villager in the stack (the renderer reads stack[length-1]).
+ */
+export function killTopVillagerOnTile(state: GameState, tileId: VillageTileId): GameState {
+  if (!state.whiteMoon) return state
+  const tile = state.village.find((t) => t.id === tileId)
+  if (!tile || !tile.villagerStack || tile.villagerStack.length === 0) return state
+  const stack = tile.villagerStack
+  // Top of stack is the LAST element (visible villager).
+  const dying = stack[stack.length - 1]
+  const newStack = stack.slice(0, -1)
+  const village = state.village.map((t) =>
+    t.id === tileId ? { ...t, villagerStack: newStack } : t,
+  )
+  const whiteMoon = {
+    ...state.whiteMoon,
+    dead: [...state.whiteMoon.dead, dying],
+  }
+  return { ...state, village, whiteMoon }
 }
 
 /** Unhaunts a tile (Taoist Altar / Yin-Yang flip). */

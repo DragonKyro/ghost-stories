@@ -19,10 +19,11 @@ import type {
 } from '../types'
 import type { ArrivingGhost, StartTurnPayload } from '../actions'
 import { getGhostCard } from '../ghostCatalogue'
-import { activeBoard, emptySpacesOnBoard, ghostInstanceAt } from '../helpers'
+import { activeBoard, emptySpacesOnBoard, ghostInstanceAt, tileByCoord, tilesInHauntingLine } from '../helpers'
 import {
   applyOnArrival,
   hauntFirstTileInFront,
+  killTopVillagerOnTile,
   loseQi,
   placeGhost,
 } from './hauntingAndQi'
@@ -93,6 +94,9 @@ function resolveGhostActions(
           s = applyCurseDie(s, s.activeBoard, space, result, curseSpawnedGhosts, () => spawnIdx++)
           break
         }
+        case 'devourer':
+          s = applyDevourer(s, s.activeBoard, space)
+          break
         // Passive abilities (powerBlocker / taoBlocker / dieCaptor /
         // diceImmune / groupEffect) don't fire actively in the Yin phase —
         // they're queried by validation paths.
@@ -112,6 +116,32 @@ function resolveGhostActions(
     s = applyCurseDie(s, s.activeBoard, 0, result, curseSpawnedGhosts, () => spawnIdx++)
   }
   return s
+}
+
+/**
+ * Devourer (White Moon): kills the top villager on the first of the 3 tiles in
+ * front of the ghost that has any villager. If those 3 are empty, kills any
+ * villager elsewhere (deterministic pick — engine grabs the first found in
+ * village order). If no villagers anywhere, the active player loses 1 Qi.
+ */
+function applyDevourer(state: GameState, board: TaoistColor, space: GhostSpaceIdx): GameState {
+  if (!state.whiteMoon) return state
+  const line = tilesInHauntingLine(board, space)
+  // Front-facing first.
+  for (const coord of line) {
+    const tile = tileByCoord(state, coord)
+    if (tile.villagerStack && tile.villagerStack.length > 0) {
+      return killTopVillagerOnTile(state, tile.id)
+    }
+  }
+  // Else any villager.
+  for (const t of state.village) {
+    if (t.villagerStack && t.villagerStack.length > 0) {
+      return killTopVillagerOnTile(state, t.id)
+    }
+  }
+  // Else lose 1 Qi.
+  return loseQi(state, state.activeBoard)
 }
 
 function advanceHaunter(state: GameState, board: TaoistColor, space: GhostSpaceIdx): GameState {

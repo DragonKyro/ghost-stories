@@ -344,7 +344,18 @@ Inline SVG (not external `.svg` files) so the components animate cleanly and don
   - [src/rulebook/topics.tsx](src/rulebook/topics.tsx) — 11 topics across 5 categories (overview, turn, mechanics, reference, modes). Inline SVG diagrams for the haunting-figure track, 3×3 village layout with rotated boards, and the 5 Tao die faces. Each topic carries a `searchBlob` for free-text matching.
   - [src/rulebook/index.tsx](src/rulebook/index.tsx) — `<Rulebook>` (full-page) + `<RulebookOverlay>` (modal). 260px sidebar with category headings, live search input, content pane.
   - Main-menu entry routes to `uiMode: 'rulebook'`. In-game floating `?` button opens the overlay variant. NewGame screen has a Rulebook button next to Back.
-- [ ] **Phase 7** — White Moon expansion (Su-Ling, moon crystals, villager families, mystic barrier, devourer ghosts, new ghost cards, new tile: Kung-Fu School)
+- [~] **Phase 7** — White Moon expansion (core in)
+  - **Types**: `GameConfig.expansions: 'whiteMoon'[]`, `WhiteMoonState`, `VillagerToken`, `VillagerFamilyId`, `GhostAbilityKind: 'devourer'`. `outcome.reason: 'villagerToll'` added.
+  - **Catalogue**: 10 new ghost cards in [src/game/ghostCatalogue.ts](src/game/ghostCatalogue.ts) — 5 dedicated Devourers + 5 mixed. Added via `allWhiteMoonGhostIds()`.
+  - **Setup**: 8 stacks of 3 villagers across the 8 non-central tiles, Portal on the central tile, 12 moon crystals in reserve. Kung-Fu School replaces Night Watchman's Beat (`WHITE_MOON_BASIC_TILE_SET`). Deck adds the 10 new cards, then trims 10 (+ 5 per missing player).
+  - **Engine** ([src/game/actions/hauntingAndQi.ts](src/game/actions/hauntingAndQi.ts), [src/game/actions/yin.ts](src/game/actions/yin.ts)): hauntings now kill all villagers on the target tile instead of flipping (tile stays active). Devourer Yin ability kills the top villager on the first non-empty front tile, falling back to any villager, falling back to active player Qi loss.
+  - **Exorcism**: `spentMoonCrystals` added to the `exorcise` and `kungFuSchool` actions. Validates the spender holds a crystal; deducts from per-Taoist pool and returns to reserve; counts as a wild Tao token in the resistance check (`asColor` chosen at spend time). Crystals bypass the Inactive Tao marker.
+  - **Herbalist's Shop**: White face captures a moon crystal instead of granting a free-choice Tao token when White Moon is active.
+  - **Yang actions**: `saveVillager` (legal only on the Portal tile with villagers there) and `placeMoonCrystal` (corner-receptacle slot).
+  - **Loss check**: dead.length ≥ 12 triggers `villagerToll` defeat.
+  - **UI**: NewGame checkbox toggle; villager badges + Portal marker on `VillageBoardSVG`; moon-crystal pill + saved/dead summary in `HandPanel`; "🌙 Save Villager" button in `ActionBar`; game-over reason strings.
+  - **Rulebook**: dedicated "White Moon expansion" topic with explicit list of what's simplified (per-family curses/rewards, Su-Ling, mystic barrier, villager movement, alternative Portal placement).
+  - **Tests**: [src/game/whiteMoon.test.ts](src/game/whiteMoon.test.ts) — 10 covering setup composition, villager counts, portal placement, moon-crystal reserve, Herbalist white-face crystal capture, saveVillager mechanics + legality, devourer Yin step, 12-dead loss condition.
 - [ ] **Phase 8** — Black Secret expansion (Wu-Feng player, catacombs board, bloody mantras, blood brothers, demons, Shadow of Wu-Feng) — note this changes the multiplayer shape from full-coop to one-vs-many; lobby UI needs a mode toggle
 - [ ] **Phase 9** — Difficulty tuning + Hell-mode polish
 
@@ -357,6 +368,8 @@ Phases 0–4 and 6 complete; engine + UI + AI + online multiplayer + rulebook ar
 - Solo missed the rulebook's solo bonuses (1 Tao of every color + 3 power tokens) and 1–3-player games missed the 1-power-token-each grant.
 
 **Phase 5 — End-of-game stats.** Per-Taoist Qi/Tao history, dice luck (rolls vs expected), curse-die distribution, ghosts exorcised per Taoist. Hook into `logStore.recordAction` to capture a per-turn snapshot stream, then build a charts panel on the game-over screen.
+
+**Phase 7 follow-ups (White Moon polish).** Per-family death curses (`hua`/`zhou`/`li`/`sun` etc. each carry a unique penalty when their members die; the families are tracked but penalties are no-ops today). Per-family save rewards when an entire family lands on the Shelter. Su-Ling figure + the four corner receptacles + the Mystic Barrier endgame. Villager-moves-with-Taoist mechanic. Alternative Portal placement for the harder variant. Each of these touches the rulebook topic — keep its "what's simplified" list in sync as items land.
 
 **Phase 2 / 3 polish backlog (still worth doing):**
 - Power-token spending UI (engine supports `spendPowerToken` but no button surfaces it)

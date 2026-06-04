@@ -17,7 +17,7 @@ import type {
   VillageTileId,
 } from '../types'
 import type { ArrivingGhost, HelpParams } from '../actions'
-import { activeTaoist, getTile, isCornerTile, taoistById } from '../helpers'
+import { activeTaoist, getTile, isCornerTile, taoistById, validateExorcism } from '../helpers'
 import { hauntFirstTileInFront, loseQi, placeGhost, unhauntTile } from './hauntingAndQi'
 import { resolveArrival } from './yin'
 import { getGhostCard } from '../ghostCatalogue'
@@ -88,6 +88,8 @@ function applyTileAction(
       return doPavilion(state, t, params)
     case 'teaHouse':
       return doTeaHouse(state, t, extras)
+    case 'kungFuSchool':
+      return doKungFuSchool(state, t, params)
   }
 }
 
@@ -178,12 +180,37 @@ function doHerbalistShop(state: GameState, t: TaoistState, extras: HelpExtras): 
   let s = state
   for (const face of extras.diceRoll) {
     if (face === 'black') continue // no token on black
-    // 'wild' is "free choice" — but the engine needs a deterministic resolution.
-    // We treat 'wild' here as "the caller must pre-resolve to a color". A
-    // dedicated UI dialog converts the wild face into a concrete color before
-    // dispatching. If the engine sees 'wild' here, default to the Taoist's own
-    // color (rare in practice).
-    let color: TaoColor = face === 'wild' ? (t.color as TaoColor) : face
+    // White Moon: a white face takes a MOON CRYSTAL instead of a free-choice
+    // Tao token. If the reserve is empty, the white-face benefit is lost.
+    if (face === 'wild') {
+      if (s.whiteMoon) {
+        if (s.whiteMoon.moonCrystalReserve > 0) {
+          s = {
+            ...s,
+            whiteMoon: {
+              ...s.whiteMoon,
+              moonCrystalReserve: s.whiteMoon.moonCrystalReserve - 1,
+              moonCrystalsByTaoist: {
+                ...s.whiteMoon.moonCrystalsByTaoist,
+                [t.color]: s.whiteMoon.moonCrystalsByTaoist[t.color] + 1,
+              },
+            },
+          }
+        }
+        continue
+      }
+      // Base game: white face = free choice of color. Engine defaults to own
+      // color (UI can pre-resolve).
+      const color: TaoColor = t.color
+      if (s.taoSupply[color] <= 0) continue
+      s = {
+        ...s,
+        taoSupply: { ...s.taoSupply, [color]: s.taoSupply[color] - 1 },
+        taoists: { ...s.taoists, [t.color]: { ...s.taoists[t.color], tao: { ...s.taoists[t.color].tao, [color]: s.taoists[t.color].tao[color] + 1 } } },
+      }
+      continue
+    }
+    const color: TaoColor = face
     if (s.taoSupply[color] <= 0) continue
     s = {
       ...s,
@@ -312,6 +339,88 @@ function doTeaHouse(state: GameState, t: TaoistState, extras: HelpExtras): GameS
   s = { ...s, taoists: { ...s.taoists, [t.color]: { ...s.taoists[t.color], qi: newQi } } }
   // Then bring a ghost into play.
   if (extras.arrival) s = resolveArrival(s, extras.arrival)
+  return s
+}
+
+// ---- Kung-Fu School (White Moon) --------------------------------------
+function doKungFuSchool(
+  state: GameState,
+  t: TaoistState,
+  params: Extract<HelpParams, { kind: 'kungFuSchool' }>,
+): GameState {
+  if (!state.whiteMoon) throw new Error('kungFuSchool: White Moon not active')
+  // Collect targets.
+  const targets: GhostRef[] = []
+  if (params.scope === 'ownBoard') {
+    state.boards[t.color].ghostSpaces.forEach((g, i) => {
+      if (g) {
+        const card = getGhostCard(g.cardId)
+        if (!card.isIncarnation) targets.push({ board: t.color, space: i as 0 | 1 | 2 })
+      }
+    })
+  } else {
+    for (const c of ['red', 'blue', 'green', 'yellow'] as const) {
+      state.boards[c].ghostSpaces.forEach((g, i) => {
+        if (!g) return
+        const card = getGhostCard(g.cardId)
+        if (!card.isIncarnation && card.color === 'black') targets.push({ board: c, space: i as 0 | 1 | 2 })
+      })
+    }
+  }
+  if (targets.length === 0) return state
+
+  // Validate the combined exorcism with 4 dice + spentTao + crystals (as wild Tao).
+  const augmented = [
+    ...params.spentTao,
+    ...(params.spentMoonCrystals ?? []).map((c) => ({ from: c.from, color: c.asColor })),
+  ]
+  // We don't gate on Tao-blocker for Tao spend here for simplicity (rulebook
+  // says other monks' Tao tokens are off-limits; the actor's own tokens stay).
+  // Use the existing validator (the actor must be a same-tile spender). For
+  // this minimal implementation, require all `spentTao` to come from the
+  // actor.
+  for (const s of params.spentTao) {
+    if (s.from !== t.id) throw new Error('kungFuSchool: only your own Tao tokens may be spent')
+  }
+  // Same for crystals.
+  for (const c of (params.spentMoonCrystals ?? [])) {
+    if (c.from !== t.id) throw new Error('kungFuSchool: only your own crystals')
+  }
+  const verdict = validateExorcism(state, targets, params.diceRoll, augmented, { whiteIsWild: true })
+  if (!verdict.ok) return state // fail silently per rulebook
+
+  // Success: discard all targets without applying right-stone abilities.
+  let s = state
+  for (const ref of targets) {
+    const ghost = state.boards[ref.board].ghostSpaces[ref.space]
+    if (!ghost) continue
+    const newSpaces = [...s.boards[ref.board].ghostSpaces] as GameState['boards'][typeof ref.board]['ghostSpaces']
+    newSpaces[ref.space] = null
+    s = {
+      ...s,
+      boards: { ...s.boards, [ref.board]: { ...s.boards[ref.board], ghostSpaces: newSpaces } },
+      discardPile: [...s.discardPile, ghost.cardId],
+    }
+  }
+  // Deduct Tao + return to supply.
+  const ts = { ...s.taoists }
+  const supply = { ...s.taoSupply }
+  for (const sp of params.spentTao) {
+    const color = sp.from.replace('taoist-', '') as TaoistColor
+    const taoist = ts[color]
+    ts[color] = { ...taoist, tao: { ...taoist.tao, [sp.color]: Math.max(0, taoist.tao[sp.color] - 1) } }
+    supply[sp.color] += 1
+  }
+  s = { ...s, taoists: ts, taoSupply: supply }
+  // Deduct crystals.
+  if ((params.spentMoonCrystals?.length ?? 0) > 0 && s.whiteMoon) {
+    const wm = { ...s.whiteMoon, moonCrystalsByTaoist: { ...s.whiteMoon.moonCrystalsByTaoist } }
+    for (const _c of params.spentMoonCrystals ?? []) {
+      wm.moonCrystalsByTaoist[t.color] = Math.max(0, wm.moonCrystalsByTaoist[t.color] - 1)
+      wm.moonCrystalReserve += 1
+    }
+    s = { ...s, whiteMoon: wm }
+  }
   return s
 }
 

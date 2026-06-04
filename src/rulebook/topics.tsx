@@ -520,6 +520,121 @@ export const TOPICS: Topic[] = [
   },
 ]
 
+// ─── White Moon expansion ───────────────────────────────────────
+TOPICS.push({
+  id: 'white-moon',
+  title: 'White Moon expansion',
+  category: 'modes',
+  searchBlob: 'white moon expansion villager devourer moon crystal portal su-ling kung-fu school receptacle mystic barrier',
+  body: () => (
+    <div style={COMMON_TEXT_STYLE}>
+      <p>
+        The <strong>White Moon</strong> expansion drops villagers into the village. Toggle it
+        from the New Game screen.
+      </p>
+
+      <h4 style={heading}>What's in the expansion</h4>
+      <ul>
+        <li>
+          <strong>24 villagers across 12 families</strong> (4 families of 3, 4 of 2, 4 single
+          villagers). They start in 8 stacks of 3 on every village tile except the central
+          (Portal) tile. Only the top of each stack is visible.
+        </li>
+        <li>
+          <strong>10 new ghost cards</strong> introduce the <em>Devourer</em> center-stone
+          ability and Su-Ling interactions.
+        </li>
+        <li>
+          <strong>Moon crystals</strong> — a new currency captured from the Herbalist's white
+          face. Spend them like wild Tao tokens during exorcism.
+        </li>
+        <li>
+          <strong>Portal</strong> — a marker on the village. Standing on it unlocks the
+          <em> Save Villager</em> action.
+        </li>
+        <li>
+          <strong>Kung-Fu School</strong> tile replaces Night Watchman's Beat. From it you can
+          attempt a solitary exorcism against either all ghosts on your own board or all black
+          ghosts on the table (4 dice, no rewards or curses).
+        </li>
+      </ul>
+
+      <h4 style={heading}>Hauntings hit villagers first</h4>
+      <p>
+        When a haunting would flip a tile that has villagers on it, all villagers on that tile
+        die instead and the tile stays active. The village stays standing; the human cost
+        rises.
+      </p>
+
+      <h4 style={heading}>Devourer</h4>
+      <p>
+        Each Yin phase a Devourer ghost kills the top villager on the first of the 3 tiles in
+        front of it that still has villagers. If those tiles are empty, any other villager
+        dies. If none remain anywhere, the active player loses 1 Qi.
+      </p>
+
+      <h4 style={heading}>Moon crystals</h4>
+      <ul>
+        <li>
+          Capture: a white face on the Herbalist's Shop gives you 1 moon crystal (instead of
+          a free-choice Tao token).
+        </li>
+        <li>Spend: during exorcism, a moon crystal acts as a wild Tao token of any color you choose. Returns to the central reserve when spent.</li>
+        <li>
+          Not affected by the Inactive Tao marker. Black Widow ghosts don't block crystal
+          spending.
+        </li>
+      </ul>
+
+      <h4 style={heading}>Save villager</h4>
+      <p>
+        A Taoist on the Portal tile may save the top villager from that tile during their Yang
+        phase — taken to the Shelter. (Move villagers onto the Portal tile by clearing tiles
+        between them and the Portal; this implementation surfaces the basic save action.)
+      </p>
+
+      <h4 style={heading}>Loss condition</h4>
+      <p>
+        The 12th villager death is an immediate loss, even before all Taoists die or the third
+        haunting lands.
+      </p>
+
+      <h4 style={heading}>What's simplified in this implementation</h4>
+      <p style={{ color: 'var(--ink-muted)', fontSize: 13 }}>
+        The base structure is in: villagers, hauntings→villager-deaths, Devourers, moon
+        crystals, Save Villager, Kung-Fu School, 12-dead loss. Several flavour mechanics are
+        deferred and noted here so you know what's missing if you're cross-referencing the
+        physical rulebook:
+      </p>
+      <ul style={{ color: 'var(--ink-muted)', fontSize: 13 }}>
+        <li>
+          <strong>Per-family death curses and save rewards</strong> — families are tracked
+          (each villager carries its family name) but the individual curse on death and bonus
+          on full-family save are not yet applied.
+        </li>
+        <li>
+          <strong>Su-Ling and the mystic barrier</strong> — Su-Ling movement, the
+          ability-cancellation effect, the 4-receptacle endgame, and the artifact rewards are
+          not yet wired. Crystals can still be captured and spent as wild Tao.
+        </li>
+        <li>
+          <strong>Villager movement with Taoists</strong> — moving villagers (and fleeing
+          mechanic) are not yet implemented. Villagers remain in place until they die or are
+          saved from the Portal tile.
+        </li>
+        <li>
+          <strong>Portal placement</strong> — defaults to the central tile (basic-game
+          variant). The rulebook's harder variants place it on peripheral tiles for bonus
+          score.
+        </li>
+      </ul>
+      <p style={{ color: 'var(--ink-muted)', fontSize: 13 }}>
+        These are the next planned additions for the expansion.
+      </p>
+    </div>
+  ),
+})
+
 export const CATEGORIES: Array<{ id: Topic['category']; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'turn', label: 'Turn structure' },

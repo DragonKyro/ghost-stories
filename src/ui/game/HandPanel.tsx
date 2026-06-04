@@ -94,7 +94,25 @@ export function HandPanel({ game }: { game: GameState }) {
             ) : null
           ))}
         </div>
+
+        {/* Moon crystals (White Moon) */}
+        {game.whiteMoon && game.whiteMoon.moonCrystalsByTaoist[showColor] > 0 && (
+          <div title="Moon crystals (spend like wild Tao)" style={{
+            display: 'flex', alignItems: 'center', gap: 4,
+            padding: '2px 6px', background: '#f4e9d6', color: '#241b15',
+            borderRadius: 4, fontSize: 11, fontWeight: 600,
+          }}>
+            ☾ × {game.whiteMoon.moonCrystalsByTaoist[showColor]}
+          </div>
+        )}
       </div>
+
+      {/* White Moon summary line */}
+      {game.whiteMoon && (
+        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-muted)' }}>
+          🌙 Saved: <strong>{game.whiteMoon.saved.length}</strong> · Dead: <strong style={{ color: '#c1392b' }}>{game.whiteMoon.dead.length}/12</strong> · Reserve crystals: {game.whiteMoon.moonCrystalReserve}
+        </div>
+      )}
 
       {/* Other Taoists at a glance */}
       <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, color: 'var(--ink-muted)' }}>

@@ -77,9 +77,58 @@ export function applyYangAction(state: GameState, action: YangAction): GameState
     case 'spendPowerToken':
       return spendPowerToken(state, action.taoistId, action.neutralBoard, action.params)
 
+    case 'saveVillager':
+      return saveVillager(state, action.taoistId)
+
+    case 'placeMoonCrystal':
+      return placeMoonCrystal(state, action.taoistId, action.receptacle)
+
     case 'endYangPhase':
       return endYangPhase(state)
   }
+}
+
+// ---------- White Moon: save villager ---------------------------------
+
+function saveVillager(state: GameState, taoistId: TaoistId): GameState {
+  if (!state.whiteMoon) throw new Error('saveVillager: White Moon is not active')
+  const me = taoistById(state, taoistId)
+  if (!me.alive) throw new Error('saveVillager: dead')
+  if (me.color !== activeTaoist(state).color) throw new Error('saveVillager: not active turn')
+  if (!me.tile) throw new Error('saveVillager: no tile')
+  const tile = state.village.find((v) => v.id === me.tile)
+  if (!tile || !tile.hasPortal) throw new Error('saveVillager: not on the portal tile')
+  if (tile.haunted) throw new Error('saveVillager: portal tile is haunted')
+  if (!tile.villagerStack || tile.villagerStack.length === 0) {
+    throw new Error('saveVillager: no villager on the portal tile to save')
+  }
+  // Take the top villager.
+  const top = tile.villagerStack[tile.villagerStack.length - 1]
+  const newStack = tile.villagerStack.slice(0, -1)
+  const village = state.village.map((t) => (t.id === tile.id ? { ...t, villagerStack: newStack } : t))
+  const wm = { ...state.whiteMoon, saved: [...state.whiteMoon.saved, top] }
+  return { ...state, village, whiteMoon: wm }
+}
+
+// ---------- White Moon: place a moon crystal --------------------------
+
+function placeMoonCrystal(
+  state: GameState,
+  taoistId: TaoistId,
+  receptacle: 'ne' | 'nw' | 'se' | 'sw',
+): GameState {
+  if (!state.whiteMoon) throw new Error('placeMoonCrystal: White Moon is not active')
+  const me = taoistById(state, taoistId)
+  if (!me.alive) throw new Error('placeMoonCrystal: dead')
+  const held = state.whiteMoon.moonCrystalsByTaoist[me.color]
+  if (held <= 0) throw new Error('placeMoonCrystal: no crystal in hand')
+  if (state.whiteMoon.receptacles[receptacle]) throw new Error('placeMoonCrystal: receptacle is full')
+  const wm = {
+    ...state.whiteMoon,
+    moonCrystalsByTaoist: { ...state.whiteMoon.moonCrystalsByTaoist, [me.color]: held - 1 },
+    receptacles: { ...state.whiteMoon.receptacles, [receptacle]: true },
+  }
+  return { ...state, whiteMoon: wm }
 }
 
 // ---------- Movement ---------------------------------------------------
@@ -131,6 +180,17 @@ function doExorcise(state: GameState, action: Extract<YangAction, { type: 'exorc
     throw new Error('exorcise: tao spending is blocked')
   }
 
+  // White Moon: moon crystal spend validation. Crystals are NOT Tao tokens —
+  // they're not blocked by `inactiveTaoMarker` and the spender holds them
+  // regardless of which tile they stand on (the actor must be the holder).
+  const crystals = action.spentMoonCrystals ?? []
+  for (const c of crystals) {
+    const holder = taoistById(state, c.from)
+    if ((state.whiteMoon?.moonCrystalsByTaoist[holder.color] ?? 0) <= 0) {
+      throw new Error('exorcise: spender lacks a moon crystal')
+    }
+  }
+
   // Apply re-roll positionally if present (green Taoist Gods' Favorite).
   const finalDice: TaoDieFace[] = action.diceRoll.slice()
   if (action.diceReroll) {
@@ -148,7 +208,14 @@ function doExorcise(state: GameState, action: Extract<YangAction, { type: 'exorc
     throw new Error(`exorcise: wrong dice count: got ${finalDice.length}, expected ${expectedDice}`)
   }
 
-  const verdict = validateExorcism(state, action.ghosts, finalDice, action.spentTao, {
+  // Moon crystals act as wild Tao tokens of the asColor. Splice them into the
+  // spent-tao list for the validator (validator doesn't care about source).
+  const augmentedSpent = [
+    ...action.spentTao,
+    ...crystals.map((c) => ({ from: c.from, color: c.asColor })),
+  ]
+
+  const verdict = validateExorcism(state, action.ghosts, finalDice, augmentedSpent, {
     whiteIsWild: !namelessAlive,
   })
   if (!verdict.ok) {
@@ -162,6 +229,17 @@ function doExorcise(state: GameState, action: Extract<YangAction, { type: 'exorc
   for (const s of action.spentTao) supply[s.color] += 1
 
   let s: GameState = { ...state, taoists: ts, taoSupply: supply }
+
+  // Deduct moon crystals.
+  if (crystals.length > 0 && s.whiteMoon) {
+    const wm = { ...s.whiteMoon, moonCrystalsByTaoist: { ...s.whiteMoon.moonCrystalsByTaoist } }
+    for (const c of crystals) {
+      const holder = taoistById(s, c.from)
+      wm.moonCrystalsByTaoist[holder.color] = Math.max(0, wm.moonCrystalsByTaoist[holder.color] - 1)
+      wm.moonCrystalReserve = wm.moonCrystalReserve + 1 // returned to reserve
+    }
+    s = { ...s, whiteMoon: wm }
+  }
 
   let onExorcismCurseIdx = 0
   for (const ref of action.ghosts) {

@@ -23,6 +23,7 @@ export function NewGame() {
     yellow: 'human',
   })
   const [difficulty, setDifficulty] = useState<Difficulty>('initiation')
+  const [whiteMoon, setWhiteMoon] = useState(false)
 
   const handleStart = () => {
     const seatConfig: GameConfig['seats'] = {}
@@ -33,7 +34,11 @@ export function NewGame() {
       alert('At least one seat must be human or AI.')
       return
     }
-    startGame({ difficulty, seats: seatConfig })
+    startGame({
+      difficulty,
+      seats: seatConfig,
+      expansions: whiteMoon ? ['whiteMoon'] : undefined,
+    })
   }
 
   return (
@@ -98,6 +103,30 @@ export function NewGame() {
           Neutral boards run a reduced Yin phase (no ghost arrival, no Yang phase) per the
           1-3 player rules. AI seats use a placeholder no-op driver — Phase 3 lands real AI.
         </p>
+      </section>
+
+      <section style={{ marginTop: 24 }}>
+        <h3 style={{ marginBottom: 8 }}>Expansions</h3>
+        <label style={{
+          display: 'flex',
+          gap: 12,
+          alignItems: 'center',
+          padding: '10px 14px',
+          border: `1px solid ${whiteMoon ? 'var(--accent)' : 'var(--rule)'}`,
+          borderRadius: 6,
+          cursor: 'pointer',
+        }}>
+          <input type="checkbox" checked={whiteMoon} onChange={(e) => setWhiteMoon(e.target.checked)} />
+          <div>
+            <div style={{ fontWeight: 600 }}>🌙 White Moon</div>
+            <div style={{ color: 'var(--ink-muted)', fontSize: 12 }}>
+              Villagers (24 across 12 families), Devourer ghosts, Moon Crystals (from the
+              Herbalist's white face, spendable like wild Tao). Save villagers via the Portal.
+              Loses on 12 villager deaths. Kung-Fu School replaces Night Watchman. See the
+              rulebook for what's simplified.
+            </div>
+          </div>
+        </label>
       </section>
 
       <div style={{ marginTop: 32, display: 'flex', justifyContent: 'flex-end', gap: 12 }}>

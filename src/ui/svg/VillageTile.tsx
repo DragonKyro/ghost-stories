@@ -17,6 +17,7 @@ const TILE_LABELS: Record<VillageTileKind, string> = {
   nightWatchmanBeat: 'Night Watch',
   pavilionOfHeavenlyWind: 'Pavilion',
   teaHouse: 'Tea House',
+  kungFuSchool: 'Kung-Fu School',
 }
 
 // Each kind gets a distinct icon glyph. These are placeholders — clear,
@@ -104,6 +105,17 @@ const TILE_GLYPHS: Record<VillageTileKind, ReactElement> = {
       <path d="M44 56 L46 78 Q46 80 48 80 L72 80 Q74 80 74 78 L76 56 Z" fill="#8a7e6b" />
       <ellipse cx={60} cy={56} rx={16} ry={4} fill="#241b15" />
       <path d="M52 50 q-2 -6 2 -10 M60 50 q-2 -6 2 -10 M68 50 q-2 -6 2 -10" stroke="#f4e9d6" strokeWidth={1.5} fill="none" />
+    </>
+  ),
+  // Kung-Fu School (White Moon) — clenched fist motif
+  kungFuSchool: (
+    <>
+      <circle cx={60} cy={56} r={22} fill="none" stroke="#d4a857" strokeWidth={2} />
+      <path
+        d="M48 50 L48 64 Q48 70 54 70 L66 70 Q72 70 72 64 L72 50 Q72 46 68 46 L52 46 Q48 46 48 50 Z"
+        fill="#d4a857"
+      />
+      <path d="M48 54 L72 54 M48 60 L72 60 M48 66 L72 66" stroke="#241b15" strokeWidth={1} />
     </>
   ),
 }

@@ -72,6 +72,12 @@ export type YangAction =
       // Tao tokens spent to cover shortfall. Pooled from any Taoist on the
       // same village tile — engine validates.
       spentTao: Array<{ from: TaoistId; color: TaoColor }>
+      /**
+       * White Moon: moon crystals spent. Each entry covers 1 face of the
+       * specified color (acts like a wild — color is chosen at spend time).
+       * Crystals deplete the actor's per-Taoist pool.
+       */
+      spentMoonCrystals?: Array<{ from: TaoistId; asColor: TaoColor }>
       // For exorcism's right-stone abilities that need a curse die roll:
       onExorcismCurseRolls?: CurseFace[]
     }
@@ -92,6 +98,10 @@ export type YangAction =
       params: PowerParams
     }
   | { type: 'spendPowerToken'; taoistId: TaoistId; neutralBoard: TaoistColor; powerId: TaoistPowerId; params: PowerParams }
+  // White Moon: save the top villager on the portal tile (Shelter).
+  | { type: 'saveVillager'; taoistId: TaoistId }
+  // White Moon: place a moon crystal you hold into an unfilled receptacle.
+  | { type: 'placeMoonCrystal'; taoistId: TaoistId; receptacle: 'ne' | 'nw' | 'se' | 'sw' }
   | { type: 'endYangPhase'; taoistId: TaoistId }
 
 export type HelpParams =
@@ -104,6 +114,17 @@ export type HelpParams =
   | { kind: 'nightWatchmanBeat'; targetBoard: TaoistColor }
   | { kind: 'pavilionOfHeavenlyWind'; moveGhost: GhostRef; toGhostSpace: GhostRef; alsoMoveTaoist?: { taoistId: TaoistId; toTile: VillageTileId } }
   | { kind: 'teaHouse' }
+  /**
+   * White Moon: Kung-Fu School. Attempt a solitary exorcism on all ghosts of
+   * a chosen scope. `scope: 'ownBoard'` exorcises every ghost on the actor's
+   * board; `scope: 'blackGhosts'` exorcises every black ghost in play.
+   *
+   * Engine treats it as a single multi-target exorcism without right-stone
+   * rewards (per rulebook). Implemented as a simplified pass — rolls 4 Tao
+   * dice; if the combined resistance is met (with crystals + own Tao only),
+   * all targets are discarded silently. Otherwise nothing happens.
+   */
+  | { kind: 'kungFuSchool'; scope: 'ownBoard' | 'blackGhosts'; diceRoll: TaoDieFace[]; spentTao: Array<{ from: TaoistId; color: TaoColor }>; spentMoonCrystals?: Array<{ from: TaoistId; asColor: TaoColor }> }
 
 export type YinYangEffect =
   | { kind: 'requestHelpAnywhere'; tile: VillageTileId; params: HelpParams }
