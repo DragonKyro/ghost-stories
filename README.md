@@ -12,6 +12,8 @@ The physical game is out of print and there is no official digital version — t
 
 **AI seats (Phase 3 build):** Any seat can be set to AI from the New Game screen. The heuristic prioritises critical-now exorcism (preventing the 3rd haunting), lethal-prevention exorcism (saving a 1-Qi Taoist), high-success exorcism, Buddha placement on high-pressure boards, critical tile actions (Cemetery revive, Taoist Altar unhaunt, Night Watchman rollback, Sorcerer's Hut on dice-immune ghosts), Tao accumulation (Herbalist / Tea House / Buddhist Temple / Circle of Prayer), and repositioning toward the highest-threat ghost. Pure heuristic, stateless across turns. AI seats also enable solo play — pick one human seat + three AI seats for a 4-Taoist game.
 
+**Online multiplayer (Phase 4 build):** Click *Online Multiplayer* on the main menu, pick a display name, then host a room or join one with a 4-character code. The host's machine drives the Yin phase (curse dice, ghost arrivals) and any AI seats; all peers run the same deterministic engine on every action. Drop out and re-join with the same code to reclaim your seat (identity persists via a `localStorage` UUID). Players without a matching UUID join as read-only spectators. In-game chat with history is auto-shipped to new joiners via the snapshot. WebRTC over BitTorrent trackers (Trystero) — no backend, no accounts.
+
 ## What is Ghost Stories?
 
 1–4 Taoist monks defend a Chinese village from the ghosts of Wu-Feng, who is trying to return to the realm of the living. Every turn, ghosts spawn on one of the 4 player boards arrayed around the 3×3 village; the active Taoist gets one move and one action — exorcise a ghost or use the village tile they're standing on — and ghosts close in. Hold out long enough to draw the bottom of the deck, exorcise every Wu-Feng incarnation hidden there, and the monks win.
@@ -24,7 +26,7 @@ It is brutally hard. Most cooperative games are cooperative-difficult; Ghost Sto
 - [x] **Phase 1** — Game logic engine (Yin / Yang phases, 9 village tiles, 8 Taoist powers, 9 Wu-Feng incarnations, 45 base ghost cards, neutral-board variant for 1-3 players, full win/loss detection)
 - [x] **Phase 2** — Hot-seat UI (SVG board, 4 rotated player boards, request-help dialog for every tile, exorcism dialog with dice rolls + Tao spending, place-Buddha selector, Yin-Yang flip-tile mode, Yin-phase auto-runner, pass-device handoff screen, event log, game-over overlay)
 - [x] **Phase 3** — Heuristic AI for missing seats (priority tree: critical exorcism → lethal-prevention → high-success exorcism → Buddha placement → critical tile actions → Tao accumulation → reposition; AIDriver paces moves at ~700ms/1.5s for visibility)
-- [ ] **Phase 4** — Online multiplayer (Trystero WebRTC peer-to-peer) + in-game chat
+- [x] **Phase 4** — Online multiplayer (Trystero WebRTC peer-to-peer) + in-game chat with history (host-authoritative lobby, stable UUID identity, 7 typed channels: hello / lobby / start / action / snap / reqSnap / chat; spectator mode for unrecognised UUIDs; snapshot rejoin including chat history)
 - [ ] **Phase 5** — End-of-game stats
 - [ ] **Phase 6** — Self-contained rulebook with search
 - [ ] **Phase 7** — White Moon expansion (Su-Ling, villager families, moon crystals, mystic barrier)

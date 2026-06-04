@@ -329,7 +329,16 @@ Inline SVG (not external `.svg` files) so the components animate cleanly and don
   - [src/ai/main.ts](src/ai/main.ts) — `chooseAction(state, taoistId)` returns `Action | null`; null = end Yang phase. 7-tier priority tree: (1) critical exorcism when `hauntedCount >= 2`, (2) lethal-prevention when `qi <= 1`, (3) high-success exorcism (threshold 0.55), (4) Buddha placement on highest-pressure reachable board, (5) critical tile actions (Cemetery revive, Altar unhaunt, Night Watchman on most-haunted board, Sorcerer's Hut against dice-immune ghosts), (6) Tao accumulation (Herbalist if hand < 4, Tea House if Qi/hand low, Buddhist Temple when hand empty, Circle of Prayer on most-prevalent ghost color), (7) reposition toward highest-threat ghost via 1-step Chebyshev-shortest move.
   - [src/ui/game/AIDriver.tsx](src/ui/game/AIDriver.tsx) — React component watching the store. When the active seat is AI, dispatches one action per ~700ms tick (~1.5s for exorcism so the dice roll is visible). Suspended when a human dialog overlay is open. On exception ends turn rather than spinning.
   - 4 AI smoke tests: returns null on quiet state, ignores non-active seat queries, places a Buddha when available, drives 16 rounds end-to-end without throwing.
-- [ ] **Phase 4** — Online multiplayer (Trystero peer-to-peer) + in-game chat
+- [x] **Phase 4** — Online multiplayer + in-game chat
+  - [src/net/identity.ts](src/net/identity.ts) — persistent UUID via `localStorage` (or `sessionStorage` with `?fresh`), display name, 4-char room-code generator (32-char alphabet, no I/O/0/1).
+  - [src/net/protocol.ts](src/net/protocol.ts) — typed wire messages: `HelloMsg`, `LobbyMsg`, `StartMsg`, `ActionMsg`, `SnapMsg`, `ReqSnapMsg`, `ChatMsg`. 7 channel names in `CHANNELS`.
+  - [src/net/index.ts](src/net/index.ts) — Trystero `/torrent` wrapper. `connect(roomCode, handlers) → { send, leave, room }`. Room code doubles as the E2E password.
+  - [src/store/networkStore.ts](src/store/networkStore.ts) — Zustand store holding the live `Connection`, lobby state mirror, peer presence (uuid → peerId), chat history, seat-uuid commitments. Host-authoritative: lobby mutations on guests' machines are ignored. `broadcastAction` is registered with `gameStore` via `registerBroadcaster()` to avoid a circular import.
+  - **gameStore changes:** `dispatch` now calls the registered broadcaster after every successful local apply. `receiveSnapshot(state)` lets guests adopt the host's authoritative state on `start` or `snap`. `endTurnAndHandoff` checks `window.__ghostStoriesOnline` (set by networkStore) to suppress the hot-seat handoff when each peer has its own device.
+  - **Host-only drivers:** [src/ui/game/AIDriver.tsx](src/ui/game/AIDriver.tsx) and [src/ui/game/YinPhaseRunner.tsx](src/ui/game/YinPhaseRunner.tsx) both skip work when `netRole === 'guest' || 'spectator'`. Only the host generates Yin payloads and AI actions; guests receive them via the action channel.
+  - **Spectators:** any peer whose UUID isn't in the seat assignments at game-start (or rejoin) gets role `'spectator'` — full game view, no `dispatch` calls (the action broadcast still goes out but seat-uuid validation on receivers rejects).
+  - **UI:** [src/ui/MainMenu.tsx](src/ui/MainMenu.tsx) has an Online button. [src/ui/OnlineSetup.tsx](src/ui/OnlineSetup.tsx) handles name + host/join. [src/ui/OnlineLobby.tsx](src/ui/OnlineLobby.tsx) is the host-authoritative lobby with seat claim/release, seat-type toggle, difficulty picker, lobby chat. [src/ui/game/ChatPanel.tsx](src/ui/game/ChatPanel.tsx) is the in-game chat with auto-scroll-at-bottom.
+  - **Tests:** 8 new — 6 identity-layer tests + 2 protocol determinism tests proving two peers reduce identically from the same action sequence.
 - [ ] **Phase 5** — End-of-game match stats (Qi over time, ghosts exorcised per Taoist, dice luck, curse die history)
 - [ ] **Phase 6** — Self-contained rulebook with search
 - [ ] **Phase 7** — White Moon expansion (Su-Ling, moon crystals, villager families, mystic barrier, devourer ghosts, new ghost cards, new tile: Kung-Fu School)
@@ -338,9 +347,9 @@ Inline SVG (not external `.svg` files) so the components animate cleanly and don
 
 ## Where to start next
 
-Phases 0–3 complete; engine + UI + AI are wired and tested. A solo game (1 human + 3 AI) plays end-to-end at Initiation difficulty.
+Phases 0–4 complete; engine + UI + AI + online multiplayer are wired and tested (30/30 tests). A 4-player online game runs end-to-end with host-authoritative randomness and snapshot rejoin.
 
-**Phase 4 — Online multiplayer.** Trystero `/torrent` WebRTC. Channels and stable-UUID protocol are described in the "Multiplayer model" section above. Implement [src/net/index.ts](src/net/index.ts) with `joinRoom(code) → { send, listen, peers, role }`, hook up the lobby UI alongside `NewGame.tsx`, and add the broadcast side of `gameStore.dispatch` (every successful dispatch sends an `{ action, byUuid }` envelope; receivers verify seat ownership before calling `applyLocal`). AI seats are owned by the host (only the host runs `AIDriver`).
+**Phase 5 — End-of-game stats.** Per-Taoist Qi/Tao history, dice luck (rolls vs expected), curse-die distribution, ghosts exorcised per Taoist. Hook into `logStore.recordAction` to capture a per-turn snapshot stream, then build a charts panel on the game-over screen.
 
 **Phase 2 / 3 polish backlog (still worth doing):**
 - Power-token spending UI (engine supports `spendPowerToken` but no button surfaces it)

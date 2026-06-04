@@ -13,6 +13,8 @@ import { RequestHelpDialog } from './RequestHelpDialog'
 import { HandoffOverlay } from './HandoffOverlay'
 import { YinPhaseRunner } from './YinPhaseRunner'
 import { AIDriver } from './AIDriver'
+import { ChatPanel } from './ChatPanel'
+import { useNetworkStore } from '@/store/networkStore'
 import { adjacentTiles, ghostInstanceAt, isCornerTile, reachableGhostSpaces } from '@/game/helpers'
 import { getGhostCard } from '@/game/ghostCatalogue'
 import type { GameState, GhostRef, TaoistColor, VillageTileId } from '@/game/types'
@@ -35,7 +37,7 @@ export function GameView() {
       </div>
 
       {/* Right: side panel */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, overflow: 'auto' }}>
         <div style={{ padding: 8, background: 'var(--bg-elevated)', border: '1px solid var(--rule)', borderRadius: 6 }}>
           <h3 style={{ margin: 0, fontSize: 14 }}>Game state</h3>
           <ul style={{ margin: '4px 0 0', padding: '0 0 0 16px', fontSize: 12, color: 'var(--ink-muted)' }}>
@@ -44,9 +46,11 @@ export function GameView() {
             <li>Haunted: <strong>{game.hauntedCount}/3</strong></li>
             <li>Deck: <strong>{game.ghostDeck.length}</strong> · Discard: {game.discardPile.length}</li>
             <li>Buddha supply: {game.buddhaSupply}</li>
+            <ConnectionStatus />
           </ul>
         </div>
         <LogPanel />
+        <ChatPanel />
       </div>
 
       {/* Modal overlays */}
@@ -241,6 +245,21 @@ function BoardArea({ game }: { game: GameState }) {
         </div>
       )}
     </div>
+  )
+}
+
+function ConnectionStatus() {
+  const role = useNetworkStore((s) => s.role)
+  const roomCode = useNetworkStore((s) => s.roomCode)
+  const peerByUuid = useNetworkStore((s) => s.peerByUuid)
+  if (role === 'solo') return null
+  const peerCount = Object.keys(peerByUuid).length
+  return (
+    <li>
+      Net: <strong>{role}</strong>
+      {roomCode && <> · room <strong>{roomCode}</strong></>}
+      <> · {peerCount} peer{peerCount === 1 ? '' : 's'}</>
+    </li>
   )
 }
 

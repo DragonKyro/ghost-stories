@@ -10,6 +10,7 @@
 
 import { useEffect, useRef } from 'react'
 import { useGameStore } from '@/store/gameStore'
+import { useNetworkStore } from '@/store/networkStore'
 import { chooseAction } from '@/ai/main'
 import type { TaoistColor } from '@/game/types'
 
@@ -21,6 +22,7 @@ export function AIDriver() {
   const overlay = useGameStore((s) => s.uiOverlay)
   const dispatch = useGameStore((s) => s.dispatch)
   const endTurnAndHandoff = useGameStore((s) => s.endTurnAndHandoff)
+  const netRole = useNetworkStore((s) => s.role)
   // Re-entrancy guard: don't fire if a tick is already scheduled for this state.
   const tickRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -28,6 +30,9 @@ export function AIDriver() {
     if (!game) return
     if (game.phase !== 'yang') return
     if (overlay.kind !== 'none') return // a human dialog is open
+    // Online: only the host drives AI seats. Guests / spectators must not
+    // dispatch AI actions — the host's broadcast applies them everywhere.
+    if (netRole === 'guest' || netRole === 'spectator') return
 
     const activeColor = game.turnOrder[game.turnIndex] as TaoistColor
     const t = game.taoists[activeColor]
@@ -62,7 +67,7 @@ export function AIDriver() {
         tickRef.current = null
       }
     }
-  }, [game, overlay.kind, dispatch, endTurnAndHandoff])
+  }, [game, overlay.kind, netRole, dispatch, endTurnAndHandoff])
 
   return null
 }

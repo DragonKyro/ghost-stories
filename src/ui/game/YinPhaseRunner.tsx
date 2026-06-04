@@ -7,23 +7,27 @@
 
 import { useEffect } from 'react'
 import { useGameStore } from '@/store/gameStore'
+import { useNetworkStore } from '@/store/networkStore'
 import { buildYinPayload } from '@/game/yinPayload'
 
 export function YinPhaseRunner() {
   const game = useGameStore((s) => s.game)
   const dispatch = useGameStore((s) => s.dispatch)
+  const netRole = useNetworkStore((s) => s.role)
 
   useEffect(() => {
     if (!game) return
     if (game.phase !== 'yin') return
+    // Only the host (or solo) generates the Yin payload — random outcomes
+    // (curse dice, ghost arrivals) flow from there and broadcast to peers.
+    if (netRole === 'guest' || netRole === 'spectator') return
 
-    // Delay slightly so the user sees the new turn marker before the deluge.
     const timer = setTimeout(() => {
       const { payload } = buildYinPayload(game)
       dispatch({ type: 'startTurn', payload })
     }, 500)
     return () => clearTimeout(timer)
-  }, [game?.phase, game?.turnIndex])
+  }, [game?.phase, game?.turnIndex, netRole])
 
   return null
 }

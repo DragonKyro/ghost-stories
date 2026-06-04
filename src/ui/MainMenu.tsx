@@ -11,11 +11,14 @@ export function MainMenu() {
       </p>
       <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
         <button style={{ padding: '12px 24px', fontSize: 16 }} onClick={() => setUiMode('newGame')}>
-          New Game
+          New Game (local)
+        </button>
+        <button style={{ padding: '12px 24px', fontSize: 16 }} onClick={() => setUiMode('onlineSetup')}>
+          Online Multiplayer
         </button>
       </div>
       <div style={{ color: 'var(--ink-muted)', fontSize: 12, marginTop: 32 }}>
-        Phase 2 hot-seat build · online multiplayer coming in Phase 4
+        Hot-seat + online multiplayer · WebRTC peer-to-peer (no backend)
       </div>
     </div>
   )
