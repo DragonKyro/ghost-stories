@@ -563,55 +563,87 @@ TOPICS.push({
         normally per base-game rules.
       </p>
 
+      <h4 style={heading}>④ Place a skeleton</h4>
+      <p>
+        Wu-Feng has 3 skeleton tokens. Discard the drawn ghost to place a 1-resistance
+        skeleton on any free ghost space (color matching the host board). Skeletons are
+        not ghost cards — Sorcerer's Hut, Pavilion, Kung-Fu School don't affect them, but
+        they exorcise normally (resistance 1 makes them cheap).
+      </p>
+
       <h4 style={heading}>The Catacombs</h4>
       <p>
         Wu-Feng commands a 3×3 catacombs board with three demons in his reserve (cost 2 /
-        3 / 4). Each demon, once summoned, sits on the catacombs board and (in the full
-        rulebook) takes one action per Taoist Yin phase. In this implementation demons are
-        tracked in the catacombs but do not yet move or attack — they're visible in the
-        side panel.
+        3 / 4). Before every player Yin phase, each catacombs demon takes 1 action: move
+        to an adjacent square OR <em>search</em> the current square. Searching reveals
+        the top catacomb token. The engine defaults to searching for every demon; a full
+        Wu-Feng UI for per-demon move/search choices is on the polish list.
       </p>
 
-      <h4 style={heading}>Bloody Mantras and Blood Brothers</h4>
+      <h4 style={heading}>Catacomb tokens</h4>
       <p>
-        Wu-Feng's board starts with 6 Bloody Mantra cards (3× level 2, 2× level 3, 1×
-        level 4). In the full rules, Qi the Taoists lose lands on Mantras of the player's
-        choice; when a Mantra fills, it resolves a powerful effect. The Blood Brother power
-        gives a single-Qi Taoist access to the opposite board's power. These are
-        scaffolded in the state but not yet wired up in this build.
+        Tokens are revealed by demon searches. Each token type:
+      </p>
+      <ul style={{ fontSize: 13 }}>
+        <li><strong>Dirt</strong> — no effect; token discarded.</li>
+        <li><strong>Buddha</strong> — the searching demon returns to Wu-Feng's reserve.</li>
+        <li><strong>Blood of the Just</strong> — places 1 Qi on a Bloody Mantra (engine picks the lowest-level open mantra).</li>
+        <li><strong>Cursed Tablet</strong> — Wu-Feng throws a curse at the highest currently-legal level.</li>
+        <li><strong>Bones</strong> — +1 skeleton to Wu-Feng's reserve (capped at 3).</li>
+        <li><strong>Blood of Su-Ling</strong> — immediately resolves the most-filled Bloody Mantra.</li>
+        <li><strong>Urn</strong> — increments Wu-Feng's urn count. On the <strong>3rd urn</strong>, the Shadow of Wu-Feng enters play on the first empty ghost space (canonical search order).</li>
+      </ul>
+
+      <h4 style={heading}>Bloody Mantras (Qi accumulation + resolution)</h4>
+      <p>
+        Wu-Feng's board starts with 6 Bloody Mantras (3× level 2, 2× level 3, 1× level
+        4). Every Qi lost by any Taoist or board lands on the lowest-level open Mantra
+        (engine choice — the rulebook lets the player choose). When a Mantra fills (Qi
+        count = level), it resolves and is replaced with a fresh Mantra of the same
+        level:
+      </p>
+      <ul style={{ fontSize: 13 }}>
+        <li><strong>Level 2</strong> — every living Taoist gains 1 Qi.</li>
+        <li><strong>Level 3</strong> — the Inactive Tao marker (if any) is removed globally.</li>
+        <li><strong>Level 4</strong> — the highest-resistance non-incarnation ghost on every board is discarded.</li>
+      </ul>
+
+      <h4 style={heading}>Blood Brothers</h4>
+      <p>
+        A Taoist at <strong>1 Qi</strong> may also invoke the opposite board's power
+        (red ↔ green, blue ↔ yellow). The opposite board's power must be active (not
+        possessed and not blocked). Loses access automatically as soon as the Taoist
+        gains another Qi.
       </p>
 
-      <h4 style={heading}>Skeletons and the Shadow of Wu-Feng</h4>
-      <p>
-        Wu-Feng has 3 skeleton tokens he can place on the player boards (treated as
-        ghosts with resistance 1 of the board color). The 3 Urn catacomb tokens trigger
-        the Shadow of Wu-Feng — an invincible roaming threat. Both are deferred in this
-        build.
+      <h4 style={heading}>Per-curse effects (representative)</h4>
+      <ul style={{ fontSize: 13 }}>
+        <li><strong>Level 1</strong> — Active player loses 1 Qi.</li>
+        <li><strong>Level 2</strong> — Active player discards 1 Tao token.</li>
+        <li><strong>Level 3</strong> — The first active village tile becomes haunted.</li>
+        <li><strong>Level 4</strong> — Every living Taoist loses 1 Qi.</li>
+      </ul>
+      <p style={{ color: 'var(--ink-muted)', fontSize: 12 }}>
+        These are representative — the rulebook's 14 distinct curses have unique effects.
+        Each is the engine's default choice when Wu-Feng throws a curse at that level.
       </p>
 
       <h4 style={heading}>The Calligrapher tile</h4>
       <p>
-        Black Secret swaps Night Watchman's Beat out for the Calligrapher: remove a
-        Bloody Mantra and replace it with a fresh one of the same level, or place a Qi
-        token from the reserve on a Mantra of your choice. (Both effects are placeholders
-        in this build until Mantra resolution lands.)
+        Black Secret swaps Night Watchman's Beat out for the Calligrapher. Currently
+        wired only as a tile-kind placeholder — the rulebook's options (replace a Bloody
+        Mantra with a fresh one of the same level, or place a Qi token on a Mantra of
+        choice) are scheduled for a follow-up.
       </p>
 
-      <h4 style={heading}>What's simplified in this implementation</h4>
-      <p style={{ color: 'var(--ink-muted)', fontSize: 13 }}>
-        The asymmetric loop is in: Wu-Feng intervenes on every Yin step 3, picks
-        place/summon/curse, manages reserve demons, builds the curse pyramid. Several
-        flavour mechanics are deferred:
-      </p>
+      <h4 style={heading}>What's still simplified</h4>
       <ul style={{ color: 'var(--ink-muted)', fontSize: 13 }}>
-        <li><strong>Catacomb tokens</strong> — the 36 face-down tokens (Dirt, Buddha, Blood of the Just, Cursed Tablet, Bones, Blood of Su-Ling, Urn) and demon search action are not yet implemented.</li>
-        <li><strong>Demon movement</strong> — demons sit in the catacombs once summoned but don't yet take Yin actions or pose threats to in-catacomb Taoists.</li>
-        <li><strong>Per-curse effects</strong> — the 14 distinct curses each have unique effects in the rulebook; this build condenses them into a level-scaled Qi tax.</li>
-        <li><strong>Bloody Mantra resolution</strong> — Qi from losses doesn't yet land on Mantras and they don't trigger their effects.</li>
-        <li><strong>Blood Brothers</strong> — single-Qi shared powers are not yet wired.</li>
-        <li><strong>Shadow of Wu-Feng</strong> — the invincible roaming threat from finding the 3 Urn tokens is deferred.</li>
-        <li><strong>Skeleton placement</strong> — Wu-Feng cannot yet place skeletons on player boards.</li>
-        <li><strong>Online assignment</strong> — Wu-Feng's identity is a local tag right now; future versions will tie it to a network UUID for real online play.</li>
+        <li><strong>Per-demon Wu-Feng UI</strong> — the engine accepts move/search per demon, but the YinPhaseRunner currently auto-searches every demon. A Wu-Feng demon-action dialog is the next polish item.</li>
+        <li><strong>Curse choice within a level</strong> — engine picks the default representative effect; a future build will let Wu-Feng pick from the level's pool.</li>
+        <li><strong>Calligrapher tile action</strong> — placeholder until Mantra-swap and Qi-placement UI lands.</li>
+        <li><strong>Mantra placement choice</strong> — engine routes Qi onto the lowest-level open Mantra; rulebook gives the Taoist the choice.</li>
+        <li><strong>Shadow of Wu-Feng movement</strong> — Shadow enters play on 3 urns but doesn't yet take actions.</li>
+        <li><strong>Online Wu-Feng identity</strong> — local tag only; UUID-tied seat assignment is on the online polish list.</li>
       </ul>
     </div>
   ),
@@ -696,38 +728,74 @@ TOPICS.push({
         haunting lands.
       </p>
 
-      <h4 style={heading}>What's simplified in this implementation</h4>
-      <p style={{ color: 'var(--ink-muted)', fontSize: 13 }}>
-        The base structure is in: villagers, hauntings→villager-deaths, Devourers, moon
-        crystals, Save Villager, Kung-Fu School, 12-dead loss. Several flavour mechanics are
-        deferred and noted here so you know what's missing if you're cross-referencing the
-        physical rulebook:
+      <h4 style={heading}>Per-family death curses + save rewards</h4>
+      <p>
+        Each of the 12 families has a distinct effect when a member dies and a distinct
+        reward when the full family is saved:
       </p>
+      <ul style={{ fontSize: 13 }}>
+        <li><strong>3-person families</strong> (Hua/Zhou/Li/Sun) — heaviest penalties (Qi loss, Tao discard, Tao to supply); save rewards are Tao or Qi gains, or restored Yin-Yang.</li>
+        <li><strong>2-person families</strong> (Miao/Xiang/Sheng/Wu) — mid-tier penalties (Sheng's death actually haunts a village tile); save rewards include Tao, Yin-Yang, unhaunting a tile, or a power token.</li>
+        <li><strong>1-person families</strong> (Chang/Teng/Long/Weng) — no death penalty, but the save rewards are top-tier (moon crystal, power token, Yin-Yang, Qi).</li>
+      </ul>
+
+      <h4 style={heading}>Su-Ling</h4>
+      <p>
+        Su-Ling enters play on the first event that triggers her (a villager dies, a curse
+        die is rolled, or a tile is haunted). She sits on an empty Haunting icon facing
+        the most-pressured board. <strong>The center-stone abilities of the ghost in front
+        of her are cancelled</strong> — Haunters, Tormentors, and Devourers all sit idle
+        while she stands there. Players may move her to a different empty haunting icon
+        via the <em>Su-Ling</em> action.
+      </p>
+
+      <h4 style={heading}>Villager fleeing on first Haunter advance</h4>
+      <p>
+        When a Haunter advances from card → stone 1 (the first tick of the haunting
+        cycle), the top villager on the first tile in front of the ghost flees one tile
+        in the opposite direction. If the destination tile is haunted, off-board, or
+        already at 3 villagers, the fleeing villager dies instead.
+      </p>
+
+      <h4 style={heading}>Villager moves with Taoist</h4>
+      <p>
+        A Taoist may bring a villager with them when they move to an adjacent tile — set
+        the <em>carryVillager</em> flag on the move. The villager must be on the Taoist's
+        tile both before and after the move, and the destination must have room (≤ 2
+        existing villagers).
+      </p>
+
+      <h4 style={heading}>Receptacles + Mystic Barrier</h4>
+      <p>
+        Place moon crystals into the 4 corner Receptacles via the <em>placeMoonCrystal</em>
+        action while standing on the matching corner tile. When the 4th Receptacle fills,
+        the <strong>Mystic Barrier</strong> queues for the end of the current Yang phase:
+        the engine discards the highest-resistance non-incarnation ghost on every
+        non-neutral board (no rewards, no curses) and returns the 4 crystals to the central
+        reserve. This is a simplified resolution of the per-board choice the full rulebook
+        prescribes.
+      </p>
+
+      <h4 style={heading}>What's still simplified</h4>
       <ul style={{ color: 'var(--ink-muted)', fontSize: 13 }}>
-        <li>
-          <strong>Per-family death curses and save rewards</strong> — families are tracked
-          (each villager carries its family name) but the individual curse on death and bonus
-          on full-family save are not yet applied.
-        </li>
-        <li>
-          <strong>Su-Ling and the mystic barrier</strong> — Su-Ling movement, the
-          ability-cancellation effect, the 4-receptacle endgame, and the artifact rewards are
-          not yet wired. Crystals can still be captured and spent as wild Tao.
-        </li>
-        <li>
-          <strong>Villager movement with Taoists</strong> — moving villagers (and fleeing
-          mechanic) are not yet implemented. Villagers remain in place until they die or are
-          saved from the Portal tile.
-        </li>
         <li>
           <strong>Portal placement</strong> — defaults to the central tile (basic-game
           variant). The rulebook's harder variants place it on peripheral tiles for bonus
-          score.
+          score; not yet a setting.
+        </li>
+        <li>
+          <strong>Mystic Barrier nuances</strong> — the engine runs a single non-interactive
+          sweep. The rulebook's full Mystic Barrier rotates board-by-board and gives each
+          board a choice (save a villager off the Portal tile vs. roll 4 dice + crystals
+          to clear ghosts). Our resolution favours ghost-clearing across the board.
+        </li>
+        <li>
+          <strong>Death-curse / save-reward sub-choices</strong> — when a curse asks the
+          active player to discard or place a Tao token of choice, the engine picks the
+          first available token deterministically; a UI sub-action for fine-grained choices
+          can land later.
         </li>
       </ul>
-      <p style={{ color: 'var(--ink-muted)', fontSize: 13 }}>
-        These are the next planned additions for the expansion.
-      </p>
     </div>
   ),
 })

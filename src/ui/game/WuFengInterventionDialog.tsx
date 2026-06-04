@@ -14,8 +14,6 @@ const TAO_HEX: Record<TaoColor, string> = {
 const COLORS: TaoistColor[] = ['red', 'blue', 'green', 'yellow']
 
 export function WuFengInterventionDialog({ game }: { game: GameState }) {
-  const dispatch = useGameStore((s) => s.dispatch)
-
   if (game.phase !== 'wuFengIntervention') return null
   if (!game.pendingArrivalCardId) return null
 
@@ -56,19 +54,14 @@ export function WuFengInterventionDialog({ game }: { game: GameState }) {
         <PlaceSection game={game} cardColor={card.color} naturalBoard={naturalBoard} />
         <SummonSection game={game} resSum={resSum} />
         <CurseSection game={game} />
+        <SkeletonSection game={game} />
 
         <div style={{ marginTop: 16, fontSize: 11, color: 'var(--ink-muted)' }}>
           You must choose one. The ghost card is the cost — summon/curse discards it.
         </div>
       </div>
-      <DispatchInfo />
     </div>
   )
-
-  // Inner: ensures dispatch is captured at the outer closure.
-  function DispatchInfo() {
-    return <div style={{ display: 'none' }}>{dispatch ? '' : ''}</div>
-  }
 }
 
 function PlaceSection({ game, cardColor, naturalBoard }: { game: GameState; cardColor: TaoColor; naturalBoard: TaoistColor }) {
@@ -226,6 +219,62 @@ function CurseSection({ game }: { game: GameState }) {
         onClick={() => dispatch({ type: 'wuFengIntervene', choice: { kind: 'curse', level, color } })}
       >
         Curse
+      </button>
+    </Section>
+  )
+}
+
+function SkeletonSection({ game }: { game: GameState }) {
+  const dispatch = useGameStore((s) => s.dispatch)
+  const available = game.blackSecret?.skeletonsAvailable ?? 0
+  const openSpots: Array<{ board: TaoistColor; space: 0 | 1 | 2 }> = []
+  for (const c of COLORS) {
+    for (const i of [0, 1, 2] as const) {
+      if (game.boards[c].ghostSpaces[i] == null) openSpots.push({ board: c, space: i })
+    }
+  }
+  const [pick, setPick] = useState<{ board: TaoistColor; space: 0 | 1 | 2 } | null>(openSpots[0] ?? null)
+  if (available <= 0) {
+    return (
+      <Section title="④ Place a skeleton">
+        <div style={{ color: 'var(--ink-muted)', fontSize: 12 }}>No skeletons in reserve.</div>
+      </Section>
+    )
+  }
+  if (openSpots.length === 0) {
+    return (
+      <Section title="④ Place a skeleton">
+        <div style={{ color: 'var(--ink-muted)', fontSize: 12 }}>No empty ghost spaces.</div>
+      </Section>
+    )
+  }
+  return (
+    <Section title={`④ Place a skeleton (${available} in reserve)`}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {openSpots.map((spot, i) => (
+          <button
+            key={i}
+            onClick={() => setPick(spot)}
+            style={{
+              border: pick?.board === spot.board && pick?.space === spot.space
+                ? '2px solid var(--accent)'
+                : '1px solid var(--rule)',
+              fontSize: 11,
+            }}
+          >
+            {spot.board}/{spot.space}
+          </button>
+        ))}
+      </div>
+      <button
+        style={{ ...primary, marginTop: 8 }}
+        disabled={!pick}
+        onClick={() => pick && dispatch({
+          type: 'wuFengIntervene',
+          choice: { kind: 'skeleton', targetBoard: pick.board, targetSpace: pick.space },
+        })}
+      >
+        Place skeleton
       </button>
     </Section>
   )

@@ -51,29 +51,32 @@ export function hauntFirstTileInFront(state: GameState, board: BoardColor, space
 
 // ----- White Moon villager helpers ---------------------------------------
 
+import { FAMILY_DEFS } from '../whiteMoonFamilies'
+import type { VillagerToken } from '../types'
+
 /**
  * Kill all villagers currently on a tile (top stack from top to bottom).
- * Adds them to the Graveyard. Per-family death curses are placeholders here —
- * see the rulebook topic for what's simplified.
+ * Each death triggers the family death-curse. Order matters per rulebook:
+ * top of stack first, then down.
  */
 export function killAllVillagersOnTile(state: GameState, tileId: VillageTileId): GameState {
   if (!state.whiteMoon) return state
   const tile = state.village.find((t) => t.id === tileId)
   if (!tile || !tile.villagerStack || tile.villagerStack.length === 0) return state
-  const dying = [...tile.villagerStack]
-  const village = state.village.map((t) =>
-    t.id === tileId ? { ...t, villagerStack: [] } : t,
-  )
-  const whiteMoon = {
-    ...state.whiteMoon,
-    dead: [...state.whiteMoon.dead, ...dying],
+  // Walk top to bottom, applying death effects in order.
+  let s = state
+  // Each iteration peels the current top off and applies its curse.
+  for (let i = 0; i < (tile.villagerStack?.length ?? 0); i++) {
+    s = killTopVillagerOnTile(s, tileId)
+    if (s.phase === 'gameOver') return s
   }
-  return { ...state, village, whiteMoon }
+  return s
 }
 
 /**
- * Kill just the top villager of a tile (Devourer ability). Reveals the next
- * villager in the stack (the renderer reads stack[length-1]).
+ * Kill just the top villager of a tile (Devourer ability, single-villager
+ * fleeing death, sheng-family-haunt fallout). Reveals the next villager in
+ * the stack. Triggers Su-Ling event + family death-curse.
  */
 export function killTopVillagerOnTile(state: GameState, tileId: VillageTileId): GameState {
   if (!state.whiteMoon) return state
@@ -90,7 +93,135 @@ export function killTopVillagerOnTile(state: GameState, tileId: VillageTileId): 
     ...state.whiteMoon,
     dead: [...state.whiteMoon.dead, dying],
   }
-  return { ...state, village, whiteMoon }
+  let s: GameState = { ...state, village, whiteMoon }
+  // Family death curse (no-op for 1-person families).
+  s = applyFamilyDeathCurse(s, dying)
+  // Su-Ling event: a villager died — Su-Ling can be placed/moved.
+  s = triggerSuLingEvent(s)
+  return s
+}
+
+/**
+ * Kill a villager that is the top of any tile's stack — used for the
+ * Devourer fallback "kill any villager elsewhere" path.
+ */
+export function killAnyVillager(state: GameState): GameState {
+  if (!state.whiteMoon) return state
+  for (const tile of state.village) {
+    if ((tile.villagerStack?.length ?? 0) > 0) {
+      return killTopVillagerOnTile(state, tile.id)
+    }
+  }
+  return state
+}
+
+// ----- Family death curses -----------------------------------------------
+
+function applyFamilyDeathCurse(state: GameState, dying: VillagerToken): GameState {
+  if (!state.whiteMoon) return state
+  const def = FAMILY_DEFS[dying.family]
+  if (!def) return state
+  const actor = state.activeBoard
+  const t = state.taoists[actor]
+  if (t.isNeutral || !t.alive) return state
+
+  switch (def.death.kind) {
+    case 'noEffect':
+      return state
+    case 'loseQi':
+      return loseQi(state, actor)
+    case 'discardTao': {
+      // Discard 1 Tao token: engine picks the first available color (UI can
+      // surface a choice via a future sub-action).
+      for (const c of ['black', 'yellow', 'green', 'blue', 'red'] as const) {
+        if (t.tao[c] > 0) {
+          return {
+            ...state,
+            taoists: { ...state.taoists, [actor]: { ...t, tao: { ...t.tao, [c]: t.tao[c] - 1 } } },
+          }
+        }
+      }
+      return state
+    }
+    case 'returnTaoToSupply': {
+      for (const c of ['black', 'yellow', 'green', 'blue', 'red'] as const) {
+        if (t.tao[c] > 0) {
+          return {
+            ...state,
+            taoists: { ...state.taoists, [actor]: { ...t, tao: { ...t.tao, [c]: t.tao[c] - 1 } } },
+            taoSupply: { ...state.taoSupply, [c]: state.taoSupply[c] + 1 },
+          }
+        }
+      }
+      return state
+    }
+    case 'hauntTile': {
+      // Haunt the first active tile (in column-major order). Walks the village
+      // grid until it finds one.
+      for (const tile of state.village) {
+        if (!tile.haunted) {
+          // No villager-buffer check here — the curse explicitly haunts.
+          const village = state.village.map((vt) =>
+            vt.id === tile.id ? { ...vt, haunted: true } : vt,
+          )
+          return { ...state, village, hauntedCount: state.hauntedCount + 1 }
+        }
+      }
+      return state
+    }
+    default:
+      return state
+  }
+}
+
+// ----- Su-Ling triggers --------------------------------------------------
+
+/**
+ * Su-Ling is placed/moved on any of three events: a villager dies, a curse
+ * die is rolled, or a tile is haunted. The engine here only handles the
+ * "place Su-Ling on the most-threatening empty haunting icon" decision (the
+ * rulebook lets the active player choose; UI exposes the placement separately).
+ *
+ * For now: places Su-Ling on the first Haunting icon facing the current
+ * active board if Su-Ling isn't already placed. Once placed she sits there
+ * until manually moved. This is a simplification of the rulebook (which lets
+ * the player place her each time on any haunting icon).
+ */
+export function triggerSuLingEvent(state: GameState): GameState {
+  if (!state.whiteMoon) return state
+  // Already on the board → nothing automatic happens (player can move via UI).
+  if (state.whiteMoon.suLingPos) return state
+  // Find the highest-pressure board: most haunting figures on stones.
+  let best: { board: BoardColor; space: 0 | 1 | 2 } | null = null
+  let bestScore = -1
+  for (const c of ['red', 'blue', 'green', 'yellow'] as BoardColor[]) {
+    for (const i of [0, 1, 2] as const) {
+      const g = state.boards[c].ghostSpaces[i]
+      if (!g) continue
+      const score = g.hauntingFigurePos === 'stone2' ? 3 : g.hauntingFigurePos === 'stone1' ? 2 : 1
+      if (score > bestScore) {
+        bestScore = score
+        best = { board: c, space: i }
+      }
+    }
+  }
+  if (!best) return state
+  return {
+    ...state,
+    whiteMoon: { ...state.whiteMoon, suLingPos: { board: best.board, ghostSpaceIdx: best.space } },
+  }
+}
+
+/**
+ * Su-Ling cancels the center-stone abilities of the ghost in front of her.
+ * Returns true if a given ghost should be skipped for its center-stone
+ * effects (Haunter/Tormentor/Devourer).
+ */
+export function suLingCancelsGhost(state: GameState, board: BoardColor, space: 0 | 1 | 2): boolean {
+  if (!state.whiteMoon) return false
+  const p = state.whiteMoon.suLingPos
+  if (!p) return false
+  return p.board === board && p.ghostSpaceIdx === space
 }
 
 /** Unhaunts a tile (Taoist Altar / Yin-Yang flip). */
@@ -115,6 +246,7 @@ export function loseQi(state: GameState, target: TaoistColor): GameState {
   const t = state.taoists[target]
   const board = state.boards[target]
 
+  let next: GameState
   if (board.possessed || t.isNeutral) {
     // Hit the board's own Qi pool.
     if (board.qi <= 0) {
@@ -124,19 +256,28 @@ export function loseQi(state: GameState, target: TaoistColor): GameState {
       return loseQi(state, active.color)
     }
     const nextBoard = { ...board, qi: board.qi - 1 }
-    const next = { ...state.boards, [target]: nextBoard }
-    return { ...state, boards: next }
+    next = { ...state, boards: { ...state.boards, [target]: nextBoard } }
+  } else {
+    if (!t.alive) return state // already dead
+    const newQi = t.qi - 1
+    if (newQi <= 0) {
+      next = killTaoist(state, target)
+    } else {
+      next = { ...state, taoists: { ...state.taoists, [target]: { ...t, qi: newQi } } }
+    }
   }
+  // Black Secret: the lost Qi lands on a Bloody Mantra.
+  if (next.blackSecret && qiSideEffect) {
+    next = qiSideEffect(next)
+  }
+  return next
+}
 
-  if (!t.alive) return state // already dead
-  const newQi = t.qi - 1
-  if (newQi <= 0) {
-    return killTaoist(state, target)
-  }
-  return {
-    ...state,
-    taoists: { ...state.taoists, [target]: { ...t, qi: newQi } },
-  }
+// Registered by `blackSecret.ts` at import time to route Qi losses through
+// `placeQiOnMantra`. Decoupling avoids a circular import.
+let qiSideEffect: ((s: GameState) => GameState) | null = null
+export function registerQiLossSideEffect(fn: (s: GameState) => GameState): void {
+  qiSideEffect = fn
 }
 
 /**

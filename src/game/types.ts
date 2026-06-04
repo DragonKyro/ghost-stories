@@ -128,8 +128,16 @@ export type WhiteMoonState = {
   moonCrystalsByTaoist: Record<TaoistColor, number>
   /** Moon crystals placed into the 4 receptacles (one per corner). */
   receptacles: { ne: boolean; nw: boolean; se: boolean; sw: boolean }
-  /** Su-Ling's position. null = in reserve. */
+  /**
+   * Su-Ling's position. Mirrors a ghost-space slot.
+   * null = in reserve (rulebook setup state).
+   */
   suLingPos: { board: BoardColor; ghostSpaceIdx: GhostSpaceIdx } | null
+  /**
+   * When true the Mystic Barrier phase is queued — fires after the current
+   * Yang phase ends, before turn advance.
+   */
+  mysticBarrierPending?: boolean
 }
 
 export const WHITE_MOON_VILLAGERS_TOTAL = 24 // 4×3 + 4×2 + 4×1
@@ -181,6 +189,18 @@ export type BlackSecretState = {
   skeletonsAvailable: number
   /** Bloody Mantra cards in play: 3× lvl 2, 2× lvl 3, 1× lvl 4. */
   bloodyMantras: BloodyMantraCard[]
+  /**
+   * The catacomb-token stack. Each demon's `search` action reveals + resolves
+   * the top token. Built by `buildCatacombDeck` at setup.
+   */
+  catacombDeck: import('./blackSecretData').CatacombToken[]
+  /** Urns found so far. 3 → Shadow of Wu-Feng enters play. */
+  urnsFound: number
+  /**
+   * Shadow of Wu-Feng — sits as a "ghost" with infinite resistance. Null
+   * until 3 urns are found.
+   */
+  shadowPos: { board: BoardColor; ghostSpaceIdx: GhostSpaceIdx } | null
 }
 
 // --- Taoist powers -------------------------------------------------------

@@ -26,6 +26,8 @@ import {
   killTopVillagerOnTile,
   loseQi,
   placeGhost,
+  suLingCancelsGhost,
+  triggerSuLingEvent,
 } from './hauntingAndQi'
 import { checkLossConditions } from './winLose'
 
@@ -110,19 +112,30 @@ function resolveGhostActions(
     if (!ghost) continue
     const card = getGhostCard(ghost.cardId)
 
+    // White Moon: Su-Ling cancels the center-stone abilities of the ghost in
+    // front of her (Haunter/Tormentor/Devourer all skip). Tormentor curse
+    // rolls still need to be CONSUMED from the payload to keep the rollIdx
+    // aligned with payload order — the engine just throws away the effect.
+    const cancelled = suLingCancelsGhost(s, s.activeBoard, space)
+
     // Left-to-right ability application.
     for (const ab of card.abilities.center) {
       switch (ab.kind) {
         case 'haunter':
+          if (cancelled) break
           s = advanceHaunter(s, s.activeBoard, space)
           break
         case 'tormentor': {
           const result = tormentorRolls[rollIdx++]
           if (!result) throw new Error('tormentor curse roll missing in payload')
+          if (cancelled) break
           s = applyCurseDie(s, s.activeBoard, space, result, curseSpawnedGhosts, () => spawnIdx++)
+          // Su-Ling: a curse die was rolled — trigger placement event.
+          s = triggerSuLingEvent(s)
           break
         }
         case 'devourer':
+          if (cancelled) break
           s = applyDevourer(s, s.activeBoard, space)
           break
         // Passive abilities (powerBlocker / taoBlocker / dieCaptor /
@@ -172,12 +185,18 @@ function applyDevourer(state: GameState, board: TaoistColor, space: GhostSpaceId
   return loseQi(state, state.activeBoard)
 }
 
+// keep imports live for the refactor
+void triggerSuLingEvent
+
 function advanceHaunter(state: GameState, board: TaoistColor, space: GhostSpaceIdx): GameState {
   const ghost = state.boards[board].ghostSpaces[space]
   if (!ghost) return state
 
   if (ghost.hauntingFigurePos === 'card') {
-    return mutateGhost(state, board, space, { hauntingFigurePos: 'stone1' })
+    let s = mutateGhost(state, board, space, { hauntingFigurePos: 'stone1' })
+    // White Moon: villager on the first tile in front flees opposite direction.
+    s = applyHaunterFlee(s, board, space)
+    return s
   }
   if (ghost.hauntingFigurePos === 'stone1') {
     // Advance to stone2 (haunt-and-reset).
@@ -185,12 +204,58 @@ function advanceHaunter(state: GameState, board: TaoistColor, space: GhostSpaceI
     s = hauntFirstTileInFront(s, board, space)
     // Then reset back to card.
     s = mutateGhost(s, board, space, { hauntingFigurePos: 'card' })
+    // Su-Ling trigger: a tile may have been haunted.
+    s = triggerSuLingEvent(s)
     return s
   }
   // Already on stone2: same haunt-and-reset effect (defensive fallthrough).
   let s = hauntFirstTileInFront(state, board, space)
   s = mutateGhost(s, board, space, { hauntingFigurePos: 'card' })
+  s = triggerSuLingEvent(s)
   return s
+}
+
+/**
+ * White Moon: when a Haunting figure moves from card to stone1, the villager
+ * at the top of the first stack in front of the ghost flees one tile in the
+ * direction *opposite* the ghost. If the destination has 3 villagers already
+ * or would leave the village / land on a haunted tile, the villager dies.
+ */
+function applyHaunterFlee(state: GameState, board: TaoistColor, space: GhostSpaceIdx): GameState {
+  if (!state.whiteMoon) return state
+  const line = tilesInHauntingLine(board, space)
+  if (line.length < 1) return state
+  const firstCoord = line[0]
+  const firstTile = tileByCoord(state, firstCoord)
+  if (!firstTile.villagerStack || firstTile.villagerStack.length === 0) return state
+
+  // The "opposite direction" is the next tile in the haunting line — moving
+  // *away* from the ghost (line[1]).
+  const oppCoord = line[1] ?? null
+  const fleeingVillager = firstTile.villagerStack[firstTile.villagerStack.length - 1]
+
+  // No destination — leaves village → dies.
+  if (!oppCoord) {
+    return killTopVillagerOnTile(state, firstTile.id)
+  }
+  const destTile = tileByCoord(state, oppCoord)
+  // Haunted destination → dies.
+  if (destTile.haunted) {
+    return killTopVillagerOnTile(state, firstTile.id)
+  }
+  // Full destination (3 villagers) → dies.
+  if ((destTile.villagerStack?.length ?? 0) >= 3) {
+    return killTopVillagerOnTile(state, firstTile.id)
+  }
+  // Move: pop from first, push to destination.
+  const firstStack = firstTile.villagerStack.slice(0, -1)
+  const destStack = [...(destTile.villagerStack ?? []), fleeingVillager]
+  const village = state.village.map((t) => {
+    if (t.id === firstTile.id) return { ...t, villagerStack: firstStack }
+    if (t.id === destTile.id) return { ...t, villagerStack: destStack }
+    return t
+  })
+  return { ...state, village }
 }
 
 function applyCurseDie(

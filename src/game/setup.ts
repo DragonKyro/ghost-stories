@@ -6,6 +6,7 @@
 // with the same config + seed reduce identically.
 
 import { allBaseGhostIds, allWhiteMoonGhostIds, incarnationCardId, allIncarnationIds } from './ghostCatalogue'
+import { buildCatacombDeck } from './blackSecretData'
 import { nextInt, seedRng, shuffle, type RngState } from './rng'
 import {
   ALL_VILLAGE_TILE_KINDS,
@@ -315,9 +316,12 @@ export function createGame(config: GameConfig): GameState {
   // turns run a Yin-only mini-phase).
   const firstColor = TURN_ORDER.find((c) => !taoists[c].isNeutral) ?? TURN_ORDER[0]
 
-  const blackSecretState: BlackSecretState | undefined = blackSecret
-    ? buildBlackSecret(config)
-    : undefined
+  let blackSecretState: BlackSecretState | undefined
+  if (blackSecret) {
+    const result = buildBlackSecret(config, rng)
+    rng = result.rng
+    blackSecretState = result.state
+  }
 
   return {
     config,
@@ -341,22 +345,31 @@ export function createGame(config: GameConfig): GameState {
   }
 }
 
-function buildBlackSecret(config: GameConfig): BlackSecretState {
+function buildBlackSecret(config: GameConfig, rng: RngState): { state: BlackSecretState; rng: RngState } {
+  const playerCount = Object.values(config.seats).filter(Boolean).length
+  const deck = buildCatacombDeck(playerCount)
+  const [rngOut, shuffled] = shuffle(rng, deck)
   return {
-    wuFengTag: config.wuFengPlayer?.tag ?? 'Wu-Feng',
-    curses: { 1: 0, 2: 0, 3: 0, 4: 0 },
-    catacombsDemons: [],
-    reserveDemons: ['cost2', 'cost3', 'cost4'],
-    skeletonsAvailable: 3,
-    // 3× lvl 2, 2× lvl 3, 1× lvl 4 per rulebook setup.
-    bloodyMantras: [
-      { level: 2, qiOnCard: 0 },
-      { level: 2, qiOnCard: 0 },
-      { level: 2, qiOnCard: 0 },
-      { level: 3, qiOnCard: 0 },
-      { level: 3, qiOnCard: 0 },
-      { level: 4, qiOnCard: 0 },
-    ],
+    rng: rngOut,
+    state: {
+      wuFengTag: config.wuFengPlayer?.tag ?? 'Wu-Feng',
+      curses: { 1: 0, 2: 0, 3: 0, 4: 0 },
+      catacombsDemons: [],
+      reserveDemons: ['cost2', 'cost3', 'cost4'],
+      skeletonsAvailable: 3,
+      // 3× lvl 2, 2× lvl 3, 1× lvl 4 per rulebook setup.
+      bloodyMantras: [
+        { level: 2, qiOnCard: 0 },
+        { level: 2, qiOnCard: 0 },
+        { level: 2, qiOnCard: 0 },
+        { level: 3, qiOnCard: 0 },
+        { level: 3, qiOnCard: 0 },
+        { level: 4, qiOnCard: 0 },
+      ],
+      catacombDeck: shuffled,
+      urnsFound: 0,
+      shadowPos: null,
+    },
   }
 }
 

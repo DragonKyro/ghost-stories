@@ -50,6 +50,19 @@ export type BuildResult = {
   pendingChoices: PendingChoice[]
 }
 
+/**
+ * Black Secret: build a default `wuFengDemonActions` payload — every demon
+ * tries to search. (Real Wu-Feng players will get a UI to choose; this is the
+ * AI/no-UI fallback.)
+ */
+export function buildDefaultDemonActions(state: GameState) {
+  if (!state.blackSecret) return { moves: [] as Array<{ demonIdx: number; kind: 'search' }> }
+  const demons = state.blackSecret.catacombsDemons
+  return {
+    moves: demons.map((_d, idx) => ({ demonIdx: idx, kind: 'search' as const })),
+  }
+}
+
 export function buildYinPayload(state: GameState): BuildResult {
   const board = activeBoard(state)
   const tormentorCurseRolls: CurseFace[] = []

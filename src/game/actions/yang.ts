@@ -53,7 +53,7 @@ export function applyYangAction(state: GameState, action: YangAction): GameState
 
   switch (action.type) {
     case 'moveTaoist':
-      return moveTaoist(state, action.taoistId, action.toTile)
+      return moveTaoist(state, action.taoistId, action.toTile, action.carryVillager ?? false)
 
     case 'requestHelp':
       return applyRequestHelp(state, action.taoistId, action.params, {
@@ -83,6 +83,9 @@ export function applyYangAction(state: GameState, action: YangAction): GameState
     case 'placeMoonCrystal':
       return placeMoonCrystal(state, action.taoistId, action.receptacle)
 
+    case 'moveSuLing':
+      return moveSuLing(state, action.taoistId, action.toBoard, action.toGhostSpaceIdx)
+
     case 'endYangPhase':
       return endYangPhase(state)
   }
@@ -107,7 +110,70 @@ function saveVillager(state: GameState, taoistId: TaoistId): GameState {
   const newStack = tile.villagerStack.slice(0, -1)
   const village = state.village.map((t) => (t.id === tile.id ? { ...t, villagerStack: newStack } : t))
   const wm = { ...state.whiteMoon, saved: [...state.whiteMoon.saved, top] }
-  return { ...state, village, whiteMoon: wm }
+  let s: GameState = { ...state, village, whiteMoon: wm }
+  // Family-save reward if this completes the family.
+  s = checkAndApplyFamilySaveReward(s, top.family, me.color)
+  return s
+}
+
+import { FAMILY_DEFS } from '../whiteMoonFamilies'
+import type { VillagerFamilyId } from '../types'
+
+function checkAndApplyFamilySaveReward(state: GameState, family: VillagerFamilyId, actor: TaoistColor): GameState {
+  if (!state.whiteMoon) return state
+  const def = FAMILY_DEFS[family]
+  if (!def) return state
+  // Family is saved when the count of saved members equals family size AND
+  // there are no remaining dead OR alive of that family — i.e. we just placed
+  // the LAST member into the Shelter.
+  const savedCount = state.whiteMoon.saved.filter((v) => v.family === family).length
+  if (savedCount < def.size) return state
+  // Apply the reward to the active player.
+  const t = state.taoists[actor]
+  if (!t.alive || t.isNeutral) return state
+  const maxQi = state.config.difficulty === 'initiation' ? 4 : 3
+  switch (def.save.kind) {
+    case 'gainQi':
+      return { ...state, taoists: { ...state.taoists, [actor]: { ...t, qi: Math.min(maxQi, t.qi + 1) } } }
+    case 'gainTao': {
+      // Engine default to actor's own color; UI may surface a per-color picker later.
+      const color = t.color
+      if (state.taoSupply[color] <= 0) return state
+      return {
+        ...state,
+        taoSupply: { ...state.taoSupply, [color]: state.taoSupply[color] - 1 },
+        taoists: { ...state.taoists, [actor]: { ...t, tao: { ...t.tao, [color]: t.tao[color] + 1 } } },
+      }
+    }
+    case 'restoreYinYang':
+      return { ...state, taoists: { ...state.taoists, [actor]: { ...t, yinYang: true } } }
+    case 'moonCrystal':
+      if (state.whiteMoon.moonCrystalReserve <= 0) return state
+      return {
+        ...state,
+        whiteMoon: {
+          ...state.whiteMoon,
+          moonCrystalReserve: state.whiteMoon.moonCrystalReserve - 1,
+          moonCrystalsByTaoist: { ...state.whiteMoon.moonCrystalsByTaoist, [actor]: state.whiteMoon.moonCrystalsByTaoist[actor] + 1 },
+        },
+      }
+    case 'gainPowerToken':
+      return { ...state, taoists: { ...state.taoists, [actor]: { ...t, powerTokens: t.powerTokens + 1 } } }
+    case 'unhauntTile': {
+      // Unhaunt the first haunted tile encountered.
+      for (const tile of state.village) {
+        if (tile.haunted) {
+          const village = state.village.map((vt) =>
+            vt.id === tile.id ? { ...vt, haunted: false } : vt,
+          )
+          return { ...state, village, hauntedCount: Math.max(0, state.hauntedCount - 1) }
+        }
+      }
+      return state
+    }
+    default:
+      return state
+  }
 }
 
 // ---------- White Moon: place a moon crystal --------------------------
@@ -120,30 +186,100 @@ function placeMoonCrystal(
   if (!state.whiteMoon) throw new Error('placeMoonCrystal: White Moon is not active')
   const me = taoistById(state, taoistId)
   if (!me.alive) throw new Error('placeMoonCrystal: dead')
+  if (!me.tile) throw new Error('placeMoonCrystal: no tile')
+  // Rulebook: receptacles sit at the 4 village corners. The actor must stand
+  // on the corner adjacent to the receptacle they're filling.
+  const tile = state.village.find((v) => v.id === me.tile)
+  if (!tile) throw new Error('placeMoonCrystal: no tile')
+  const expectedCorner = receptacleToCorner[receptacle]
+  if (tile.coord.col !== expectedCorner.col || tile.coord.row !== expectedCorner.row) {
+    throw new Error(`placeMoonCrystal: must stand on corner ${expectedCorner.col},${expectedCorner.row}`)
+  }
   const held = state.whiteMoon.moonCrystalsByTaoist[me.color]
   if (held <= 0) throw new Error('placeMoonCrystal: no crystal in hand')
   if (state.whiteMoon.receptacles[receptacle]) throw new Error('placeMoonCrystal: receptacle is full')
+  const newReceptacles = { ...state.whiteMoon.receptacles, [receptacle]: true }
+  const allFour =
+    newReceptacles.ne && newReceptacles.nw && newReceptacles.se && newReceptacles.sw
   const wm = {
     ...state.whiteMoon,
     moonCrystalsByTaoist: { ...state.whiteMoon.moonCrystalsByTaoist, [me.color]: held - 1 },
-    receptacles: { ...state.whiteMoon.receptacles, [receptacle]: true },
+    receptacles: newReceptacles,
+    mysticBarrierPending: allFour ? true : state.whiteMoon.mysticBarrierPending,
   }
   return { ...state, whiteMoon: wm }
 }
 
+const receptacleToCorner: Record<'ne' | 'nw' | 'se' | 'sw', { col: 0 | 1 | 2; row: 0 | 1 | 2 }> = {
+  nw: { col: 0, row: 0 },
+  ne: { col: 2, row: 0 },
+  sw: { col: 0, row: 2 },
+  se: { col: 2, row: 2 },
+}
+
+function moveSuLing(
+  state: GameState,
+  taoistId: TaoistId,
+  toBoard: TaoistColor,
+  toGhostSpaceIdx: 0 | 1 | 2,
+): GameState {
+  if (!state.whiteMoon) throw new Error('moveSuLing: White Moon not active')
+  const me = taoistById(state, taoistId)
+  if (me.color !== activeTaoist(state).color) throw new Error('moveSuLing: not active turn')
+  // Su-Ling can only sit on an EMPTY haunting icon (no ghost in that space).
+  if (state.boards[toBoard].ghostSpaces[toGhostSpaceIdx] != null) {
+    throw new Error('moveSuLing: target ghost space is occupied')
+  }
+  return {
+    ...state,
+    whiteMoon: {
+      ...state.whiteMoon,
+      suLingPos: { board: toBoard, ghostSpaceIdx: toGhostSpaceIdx },
+    },
+  }
+}
+
 // ---------- Movement ---------------------------------------------------
 
-function moveTaoist(state: GameState, taoistId: TaoistId, toTile: VillageTileId): GameState {
+function moveTaoist(state: GameState, taoistId: TaoistId, toTile: VillageTileId, carryVillager: boolean): GameState {
   const t = taoistById(state, taoistId)
   if (!t.alive) throw new Error('move: dead')
   if (t.color !== activeTaoist(state).color) throw new Error('move: not active turn')
   if (!t.tile) throw new Error('move: no current tile')
   const neighbours = adjacentTiles(state, t.tile)
   if (!neighbours.some((n) => n.id === toTile)) throw new Error('move: target not adjacent')
-  return {
+
+  let s: GameState = {
     ...state,
     taoists: { ...state.taoists, [t.color]: { ...t, tile: toTile } },
   }
+
+  // White Moon: carry the top villager from your current tile to the destination.
+  // Rulebook says villager must be on your tile before and after the move.
+  if (carryVillager && state.whiteMoon) {
+    const fromTile = state.village.find((v) => v.id === t.tile)
+    const destTile = state.village.find((v) => v.id === toTile)
+    if (!fromTile || !destTile) return s
+    if (destTile.haunted) throw new Error('move: cannot carry villager to a haunted tile')
+    if ((destTile.villagerStack?.length ?? 0) >= 3) {
+      throw new Error('move: destination already has 3 villagers')
+    }
+    if (!fromTile.villagerStack || fromTile.villagerStack.length === 0) {
+      throw new Error('move: no villager to carry')
+    }
+    const villager = fromTile.villagerStack[fromTile.villagerStack.length - 1]
+    const fromStack = fromTile.villagerStack.slice(0, -1)
+    const destStack = [...(destTile.villagerStack ?? []), villager]
+    s = {
+      ...s,
+      village: s.village.map((v) => {
+        if (v.id === fromTile.id) return { ...v, villagerStack: fromStack }
+        if (v.id === destTile.id) return { ...v, villagerStack: destStack }
+        return v
+      }),
+    }
+  }
+  return s
 }
 
 // ---------- Exorcism ---------------------------------------------------
@@ -466,16 +602,36 @@ function useTaoistPower(state: GameState, taoistId: TaoistId, params: PowerParam
   const board = state.boards[t.color]
   if (isPowerBlocked(state, t.color)) throw new Error('power: blocked')
 
+  /**
+   * Black Secret Blood Brother: when the active player is at 1 Qi, they may
+   * also use the opposite board's power. We accept the invocation when
+   * either (a) it matches the actor's own power OR (b) Black Secret + at 1
+   * Qi + opposite board's active power matches.
+   */
+  const hasBrotherPower = (powerId: string): boolean => {
+    if (!state.blackSecret) return false
+    if (t.qi !== 1) return false
+    const oppColor = oppositeBoardColor(t.color)
+    const oppBoard = state.boards[oppColor]
+    if (oppBoard.possessed || !oppBoard.powerActive) return false
+    if (isPowerBlocked(state, oppColor)) return false
+    return oppBoard.activePowerId === powerId
+  }
+  const powerOk = (powerId: string): boolean => {
+    if (board.activePowerId === powerId) return true
+    return hasBrotherPower(powerId)
+  }
+
   // Validate that the power being invoked is the one active on this board.
   // Some powers are passive markers (Heavenly Gust, Second Wind, Strength of a
   // Mountain, Gods' Favorite) — they don't need an explicit invocation.
   switch (params.kind) {
     case 'danceOfTheSpires':
-      if (board.activePowerId !== 'danceOfTheSpires') throw new Error('power: not active')
+      if (!powerOk('danceOfTheSpires')) throw new Error('power: not active')
       // Fly to any tile.
       return { ...state, taoists: { ...state.taoists, [t.color]: { ...t, tile: params.toTile } } }
     case 'danceOfTheTwinWinds': {
-      if (board.activePowerId !== 'danceOfTheTwinWinds') throw new Error('power: not active')
+      if (!powerOk('danceOfTheTwinWinds')) throw new Error('power: not active')
       const other = taoistById(state, params.otherTaoist)
       if (!other.alive) throw new Error('power: target Taoist dead')
       if (!other.tile) throw new Error('power: target Taoist has no tile')
@@ -485,7 +641,7 @@ function useTaoistPower(state: GameState, taoistId: TaoistId, params: PowerParam
       return { ...state, taoists: { ...state.taoists, [other.color]: { ...other, tile: params.toTile } } }
     }
     case 'bottomlessPockets': {
-      if (board.activePowerId !== 'bottomlessPockets') throw new Error('power: not active')
+      if (!powerOk('bottomlessPockets')) throw new Error('power: not active')
       if (state.taoSupply[params.color] <= 0) throw new Error('power: no tao tokens of that color')
       return {
         ...state,
@@ -494,7 +650,7 @@ function useTaoistPower(state: GameState, taoistId: TaoistId, params: PowerParam
       }
     }
     case 'enfeeblementMantra': {
-      if (board.activePowerId !== 'enfeeblementMantra') throw new Error('power: not active')
+      if (!powerOk('enfeeblementMantra')) throw new Error('power: not active')
       // Remove any existing mantra from any ghost first, then apply.
       let s: GameState = {
         ...state,
@@ -595,7 +751,54 @@ function endYangPhase(state: GameState): GameState {
   if (s.phase === 'gameOver') return s
   s = checkLossConditions(s)
   if (s.phase === 'gameOver') return s
+  // White Moon: Mystic Barrier fires before turn advance when all 4
+  // receptacles are filled. Simplified resolution — for each non-neutral
+  // board, exorcise the strongest non-incarnation ghost (no rewards/curses).
+  // Reset receptacles and return crystals to the central reserve.
+  if (s.whiteMoon?.mysticBarrierPending) {
+    s = applyMysticBarrier(s)
+    s = checkWin(s)
+    if (s.phase === 'gameOver') return s
+  }
   return advanceTurn(s)
+}
+
+function applyMysticBarrier(state: GameState): GameState {
+  if (!state.whiteMoon) return state
+  let s = state
+  for (const c of ['red', 'blue', 'green', 'yellow'] as TaoistColor[]) {
+    if (s.taoists[c].isNeutral) continue
+    // Pick the highest-resistance non-incarnation ghost on this board.
+    const board = s.boards[c]
+    let best: { spaceIdx: 0 | 1 | 2; cardId: string; res: number } | null = null
+    for (const i of [0, 1, 2] as const) {
+      const g = board.ghostSpaces[i]
+      if (!g) continue
+      const card = getGhostCard(g.cardId)
+      if (card.isIncarnation) continue
+      const res = Object.values(card.resistance).reduce((a, b) => a + b, 0)
+      if (!best || res > best.res) best = { spaceIdx: i, cardId: g.cardId, res }
+    }
+    if (!best) continue
+    const newSpaces = [...s.boards[c].ghostSpaces] as GameState['boards'][typeof c]['ghostSpaces']
+    newSpaces[best.spaceIdx] = null
+    s = {
+      ...s,
+      boards: { ...s.boards, [c]: { ...s.boards[c], ghostSpaces: newSpaces } },
+      discardPile: [...s.discardPile, best.cardId],
+    }
+  }
+  // Return all 4 crystals to reserve, clear receptacles, reset trigger.
+  s = {
+    ...s,
+    whiteMoon: {
+      ...s.whiteMoon!,
+      receptacles: { ne: false, nw: false, se: false, sw: false },
+      moonCrystalReserve: s.whiteMoon!.moonCrystalReserve + 4,
+      mysticBarrierPending: false,
+    },
+  }
+  return s
 }
 
 // Surface only the legality check for callers that want to gate buttons.
@@ -614,3 +817,13 @@ export function canRequestHelp(state: GameState, taoistId: TaoistId, params: Hel
 // Required by re-imports above.
 void ghostSpaceFacingTile
 void isCornerTile
+
+// Local helper for Blood Brother (Black Secret) — opposite board pair.
+function oppositeBoardColor(c: TaoistColor): TaoistColor {
+  switch (c) {
+    case 'red': return 'green'
+    case 'green': return 'red'
+    case 'blue': return 'yellow'
+    case 'yellow': return 'blue'
+  }
+}

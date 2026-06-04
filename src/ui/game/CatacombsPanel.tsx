@@ -57,8 +57,32 @@ export function CatacombsPanel({ game }: { game: GameState }) {
         </div>
       </div>
 
+      <div style={{ marginTop: 6, fontSize: 12 }}>
+        <strong>Bloody Mantras</strong>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+          {bs.bloodyMantras.map((m, i) => (
+            <div key={i} style={{
+              padding: '2px 6px',
+              background: m.qiOnCard > 0 ? '#3a2e25' : 'var(--bg)',
+              border: '1px solid var(--rule)',
+              borderRadius: 4,
+              fontSize: 11,
+            }}>
+              lvl {m.level}: {m.qiOnCard}/{m.level}
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-muted)' }}>
-        Skeletons available: {bs.skeletonsAvailable} · Mantras in play: {bs.bloodyMantras.length}
+        Skeletons: {bs.skeletonsAvailable} ·
+        Urns found: <strong style={{ color: bs.urnsFound >= 3 ? '#c1392b' : 'var(--ink)' }}>{bs.urnsFound}/3</strong> ·
+        Catacomb deck: {bs.catacombDeck.length}
+        {bs.shadowPos && (
+          <div style={{ color: '#c1392b', fontWeight: 600 }}>
+            ⚠ Shadow of Wu-Feng in play at {bs.shadowPos.board}/{bs.shadowPos.ghostSpaceIdx}
+          </div>
+        )}
       </div>
     </div>
   )

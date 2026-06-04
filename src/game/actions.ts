@@ -49,7 +49,7 @@ export type ArrivingGhost = {
 
 // Yang-phase player actions.
 export type YangAction =
-  | { type: 'moveTaoist'; taoistId: TaoistId; toTile: VillageTileId }
+  | { type: 'moveTaoist'; taoistId: TaoistId; toTile: VillageTileId; carryVillager?: boolean }
   | {
       type: 'requestHelp'
       taoistId: TaoistId
@@ -101,7 +101,13 @@ export type YangAction =
   // White Moon: save the top villager on the portal tile (Shelter).
   | { type: 'saveVillager'; taoistId: TaoistId }
   // White Moon: place a moon crystal you hold into an unfilled receptacle.
+  // Placement is legal only when standing on a corner tile adjacent to the
+  // receptacle (per rulebook: corner tiles of the 3x3 village).
   | { type: 'placeMoonCrystal'; taoistId: TaoistId; receptacle: 'ne' | 'nw' | 'se' | 'sw' }
+  // White Moon: move Su-Ling to a different empty haunting icon (one-shot per
+  // event). Only the active player may execute this. Empty haunting icons are
+  // ghost-space slots WITHOUT a ghost in them.
+  | { type: 'moveSuLing'; taoistId: TaoistId; toBoard: TaoistColor; toGhostSpaceIdx: 0 | 1 | 2 }
   | { type: 'endYangPhase'; taoistId: TaoistId }
 
 export type HelpParams =
@@ -160,6 +166,9 @@ export type Action =
    *     demon of that cost into the catacombs at an entrance square
    *   - 'curse' — discard the ghost, throw a curse of matching color + chosen
    *     level (1..4). Black ghosts are wild-color jokers.
+   *   - 'skeleton' — discard the ghost and place a skeleton on a free ghost
+   *     space (any board). Skeleton acts as a resistance-1 ghost of the
+   *     hosting board's color.
    */
   | {
       type: 'wuFengIntervene'
@@ -167,6 +176,22 @@ export type Action =
         | { kind: 'place'; targetBoard: TaoistColor; targetSpace: 0 | 1 | 2 }
         | { kind: 'summon'; demonId: 'cost2' | 'cost3' | 'cost4'; entranceSquare: 0 | 8 } // 0=NW, 8=SE corners
         | { kind: 'curse'; level: 1 | 2 | 3 | 4; color: TaoColor }
+        | { kind: 'skeleton'; targetBoard: TaoistColor; targetSpace: 0 | 1 | 2 }
+    }
+  /**
+   * Black Secret: Wu-Feng's Yin-step-0 demon actions. Before each player
+   * board's Yin phase, Wu-Feng has every catacombs demon take 1 action: move
+   * to an adjacent catacombs square OR search the current square. We process
+   * all demons at once with a single dispatched payload (move/search per
+   * demon, in resistance-ascending order). Search reveals + resolves the top
+   * catacomb token.
+   */
+  | {
+      type: 'wuFengDemonActions'
+      moves: Array<
+        | { demonIdx: number; kind: 'move'; toSquare: number }
+        | { demonIdx: number; kind: 'search' }
+      >
     }
 
 export type ActionType = Action['type']

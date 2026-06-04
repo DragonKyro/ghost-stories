@@ -8,7 +8,7 @@
 import { useEffect } from 'react'
 import { useGameStore } from '@/store/gameStore'
 import { useNetworkStore } from '@/store/networkStore'
-import { buildYinPayload } from '@/game/yinPayload'
+import { buildDefaultDemonActions, buildYinPayload } from '@/game/yinPayload'
 
 export function YinPhaseRunner() {
   const game = useGameStore((s) => s.game)
@@ -18,11 +18,18 @@ export function YinPhaseRunner() {
   useEffect(() => {
     if (!game) return
     if (game.phase !== 'yin') return
-    // Only the host (or solo) generates the Yin payload — random outcomes
-    // (curse dice, ghost arrivals) flow from there and broadcast to peers.
     if (netRole === 'guest' || netRole === 'spectator') return
 
     const timer = setTimeout(() => {
+      // Black Secret: before the Yin payload runs, every catacombs demon
+      // takes 1 action (defaults to search; a real Wu-Feng UI will swap
+      // these for hand-picked moves later).
+      if (game.blackSecret && game.blackSecret.catacombsDemons.length > 0) {
+        const { moves } = buildDefaultDemonActions(game)
+        if (moves.length > 0) {
+          dispatch({ type: 'wuFengDemonActions', moves })
+        }
+      }
       const { payload } = buildYinPayload(game)
       dispatch({ type: 'startTurn', payload })
     }, 500)

@@ -577,6 +577,32 @@ export function getGhostCard(id: string): GhostCardDef {
   return card
 }
 
+// ----- Skeletons (Black Secret) --------------------------------------------
+//
+// Skeletons are spawned by Wu-Feng on player boards. They're resistance 1
+// (of the hosting board's color) with no abilities. They look up like ghost
+// cards but are NOT in the deck.
+
+export const SKELETON_CARD_IDS: Record<TaoColor, string> = {
+  red: 'skeleton-red',
+  green: 'skeleton-green',
+  blue: 'skeleton-blue',
+  yellow: 'skeleton-yellow',
+  black: 'skeleton-black',
+}
+
+export function ensureSkeletonInRegistry(boardColor: TaoColor): void {
+  const id = SKELETON_CARD_IDS[boardColor]
+  if (ALL.has(id)) return
+  ALL.set(id, {
+    id,
+    name: `Skeleton (${boardColor})`,
+    color: boardColor,
+    resistance: { ...ZERO, [boardColor]: 1 },
+    abilities: { left: [], center: [], right: [] },
+  })
+}
+
 export function allBaseGhostIds(): string[] {
   return BASE_GHOSTS.map((g) => g.id)
 }
