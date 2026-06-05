@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Dark background to match the app theme -->
+  <rect width="64" height="64" fill="#1a1410"/>
+  <!-- Ghost silhouette -->
+  <path
+    d="M16 26 Q16 14 32 14 Q48 14 48 26 L48 52 L42 48 L36 52 L32 48 L28 52 L22 48 L16 52 Z"
+    fill="#f4e9d6"
+  />
+  <!-- Eyes -->
+  <circle cx="26" cy="28" r="3" fill="#1a1410"/>
+  <circle cx="38" cy="28" r="3" fill="#1a1410"/>
+  <!-- A tiny accent: red mouth -->
+  <ellipse cx="32" cy="38" rx="3" ry="2" fill="#c1392b"/>
+</svg>
