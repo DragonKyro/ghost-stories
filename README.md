@@ -1,2 +1,80 @@
-# ghost-stories
-Ghost stories the coop board game
+# Ghost Stories
+
+A web-based clone of the cooperative board game *Ghost Stories* (Antoine Bauza, Repos Production, 2008), built for private play with friends.
+
+The physical game is out of print and there is no official digital version — this fills that gap.
+
+**🎲 Play it (eventually):** https://dragonkyro.github.io/ghost-stories/
+
+### Playable today
+
+**Local hot-seat (Phase 2 build):** 1–4 humans on the same device. Configure difficulty (Initiation / Normal / Nightmare / Hell) and per-seat assignment (human / AI / neutral board) from the New Game screen. The Yin phase auto-resolves; the active Taoist's Yang phase is fully interactive (move, request help, exorcise with dice, place Buddha, spend Yin-Yang). Pass-device handoff screen between human turns. All 9 village tile actions, all 4 Taoist boards with both possible powers, win/loss detection for all three loss conditions and the incarnation-exorcism win.
+
+**AI seats (Phase 3 build):** Any seat can be set to AI from the New Game screen. The heuristic prioritises critical-now exorcism (preventing the 3rd haunting), lethal-prevention exorcism (saving a 1-Qi Taoist), high-success exorcism, Buddha placement on high-pressure boards, critical tile actions (Cemetery revive, Taoist Altar unhaunt, Night Watchman rollback, Sorcerer's Hut on dice-immune ghosts), Tao accumulation (Herbalist / Tea House / Buddhist Temple / Circle of Prayer), and repositioning toward the highest-threat ghost. Pure heuristic, stateless across turns. AI seats also enable solo play — pick one human seat + three AI seats for a 4-Taoist game.
+
+**Online multiplayer (Phase 4 build):** Click *Online Multiplayer* on the main menu, pick a display name, then host a room or join one with a 4-character code. The host's machine drives the Yin phase (curse dice, ghost arrivals) and any AI seats; all peers run the same deterministic engine on every action. Drop out and re-join with the same code to reclaim your seat (identity persists via a `localStorage` UUID). Players without a matching UUID join as read-only spectators. In-game chat with history is auto-shipped to new joiners via the snapshot. WebRTC over BitTorrent trackers (Trystero) — no backend, no accounts.
+
+**White Moon expansion (complete):** Toggle from the New Game screen. Adds 24 villagers across 12 families (8 stacks of 3), 10 new ghost cards including the Devourer ability, Moon Crystals (Herbalist white face / corner-receptacle placement / Mystic Barrier dice spend), the Portal tile for saving villagers, and the Kung-Fu School tile replacing Night Watchman's Beat. Hauntings kill villagers on the tile instead of flipping it; lose immediately at 12 villager deaths. Per-family death curses and full-family save rewards for all 12 families. Su-Ling enters play on triggering events and cancels the center-stone abilities of the ghost in front of her. Villager fleeing triggers on Haunter card→stone 1; villagers carry along with Taoists on move. Three **Portal placement variants** (center / edge / corner) — pick at game start. Filling all 4 corner Receptacles triggers an **interactive Mystic Barrier phase** where each board picks save-villager / 4-dice-+-crystal exorcise / skip.
+
+**Black Secret expansion (complete):** Toggle from the New Game screen — the asymmetric expansion that lets one player take the role of Wu-Feng. At every Yin step 3, Wu-Feng intervenes: **place** the ghost normally, **summon** one of three demons (cost 2/3/4) into the catacombs, **throw a curse** with **14 distinct effects** across 4 pool levels (Wu-Feng picks the specific curse from the level's pool), or **place a skeleton** on any free ghost space. **Bloody Mantras accumulate Qi** from every loss; full mantras resolve (lvl 2 mass Qi gain, lvl 3 clears Inactive Tao, lvl 4 mass discard). **Blood Brothers** lets a 1-Qi Taoist use the opposite board's power. Demons take **per-demon move/search actions** every Yin prelude (interactive Wu-Feng dialog). **Catacomb tokens** with all 7 effect kinds — 3 Urns spawn the **full Shadow of Wu-Feng**: invincible roving threat with move / attack-Taoists / attack-tile actions, Circle of Prayer interaction, tile-blocking. The **Calligrapher tile** replaces Night Watchman and exposes manual Bloody Mantra Qi placement + Mantra swap. **Online**: host enables Black Secret + a player claims the Wu-Feng role in the lobby; the network layer drops Wu-Feng action envelopes from any non-Wu-Feng UUID. Compatible with White Moon — run both for the full asymmetric+villager experience.
+
+## What is Ghost Stories?
+
+1–4 Taoist monks defend a Chinese village from the ghosts of Wu-Feng, who is trying to return to the realm of the living. Every turn, ghosts spawn on one of the 4 player boards arrayed around the 3×3 village; the active Taoist gets one move and one action — exorcise a ghost or use the village tile they're standing on — and ghosts close in. Hold out long enough to draw the bottom of the deck, exorcise every Wu-Feng incarnation hidden there, and the monks win.
+
+It is brutally hard. Most cooperative games are cooperative-difficult; Ghost Stories is famously coop-*punishing*. The Esoteric Order of Gamers rules summary in [`ghost stories rules.pdf`](./ghost%20stories%20rules.pdf) is the canonical reference for this implementation.
+
+## Roadmap
+
+- [x] **Phase 0** — Project scaffold
+- [x] **Phase 1** — Game logic engine (Yin / Yang phases, 9 village tiles, 8 Taoist powers, 9 Wu-Feng incarnations, 45 base ghost cards, neutral-board variant for 1-3 players, full win/loss detection)
+- [x] **Phase 2** — Hot-seat UI (SVG board, 4 rotated player boards, request-help dialog for every tile, exorcism dialog with dice rolls + Tao spending, place-Buddha selector, Yin-Yang flip-tile mode, Yin-phase auto-runner, pass-device handoff screen, event log, game-over overlay)
+- [x] **Phase 3** — Heuristic AI for missing seats (priority tree: critical exorcism → lethal-prevention → high-success exorcism → Buddha placement → critical tile actions → Tao accumulation → reposition; AIDriver paces moves at ~700ms/1.5s for visibility)
+- [x] **Phase 4** — Online multiplayer (Trystero WebRTC peer-to-peer) + in-game chat with history (host-authoritative lobby, stable UUID identity, 7 typed channels: hello / lobby / start / action / snap / reqSnap / chat; spectator mode for unrecognised UUIDs; snapshot rejoin including chat history)
+- [x] **Phase 6** — Self-contained rulebook with search (12 topics across 5 categories; inline SVG diagrams; main-menu entry + floating in-game `?` button). Fixed two rulebook violations along the way: 3-player Nightmare/Hell incarnation count and solo bonuses.
+- [x] **Phase 7** — White Moon expansion (complete: 24 villagers + 12 families with per-family death curses + save rewards, 10 Devourer-bearing ghost cards, Moon Crystals (Herbalist white face / corner-receptacle placement / Mystic Barrier dice + crystal spend), Save Villager, Kung-Fu School, 12-dead loss, Su-Ling with ability cancellation, villager fleeing on Haunter first advance, carry-villager moves, **Portal placement variants (center/edge/corner)**, **interactive Mystic Barrier per-board phase**)
+- [x] **Phase 8** — Black Secret expansion (complete: Wu-Feng intervention at every Yin step 3 — place / summon demon / throw curse / **place skeleton** — with curse pyramid + demon-cost validation. **14 distinct curses** across 4 levels with Wu-Feng pool selection. Catacomb tokens with all 7 effect kinds. Demon move/search Yin-prelude with per-demon dialog. Bloody Mantra Qi accumulation + level-based resolution effects. Blood Brothers for 1-Qi opposite-board power sharing. **Full Shadow of Wu-Feng**: invincible roving threat with move / attack-Taoists / attack-tile actions, Circle of Prayer interaction, tile-blocking. **Calligrapher tile** for Mantra swap + Qi placement. **Online Wu-Feng UUID-tied seat assignment** validates Wu-Feng actions at the network layer.)
+- [ ] **Phase 5** — End-of-game stats
+- [ ] **Phase 7** — White Moon expansion (Su-Ling, villager families, moon crystals, mystic barrier)
+- [ ] **Phase 8** — Black Secret expansion (one player plays Wu-Feng — asymmetric)
+- [ ] **Phase 9** — Difficulty tuning + Hell-mode polish
+
+## Tech stack
+
+- **TypeScript** + **Vite** + **React 19**
+- **SVG** for the board (hand-rolled, no Canvas)
+- **Zustand** for state management
+- **Vitest** for tests
+- **Trystero** (BitTorrent-tracker signaling) for WebRTC peer-to-peer multiplayer
+
+Mirrors the [`catan/`](../catan/) project structure on purpose: same five-layer architecture (`game` / `ai` / `net` / `ui` / `rulebook`), same store conventions, same deployment story.
+
+## Local development
+
+```sh
+npm install
+npm run dev        # http://localhost:5173/ghost-stories/
+npm run test       # Vitest watch
+npm run test:run   # Vitest single run
+npm run build      # Production build to dist/
+npm run typecheck
+```
+
+## Deployment
+
+Pushing to `main` triggers `.github/workflows/deploy.yml`, which builds the site and publishes it to GitHub Pages.
+
+### Testing online multiplayer locally
+
+Two browser windows in the same incognito session share `localStorage`, which gives them the same identity UUID and breaks seat assignment. Append `?fresh` to the URL of each test window to force a per-tab UUID via `sessionStorage` instead.
+
+## Scope
+
+Intentionally **not** included: user accounts, matchmaking, monetization, anti-cheat, persistent saves, asset extraction from the physical game. Friends-only project — none of that pays for itself at this scale.
+
+## Credits
+
+- Original game design: Antoine Bauza
+- Original publisher: Repos Production (2008)
+- Rules summary reference: Peter Gifford (Universal Head), Esoteric Order of Gamers
+- This implementation: a private friends-only fan project, no affiliation with the publisher
