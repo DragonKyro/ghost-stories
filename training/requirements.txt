@@ -1,0 +1,3 @@
+# NN training (see README.md). Install into training/.venv; the web app doesn't use these.
+torch>=2.2
+numpy>=1.26

@@ -10,7 +10,8 @@
     "test": "vitest",
     "test:run": "vitest run --passWithNoTests",
     "typecheck": "tsc",
-    "deploy:rules": "npx -y firebase-tools@latest deploy --only database"
+    "deploy:rules": "npx -y firebase-tools@latest deploy --only database",
+    "nn:parity": "node scripts/nn/parity.mjs"
   },
   "dependencies": {
     "firebase": "^12.19.0",

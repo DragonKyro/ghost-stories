@@ -28,6 +28,8 @@ Same layering and multiplayer model as the sibling [`catan/`](../catan/) project
   - **Fair play** (`sanitize` in `sim.ts`): every rollout re-seeds the dice and re-deals what the players can't see (unseen ghost cards, keeping incarnation positions but not identities; hidden villagers; Black Secret's face-down curses, Wu-Feng's hand, catacomb tokens, Mantra deck).
   - `policy.ts` — the fast greedy policy that plays every Taoist inside rollouts (and is the fallback); `prob.ts` — exact exorcism odds; `value.ts` — the position score; `tuning.ts` — every weight (`W`) and search setting (`SEARCH`), tuned by self-play; `prompts.ts` — answers to every prompt; `fast.ts` — in-place apply for rollouts (same handlers as `applyAction`, tested identical); `wufeng.ts` plays Wu-Feng.
   - Benchmark / tuning harness: `node scripts/aibench/bench.mjs --setups init4,norm4,solo1 --seeds 1-40` (also `tune.mjs` coordinate search, `diag.mjs` loss causes); bundles go to `node_modules/.cache/aibench`.
+  - **`src/ai/nn/`** — the neural-network Taoist (being built; not wired into the game yet). `encode.ts`: the state as up to 81 tokens (global, prompt, 4 seats, 9 tiles, 12 ghost spaces; White Moon families; Black Secret catacombs / demons / curse tokens / Bloody Mantras) in the deciding Taoist's frame (`frame.ts`: the table turned so they sit at seat 0; clockwise order kept), plus a token-pair relation matrix; public information only (sanitized copies encode identically — tested). `legal.ts`: every legal action with every parameter (generated from the domains, each checked by applying it; exorcism commits offer every cheapest way to pay). `candidates.ts`: action → features + pointers to tokens. `model.ts`: the forward pass (transformer trunk with relation-biased attention, value head, per-candidate policy head), weights as JSON. `schema.ts` holds every layout and `SCHEMA_HASH`; after changing the encoder run `npm run nn:parity` (regenerates the PyTorch parity fixture `model.test.ts` checks).
+- **`training/`** — PyTorch side (`nn/model.py` mirrors `model.ts`), its own venv (`training/README.md`); nothing in the web app depends on it.
 - **`src/net/`** — Firebase room transport (see `src/net/README.md`): anonymous auth, rooms at `ghost-stories/rooms/{CODE}` with meta / lobby (transactional) / start (write-once) / actions (write-once `aNNNNNN` log slots) / chat / presence, stale-room sweep by day buckets. Lazy-loaded, so the SDK downloads only when someone goes online. `fakeTransport.ts` is the in-memory server for tests. No imports from `@/ui` or `@/store`.
 - **`src/store/`** — Zustand stores:
   - `gameStore` — the live `GameState`, `uiMode`, error toast, hot-seat `handoff`, undo stack (offline, moves without dice only). `dispatch` (guarded online, applied at once, then handed to the network) / `applyLocal` (moves from the log) / `takeSnapshot` / `restoreSnapshot`. The network store registers through `registerBroadcastHandler` / `registerDispatchGuard` / `registerOnlinePredicate` (no circular import).
@@ -86,6 +88,7 @@ This machine's user-level npm registry is a corporate Artifactory; the repo's `.
 - `npm run test:run` — all tests once
 - `npm run typecheck`
 - `npm run deploy:rules` — deploy the database rules (merged)
+- `npm run nn:parity` — regenerate the TS ↔ PyTorch parity fixture (needs `training/.venv`)
 
 ## Deployment
 

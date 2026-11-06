@@ -13,3 +13,9 @@ art-renders/
 
 # Firebase CLI (merged rules for deploy: scripts/merge-db-rules.mjs)
 .firebase/
+
+# NN training (training/README.md): virtualenv, generated data, checkpoints
+training/.venv/
+training/data/
+training/runs/
+__pycache__/
