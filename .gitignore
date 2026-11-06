@@ -7,3 +7,9 @@ dist/
 
 # Workspace extraction artifacts
 rules.txt
+
+# Art gallery screenshots (scripts/render-gallery.mjs)
+art-renders/
+
+# Firebase CLI (merged rules for deploy: scripts/merge-db-rules.mjs)
+.firebase/

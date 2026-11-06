@@ -1,89 +1,103 @@
-// Stable identity for online multiplayer.
+// Persistent player identity. The UUID lives in localStorage and is reused
+// forever for this browser profile, so a player gets their seats back after a
+// reload or a dropped connection.
 //
-// Trystero `peerId` is volatile (regenerated per connection). To keep seat
-// assignment across disconnects we use a persistent UUID stored in
-// localStorage. URL flag `?fresh` switches to sessionStorage so two browser
-// windows in the same incognito session don't collide on the same UUID.
+// For local testing with two browser windows that share localStorage (two
+// tabs of one incognito session), append `?fresh` to the URL: the UUID and
+// display name (and, in firebaseRoom.ts, the anonymous sign-in) then live in
+// sessionStorage, so each tab is its own device.
 
-const STORAGE_KEY = 'ghoststories.uuid'
+const UUID_KEY = 'ghoststories.uuid'
 const NAME_KEY = 'ghoststories.name'
 
-function isFresh(): boolean {
-  if (typeof window === 'undefined') return false
-  return new URLSearchParams(window.location.search).has('fresh')
-}
+/** Longest display name kept (the database rules allow 40). */
+export const MAX_NAME_LENGTH = 24
 
-function storage(): Storage {
-  // Prefer window.localStorage / sessionStorage when available AND functional.
-  // Fall back to an in-memory map otherwise (tests, exotic embeds).
-  if (typeof window !== 'undefined') {
-    try {
-      const s = isFresh() ? window.sessionStorage : window.localStorage
-      if (s && typeof s.setItem === 'function' && typeof s.getItem === 'function') {
-        return s
-      }
-    } catch {
-      // SecurityError in some embed contexts — fall through to memory.
-    }
+export function freshTabMode(): boolean {
+  try {
+    if (typeof window === 'undefined') return false
+    return new URLSearchParams(window.location.search).has('fresh')
+  } catch {
+    return false
   }
-  return memoryStorage()
 }
 
-let _memory: Storage | null = null
-function memoryStorage(): Storage {
-  if (_memory) return _memory
-  const map = new Map<string, string>()
-  _memory = {
-    get length() { return map.size },
-    clear() { map.clear() },
-    getItem(k: string) { return map.get(k) ?? null },
-    setItem(k: string, v: string) { map.set(k, v) },
-    removeItem(k: string) { map.delete(k) },
-    key(i: number) { return Array.from(map.keys())[i] ?? null },
-  } as Storage
-  return _memory
+let memory: Map<string, string> | null = null
+
+/** sessionStorage with ?fresh, else localStorage; an in-memory map where neither works. */
+function store(): Pick<Storage, 'getItem' | 'setItem'> {
+  try {
+    const s = freshTabMode() ? sessionStorage : localStorage
+    if (s && typeof s.getItem === 'function' && typeof s.setItem === 'function') return s
+  } catch {
+    // SecurityError in some embeds: fall through.
+  }
+  const m = (memory ??= new Map())
+  return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => void m.set(k, v) }
+}
+
+function read(key: string): string | null {
+  try {
+    return store().getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function write(key: string, value: string): void {
+  try {
+    store().setItem(key, value)
+  } catch {
+    /* quota / privacy mode: ignore */
+  }
 }
 
 function randomUuid(): string {
-  // Prefer crypto.randomUUID; fall back to RFC 4122 v4 hex.
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID()
-  }
-  const hex = '0123456789abcdef'
-  let out = ''
-  for (let i = 0; i < 36; i++) {
-    if (i === 8 || i === 13 || i === 18 || i === 23) { out += '-'; continue }
-    if (i === 14) { out += '4'; continue }
-    if (i === 19) { out += hex[8 + Math.floor(Math.random() * 4)]; continue }
-    out += hex[Math.floor(Math.random() * 16)]
-  }
-  return out
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  // Decent uniqueness without Web Crypto. Good enough for friends' rooms.
+  const rand = () =>
+    Math.floor(Math.random() * 0xffffffff)
+      .toString(16)
+      .padStart(8, '0')
+  return `${rand()}-${rand()}-${rand()}-${rand()}`
 }
 
-/** Returns the user's persistent UUID, creating one on first use. */
+/** This device's persistent UUID, made on first use. It owns the device's seats. */
 export function getOrCreateUuid(): string {
-  const s = storage()
-  const existing = s.getItem(STORAGE_KEY)
+  const existing = read(UUID_KEY)
   if (existing) return existing
-  const uuid = randomUuid()
-  s.setItem(STORAGE_KEY, uuid)
-  return uuid
+  const next = randomUuid()
+  write(UUID_KEY, next)
+  return next
 }
 
-/** Read the user's chosen display name (defaults to "Player"). */
-export function getDisplayName(): string {
-  return storage().getItem(NAME_KEY) ?? 'Player'
+/** A new UUID for this device (recovering from a collision). */
+export function regenerateUuid(): string {
+  const next = randomUuid()
+  write(UUID_KEY, next)
+  return next
 }
 
-export function setDisplayName(name: string): void {
-  const cleaned = name.trim().slice(0, 24) || 'Player'
-  storage().setItem(NAME_KEY, cleaned)
+/** Trimmed, at most MAX_NAME_LENGTH characters. */
+export function cleanDisplayName(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').slice(0, MAX_NAME_LENGTH).trim()
 }
 
-/** Short 4-character room code, uppercase letters + digits. */
+/** The name last used online, or '' when there is none. */
+export function getSavedDisplayName(): string {
+  return read(NAME_KEY) ?? ''
+}
+
+export function saveDisplayName(name: string): void {
+  const clean = cleanDisplayName(name)
+  if (clean) write(NAME_KEY, clean)
+}
+
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no I/O/0/1
+
+/** A short, friendly room code: 4 characters, no look-alikes. */
 export function generateRoomCode(): string {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no I/O/0/1
-  let out = ''
-  for (let i = 0; i < 4; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)]
-  return out
+  let code = ''
+  for (let i = 0; i < 4; i++) code += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]
+  return code
 }

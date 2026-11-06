@@ -1,0 +1,25 @@
+.gs-menu {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at 50% 30%, #33261b 0%, #1a1410 60%, #0f0b08 100%);
+  padding: 24px;
+}
+.gs-menu-inner { text-align: center; max-width: 720px; }
+.gs-menu-sub { color: var(--ink-muted); font-size: 15px; margin: 8px 0 18px; }
+.gs-menu-monks { display: flex; gap: 18px; justify-content: center; margin: 10px 0 22px; }
+.gs-menu-buttons { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.gs-menu-buttons .gs-btn { width: 260px; padding: 11px 16px; font-size: 15px; }
+
+.gs-setup { max-width: 980px; margin: 0 auto; padding: 22px; }
+.gs-setup h1 { font-family: var(--serif); color: var(--accent); font-weight: 600; margin: 0 0 14px; }
+.gs-setup section { background: var(--bg-elevated); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+.gs-setup section h2 { font-family: var(--serif); font-size: 17px; margin: 0 0 10px; color: #e9d7b0; font-weight: 600; }
+.gs-seats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.gs-seat { border-radius: 10px; padding: 10px; background: #1d1611; border: 1px solid #3a2e25; display: flex; flex-direction: column; align-items: center; gap: 6px; box-shadow: inset 0 0 0 2px var(--pc-dark); }
+.gs-seat .gs-seg { display: flex; gap: 3px; flex-wrap: wrap; justify-content: center; }
+.gs-opt { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
+.gs-opt label { display: flex; gap: 5px; align-items: center; font-size: 13px; }
+.gs-setup .gs-note { font-size: 12px; color: var(--ink-muted); margin: 6px 0 0; }
+.gs-setup .gs-problem { color: #f08a72; font-size: 13px; }

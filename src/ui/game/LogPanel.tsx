@@ -1,53 +1,58 @@
+// The game log (all events) and the "just now" strip (the latest few).
+
 import { useEffect, useRef } from 'react'
-import { useLogStore } from '@/store/logStore'
-import { TAOIST_COLOR_HEX } from '@/ui/shared/playerColors'
+import { useLogStore, type LogEntry } from '@/store/logStore'
+import { COLOR_HEX, CurseDie, TaoDie } from '@/ui/art'
+
+const BAD = new Set(['haunt', 'death', 'qi', 'loss', 'overrun', 'possessed', 'villagerDeath', 'fail'])
+const GOOD = new Set(['exorcised', 'win', 'revive', 'save', 'family', 'unhaunt'])
+
+function Entry({ e }: { e: LogEntry }) {
+  const tone = e.kind === 'turn' ? 'turn' : e.kind === 'qi' && e.text.includes('gains') ? 'good' : BAD.has(e.kind) ? 'bad' : GOOD.has(e.kind) ? 'good' : ''
+  const stripe = e.color && e.color !== 'wufeng' ? COLOR_HEX[e.color] : e.color === 'wufeng' ? '#7a2a6a' : 'transparent'
+  return (
+    <div className={`gs-entry ${tone}`} style={{ borderLeftColor: e.kind === 'turn' ? undefined : stripe }}>
+      {e.curse && <CurseDie face={e.curse} size={18} />}
+      {e.dice?.map((d, i) => <TaoDie key={i} face={d} size={18} />)}
+      <span>{e.text}</span>
+    </div>
+  )
+}
 
 export function LogPanel() {
-  const entries = useLogStore((s) => s.entries)
-  const ref = useRef<HTMLDivElement>(null)
-  const wasAtBottom = useRef(true)
-
+  const entries = useLogStore((l) => l.entries)
+  const box = useRef<HTMLDivElement>(null)
+  const stick = useRef(true)
   useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    if (wasAtBottom.current) {
-      el.scrollTop = el.scrollHeight
-    }
-  }, [entries])
-
+    const el = box.current
+    if (el && stick.current) el.scrollTop = el.scrollHeight
+  }, [entries.length])
   return (
     <div
-      ref={ref}
-      onScroll={(e) => {
-        const el = e.currentTarget
-        wasAtBottom.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 8
-      }}
-      style={{
-        background: 'var(--bg-elevated)',
-        border: '1px solid var(--rule)',
-        borderRadius: 6,
-        padding: 8,
-        height: 240,
-        overflowY: 'auto',
-        fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-        fontSize: 11,
+      className="gs-log"
+      ref={box}
+      onScroll={(ev) => {
+        const el = ev.currentTarget
+        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 30
       }}
     >
-      {entries.length === 0 && (
-        <div style={{ color: 'var(--ink-muted)' }}>Log will appear here…</div>
-      )}
-      {entries.map((e, i) => (
-        <div
-          key={i}
-          style={{
-            padding: '2px 4px',
-            borderLeft: e.color ? `3px solid ${TAOIST_COLOR_HEX[e.color]}` : '3px solid transparent',
-            paddingLeft: 6,
-            color: e.kind === 'loss' ? '#c1392b' : e.kind === 'win' ? '#d4a857' : 'var(--ink)',
-          }}
-        >
-          {e.text}
-        </div>
+      {entries.map((e) => (
+        <Entry key={e.id} e={e} />
+      ))}
+    </div>
+  )
+}
+
+export function RecentEvents() {
+  const entries = useLogStore((l) => l.entries)
+  // Everything since the start of the current turn, capped.
+  let start = entries.length - 1
+  while (start > 0 && entries[start]!.kind !== 'turn') start--
+  const recent = entries.slice(Math.max(start, entries.length - 10))
+  return (
+    <div className="gs-recent">
+      {recent.map((e) => (
+        <Entry key={e.id} e={e} />
       ))}
     </div>
   )

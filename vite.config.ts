@@ -7,6 +7,11 @@ import path from 'node:path'
 // majors) and the two PluginOption types fail to unify under Vite 6.
 export default defineConfig({
   base: '/ghost-stories/',
+  // Online rooms record the build that made them, so devices on another
+  // build get a warning (see src/store/networkStore.ts).
+  define: {
+    __APP_BUILD__: JSON.stringify(process.env.GITHUB_SHA?.slice(0, 7) ?? 'dev'),
+  },
   plugins: [react()],
   resolve: {
     alias: {

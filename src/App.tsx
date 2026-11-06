@@ -1,26 +1,38 @@
+import { useEffect } from 'react'
 import { useGameStore } from '@/store/gameStore'
+import { resumeFromUrl } from '@/store/networkStore'
+import { ArtDefs } from '@/ui/art'
 import { MainMenu } from './ui/MainMenu'
 import { NewGame } from './ui/NewGame'
-import { OnlineSetup } from './ui/OnlineSetup'
-import { OnlineLobby } from './ui/OnlineLobby'
-import { GameView } from './ui/game/GameView'
+import { OnlineScreen } from './ui/online/OnlineScreen'
+import { GameScreen } from './ui/game/GameScreen'
 import { Rulebook } from './rulebook'
+import { startDemoFromUrl } from './ui/demo'
 
 export function App() {
   const uiMode = useGameStore((s) => s.uiMode)
-  switch (uiMode) {
+  useEffect(() => {
+    if (!startDemoFromUrl()) resumeFromUrl()
+  }, [])
+  return (
+    <>
+      <ArtDefs />
+      <Screen mode={uiMode} />
+    </>
+  )
+}
+
+function Screen({ mode }: { mode: ReturnType<typeof useGameStore.getState>['uiMode'] }) {
+  switch (mode) {
     case 'mainMenu':
       return <MainMenu />
     case 'newGame':
       return <NewGame />
-    case 'onlineSetup':
-      return <OnlineSetup />
-    case 'onlineLobby':
-      return <OnlineLobby />
+    case 'online':
+      return <OnlineScreen />
     case 'rulebook':
       return <Rulebook />
     case 'inGame':
-    case 'gameOver':
-      return <GameView />
+      return <GameScreen />
   }
 }

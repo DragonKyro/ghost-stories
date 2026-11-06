@@ -10,6 +10,7 @@
   --taoist-blue: #2c69b8;
   --taoist-green: #2f8f5d;
   --taoist-yellow: #d4a857;
+  --serif: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
 
   font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color-scheme: dark;
