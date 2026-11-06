@@ -23,10 +23,12 @@ const hover = opt('hover', '');
 mkdirSync(out, { recursive: true });
 const q = flag('menu')
   ? ''
-  : `?demo=${opt('demo', '30')}&seed=${opt('seed', '3')}&players=${opt('players', '4')}${flag('wm') ? '&wm' : ''}${flag('bs') ? '&bs' : ''}`;
+  : `?demo=${opt('demo', '30')}&seed=${opt('seed', '3')}&players=${opt('players', '4')}${flag('wm') ? '&wm' : ''}${flag('bs') ? '&bs' : ''}${flag('stats') ? '&stats' : ''}${flag('watch') ? '&watch' : ''}`;
 const chrome = await openBrowser();
 try {
-  await chrome.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false });
+  const mobile = flag('mobile');
+  await chrome.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: mobile ? 2 : 1, mobile });
+  if (mobile) await chrome.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
   await chrome.navigate(base + q + (opt('page', '') ? `${q ? '&' : '?'}${opt('page')}` : ''));
   await chrome.waitFor(flag('menu') ? '.gs-menu' : '.gs-board', 60000);
   await sleep(Number(opt('wait', '4000')));
@@ -40,11 +42,11 @@ try {
   }
   // Headless Chrome sometimes captures before the first frame is composited
   // (a flat, tiny PNG): wait and try again.
-  let shot = await chrome.send('Page.captureScreenshot', { format: 'png', fromSurface: true });
+  let shot = await chrome.send('Page.captureScreenshot', { format: 'png', fromSurface: true, captureBeyondViewport: true });
   for (let i = 0; i < 6 && shot.data.length < 40000; i++) {
     await chrome.evaluate('window.scrollTo(0, 1); window.scrollTo(0, 0)');
     await sleep(1500);
-    shot = await chrome.send('Page.captureScreenshot', { format: 'png', fromSurface: true });
+    shot = await chrome.send('Page.captureScreenshot', { format: 'png', fromSurface: true, captureBeyondViewport: true });
   }
   const file = resolve(join(out, `${name}.png`));
   writeFileSync(file, Buffer.from(shot.data, 'base64'));

@@ -1,14 +1,18 @@
 // Heuristic answers to every prompt a Taoist (or the players collectively) can get.
 
 import type { Response } from '@/game/actions'
-import { bestCommit } from '@/game/exorcism'
-import { facedSpaces, refKey } from '@/game/geometry'
+import { applyAction } from '@/game/engine'
+import { bestCommit, cheapestSpend, type SpendPlan } from '@/game/exorcism'
+import { facedSpaces, lineOf, oppositeSpace, refKey } from '@/game/geometry'
 import { isSkeleton, getCard } from '@/game/catalogue'
-import { ghostAt, heldColors, livingTaoists, taoCount, cardAt } from '@/game/rules'
+import { ghostAt, hauntedCount, heldColors, livingTaoists, taoCount, cardAt, whiteIsWild } from '@/game/rules'
 import { barrierTargets, suLingOptions } from '@/game/whiteMoon'
-import type { Color, DieFace, GameState, GhostRef, Prompt, TaoColor } from '@/game/types'
+import type { Color, DieFace, ExorcismRoll, GameState, GhostRef, Prompt, TaoColor } from '@/game/types'
 import { COLORS, TAO_COLORS } from '@/game/types'
 import { allThreats, neededColors } from './eval'
+import { W } from './tuning'
+import { crowdCost } from './value'
+import { removalValue, rightStoneValue } from './policy'
 
 export function answerPrompt(s: GameState, p: Prompt): Response {
   switch (p.kind) {
@@ -51,15 +55,8 @@ export function answerPrompt(s: GameState, p: Prompt): Response {
     }
     case 'bonecrackerPayer':
       return { kind: 'bonecrackerPayer', taoist: [...p.options].sort((a, b) => taoCount(s.taoists[b]) - taoCount(s.taoists[a]))[0]! }
-    case 'exorcism': {
-      const best = bestCommit(s, p.roll)
-      if (best.exorcise.length + best.demons.length === 0 && p.roll.canReroll) {
-        const keep = usefulFaces(s, p.roll.targets)
-        const dice = p.roll.dice.map((d, i) => (keep(d) ? -1 : i)).filter((i) => i >= 0)
-        if (dice.length) return { kind: 'reroll', dice }
-      }
-      return { kind: 'commit', spend: best.plan.spend, crystals: best.plan.crystals, exorcise: best.exorcise, demons: best.demons as never[] }
-    }
+    case 'exorcism':
+      return answerExorcism(s, p.roll)
     case 'herbalist': {
       if (p.canReroll) {
         const bad = p.dice.map((d, i) => (d === 'black' && neededColors(s)[0] !== 'black' ? i : -1)).filter((i) => i >= 0)
@@ -116,23 +113,100 @@ function usefulFaces(s: GameState, targets: GhostRef[]): (d: DieFace) => boolean
     const c = cardAt(s, r)
     if (c) for (const k of Object.keys(c.resistance)) colors.add(k)
   }
-  return (d) => d === 'white' || colors.has(d)
+  const wild = whiteIsWild(s)
+  return (d) => (d === 'white' ? wild : colors.has(d))
 }
 
-/** Put a drawn ghost where it hurts least: on a Buddha, else where a Taoist already faces it. */
+/** Put a drawn ghost where it hurts least: on a Buddha, away from key tiles and crowded boards, in front of a Taoist. */
 export function bestPlacement(s: GameState, card: string, options: GhostRef[]): GhostRef {
   const def = getCard(card)
+  const skeleton = isSkeleton(card)
+  const hauntsOnArrival = def.left.some((a) => a.kind === 'hauntTile')
+  const haunter = def.center.some((a) => a.kind === 'haunter')
+  const losesQi = def.left.some((a) => a.kind === 'loseQi' && !a.group)
   const score = (r: GhostRef) => {
+    if (ghostAt(s, r)) return -1000
+    const b = s.boards[r.board]
+    const buddha = b.buddhas[r.space]
     let v = 0
-    if (s.boards[r.board].buddhas[r.space] && !def.incarnation && !isSkeleton(card)) v += 10
+    if (buddha) {
+      if (!def.incarnation) return 100 // destroyed on arrival, its abilities never apply
+      v += def.incarnation === 'uncatchable' ? 30 : -W.buddhaOnBoard
+    }
+    const n = b.spaces.filter(Boolean).length
+    v -= crowdCost(n + 1) - crowdCost(n)
+    const front = lineOf(r).find((t) => !s.village[t]!.haunted)
+    const frontCost = front === undefined ? 0 : W.tileHaunted[s.village[front]!.kind] ?? 0
+    if (hauntsOnArrival) v -= frontCost
+    if (haunter) v -= 0.4 * frontCost + (front === undefined ? -3 : 0)
+    if (losesQi && !s.taoists[r.board].alive) v -= b.neutral && !b.possessed && b.qi > 1 ? 2 : 6
+    else if (losesQi) v -= s.taoists[r.board].qi <= 1 ? 40 : 3 / s.taoists[r.board].qi
+    if (def.incarnation === 'howlingNightmare' && ghostAt(s, oppositeSpace(r))) v -= 8
     const faced = COLORS.some((c) => {
       const t = s.taoists[c]
       return t.alive && !t.underground && t.tile != null && facedSpaces(t.tile).some((x) => refKey(x) === refKey(r))
     })
-    if (faced) v += 2
-    v -= s.boards[r.board].spaces.filter(Boolean).length
-    if (ghostAt(s, r)) v -= 100
+    if (faced) v += skeleton ? 1 : 2.5
     return v
   }
-  return [...options].sort((a, b) => score(b) - score(a))[0]!
+  let best = options[0]!
+  let bestV = -Infinity
+  for (const r of options) {
+    const v = score(r)
+    if (v > bestV) {
+      bestV = v
+      best = r
+    }
+  }
+  return best
+}
+
+/**
+ * An exorcism roll is on the table: reroll (Gods' Favorite) when it falls
+ * short, else commit the most valuable coverable set of targets — or nothing,
+ * when the only way through costs more Tao than the ghost is worth.
+ */
+function answerExorcism(s: GameState, roll: ExorcismRoll): Response {
+  const best = bestCommit(s, roll)
+  const taken = best.exorcise.length + best.demons.length
+  const all = roll.targets.length + roll.demons.length
+  // Rerolling dice no target can use never hurts: do it unless the dice already do the whole job.
+  const short = taken < all || best.plan.spend.length + best.plan.crystals.length > 0
+  if (roll.canReroll && (roll.demons.length === 0 ? short : taken === 0)) {
+    const keep = usefulFaces(s, roll.targets)
+    const dice = roll.dice.map((d, i) => (keep(d) ? -1 : i)).filter((i) => i >= 0)
+    if (dice.length) return { kind: 'reroll', dice }
+  }
+  let choice = best
+  if (roll.mode === 'exorcism' && roll.targets.length === 2 && best.exorcise.length === 1 && best.demons.length === 0) {
+    // Only one of the two can go: take the more valuable one, if it is affordable.
+    const h = hauntedCount(s)
+    const other = roll.targets.find((r) => refKey(r) !== refKey(best.exorcise[0]!))!
+    const alt = cheapestSpend(s, roll, [other])
+    const worth = (r: GhostRef, plan: SpendPlan) => removalValue(s, r, h) + rightStoneValue(s, roll.actor, r) - (plan.spend.length + plan.crystals.length) * W.tao
+    if (alt && worth(other, alt) > worth(best.exorcise[0]!, best.plan)) {
+      const tryAlt = { kind: 'commit' as const, spend: alt.spend, crystals: alt.crystals, exorcise: [other], demons: [] }
+      if (legalResponse(s, roll.actor, tryAlt)) choice = { exorcise: [other], demons: [], plan: alt }
+    }
+  }
+  const commit: Response = { kind: 'commit', spend: choice.plan.spend, crystals: choice.plan.crystals, exorcise: choice.exorcise, demons: choice.demons as never[] }
+  if (roll.mode === 'exorcism' && choice.exorcise.length > 0 && choice.plan.spend.length + choice.plan.crystals.length > 0) {
+    const h = hauntedCount(s)
+    const gain = choice.exorcise.reduce((n, r) => n + removalValue(s, r, h) + rightStoneValue(s, roll.actor, r), 0)
+    const cost = (choice.plan.spend.length + choice.plan.crystals.length) * W.tao * W.spend
+    if (gain < cost) {
+      const none: Response = { kind: 'commit', spend: [], crystals: [], exorcise: [], demons: [] }
+      if (legalResponse(s, roll.actor, none)) return none
+    }
+  }
+  return commit
+}
+
+function legalResponse(s: GameState, by: Color, r: Response): boolean {
+  try {
+    applyAction(s, { type: 'respond', by, r })
+    return true
+  } catch {
+    return false
+  }
 }

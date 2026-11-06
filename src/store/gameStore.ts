@@ -105,13 +105,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
   startLocalGame: (config) => {
     const game = createGame(config)
     useLogStore.getState().clear()
-    useLogStore.getState().record(game.events, game.turn)
+    useLogStore.getState().record(game.events, game.turn, Date.now(), game)
     set({ game, uiMode: 'inGame', startedAt: Date.now(), error: null, handoff: null, undoStack: [] })
   },
 
   setGameState: (game, startedAt) => {
     useLogStore.getState().clear()
-    useLogStore.getState().record(game.events, game.turn, startedAt)
+    useLogStore.getState().record(game.events, game.turn, startedAt, game)
     set({ game, uiMode: 'inGame', startedAt, error: null, handoff: null, undoStack: [] })
   },
 
@@ -134,7 +134,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return false
     }
     const at = Date.now()
-    useLogStore.getState().record(next.events, next.turn, at)
+    useLogStore.getState().record(next.events, next.turn, at, next)
     const online = onlinePredicate()
     const undoStack = !online && undoable(cur, next) ? [...get().undoStack, before].slice(-UNDO_DEPTH) : []
     set({ game: next, error: null, undoStack })
@@ -152,7 +152,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       console.warn('[game] move from the log did not apply:', (e as Error).message, action)
       return false
     }
-    useLogStore.getState().record(next.events, next.turn, at)
+    useLogStore.getState().record(next.events, next.turn, at, next)
     set({ game: next, undoStack: [] })
     return true
   },

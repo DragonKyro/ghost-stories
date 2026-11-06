@@ -3,10 +3,10 @@
 // the person at the screen (for screenshots and quick testing).
 
 import { chooseAction } from '@/ai'
-import { applyAction, createGame, waitingFor } from '@/game/engine'
+import { createGame, waitingFor } from '@/game/engine'
 import type { Color, GameConfig, SeatKind } from '@/game/types'
 import { useGameStore } from '@/store/gameStore'
-import { useLogStore } from '@/store/logStore'
+import { useUiStore } from '@/store/uiStore'
 
 export function startDemoFromUrl(): boolean {
   if (!import.meta.env.DEV) return false
@@ -24,20 +24,23 @@ export function startDemoFromUrl(): boolean {
     ...(q.has('wm') ? { whiteMoon: { portal: 'center', randomTiles: false } } : {}),
     ...(q.has('bs') ? { blackSecret: { wuFeng: 'ai', side: 'a' } } : {}),
   }
-  let s = createGame(config)
-  const log = useLogStore.getState()
-  log.clear()
-  log.record(s.events, s.turn)
-  for (let i = 0; i < steps && s.phase !== 'gameOver'; i++) {
+  const store = useGameStore.getState()
+  store.setGameState(createGame(config), Date.now())
+  for (let i = 0; i < steps; i++) {
+    const s = useGameStore.getState().game!
+    if (s.phase === 'gameOver') break
     const seat = waitingFor(s)
     if (!seat) break
     const a = chooseAction(s, seat)
-    if (!a) break
-    s = applyAction(s, a)
-    log.record(s.events, s.turn)
+    if (!a || !useGameStore.getState().applyLocal(a)) break
   }
-  // Hand the red seat to the person at the screen.
-  s = { ...s, taoists: { ...s.taoists, red: { ...s.taoists.red, kind: 'human' } }, config: { ...s.config, seats: { ...s.config.seats, red: 'human' } } }
-  useGameStore.getState().setGameState(s, Date.now())
+  // Hand the red seat to the person at the screen (unless they asked to watch).
+  const s = useGameStore.getState().game!
+  if (!q.has('watch')) {
+    useGameStore.setState({
+      game: { ...s, taoists: { ...s.taoists, red: { ...s.taoists.red, kind: 'human' } }, config: { ...s.config, seats: { ...s.config.seats, red: 'human' } } },
+    })
+  }
+  if (q.has('stats')) useUiStore.getState().setShowStats(true)
   return true
 }

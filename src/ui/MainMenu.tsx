@@ -9,7 +9,9 @@ export function MainMenu() {
   return (
     <div className="gs-menu">
       <div className="gs-menu-inner">
-        <Logo width={460} />
+        <div className="gs-logo">
+          <Logo width={460} />
+        </div>
         <p className="gs-menu-sub">A cooperative game for 1–4 Taoist monks against the ghosts of Wu-Feng.</p>
         <div className="gs-menu-monks">
           {COLORS.map((c) => (

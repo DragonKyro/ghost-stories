@@ -96,7 +96,9 @@ function OnlineMenu() {
 
   return (
     <div className="ol-wrap" style={{ flexDirection: 'column', alignItems: 'center' }}>
-      <Logo width={300} />
+      <div className="gs-logo">
+        <Logo width={300} />
+      </div>
       <div className="ol-card">
         <header className="ol-header">
           <button type="button" className="ol-btn-ghost" onClick={back}>

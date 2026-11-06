@@ -1,33 +1,34 @@
-// Heuristic Taoist AI: one action at a time, stateless between calls.
+// The Taoist AI's Yang phase: one action at a time, stateless between calls.
 //
-// Each call looks at the current state and returns the next step of the
-// turn: powers used before the move, the move toward the best spot, the
-// step-2 action (exorcise or ask for help), Buddha / crystal placement, then
-// end the turn. Prompts are answered in prompts.ts.
+// Each call lists candidate plans for the rest of the turn (a move, a step-2
+// action, a Yin-Yang use, a Buddha placement…), pre-scores them with the
+// quick policy, and plays the most promising ones forward through the real
+// engine (sim.ts): the plan, then the quick policy until the next Taoist's
+// Yang phase begins (so the following Yin phases are included), many times
+// with re-dealt hidden information and re-seeded dice, with successive
+// halving. The plan with the best average position score (value.ts) wins;
+// its first action is returned.
 
 import type { Action, HelpParams } from '@/game/actions'
 import { applyAction } from '@/game/engine'
-import { adjacentTiles, facedSpaces, isAdjacent, isCorner, refKey } from '@/game/geometry'
-import { isSkeleton } from '@/game/catalogue'
-import {
-  borrowablePowers,
-  cardAt,
-  exorcismBlocker,
-  exorcismDice,
-  ghostAt,
-  hasPower,
-  hauntedCount,
-  isSolo,
-  livingTaoists,
-  shadowOnTile,
-  taoCount,
-} from '@/game/rules'
+import { adjacentTiles, facedSpaces, isAdjacent } from '@/game/geometry'
+import { ghostAt, hasPower, livingTaoists } from '@/game/rules'
 import { beforeMove, step2Problem } from '@/game/yang'
-import { barrierTargets } from '@/game/whiteMoon'
-import type { Color, GameState, GhostRef, TileIdx } from '@/game/types'
-import { CENTER_TILE, CORNER_TILE, TAO_COLORS, type Corner } from '@/game/types'
-import { aiRandom, allThreats, neededColors, successChance, threat } from './eval'
-import { bestPlan } from './lookahead'
+import type { Color, GameState, GhostRef } from '@/game/types'
+import { CENTER_TILE } from '@/game/types'
+import {
+  buddhaSpotValue,
+  finishTurn,
+  freePower,
+  helpOptions,
+  positionValue,
+  quickStep,
+  reachable,
+  spiresToken,
+  step2Options,
+} from './policy'
+import { hash, rollout, sanitize } from './sim'
+import { SEARCH, W } from './tuning'
 
 export function legal(s: GameState, a: Action): boolean {
   try {
@@ -38,244 +39,124 @@ export function legal(s: GameState, a: Action): boolean {
   }
 }
 
-interface Option {
-  action: Action
-  value: number
+interface Candidate {
+  plan: Action[]
+  pre: number
 }
 
-/** Step-2 options from the tile the Taoist stands on (or would stand on). */
-function step2Options(s: GameState, c: Color, tile: TileIdx, rand: () => number): Option[] {
-  const out: Option[] = []
+/** Candidate plans for the rest of this Yang phase, with a quick pre-score. */
+export function candidatePlans(s: GameState, c: Color): Candidate[] {
   const t = s.taoists[c]
-  if (t.underground) return out
-  const exoOk = !step2Problem(s, 'exorcise')
-  const helpOk = !step2Problem(s, 'help')
-  if (exoOk) {
-    const faced = facedSpaces(tile).filter((r) => ghostAt(s, r) && !exorcismBlocker(s, r))
-    const sets: GhostRef[][] = faced.map((r) => [r])
-    if (faced.length === 2 && isCorner(tile)) sets.push(faced)
-    const n = exorcismDice(s, c)
-    const reroll = hasPower(s, c, 'godsFavorite')
-    for (const set of sets) {
-      const p = successChance(s, c, tile, set, n, reroll, rand)
-      let v = set.reduce((sum, r) => sum + threat(s, { ref: r, ghost: ghostAt(s, r)!, card: cardAt(s, r)! }), 0)
-      // Clearing a crowded board saves Qi lost to overruns.
-      for (const r of set) {
-        const crowd = s.boards[r.board].spaces.filter(Boolean).length
-        v += 1 + (crowd >= 3 ? 4 : crowd === 2 ? 1.5 : 0.3)
+  const here = t.tile!
+  const out: Candidate[] = []
+  const y = s.yang!
+  const canAct = !step2Problem(s, 'exorcise') || !step2Problem(s, 'help') || !step2Problem(s, 'save')
+  // Step 1–2: where to go and what to do there.
+  if (canAct || beforeMove(s)) {
+    for (const tile of reachable(s, c)) {
+      const move: Action[] = tile === here ? [] : [{ type: 'move', by: c, to: tile }]
+      const pos = positionValue(s, c, tile) + buddhaSpotValue(s, c, tile)
+      const opts = canAct ? step2Options(s, c, tile).sort((a, b) => b.value - a.value) : []
+      for (const o of opts.slice(0, 3)) out.push({ plan: [...move, o.action], pre: o.value + pos })
+      if (tile !== here) out.push({ plan: [...move, { type: 'endTurn', by: c }], pre: pos - 1 })
+    }
+    // Fly with a borrowed Dance of the Spires.
+    const spires = spiresToken(s, c)
+    if (spires) {
+      for (let tile = 0; tile < 9; tile++) {
+        if (tile === here || isAdjacent(here, tile)) continue
+        for (const o of step2Options(s, c, tile).sort((a, b) => b.value - a.value).slice(0, 1)) {
+          out.push({ plan: [{ type: 'powerToken', by: c, board: spires }, { type: 'move', by: c, to: tile }, o.action], pre: o.value - W.powerToken })
+        }
       }
-      out.push({ action: { type: 'exorcise', by: c, targets: set }, value: p * v })
+    }
+    // Twin Winds: bring a friend (and their Tao) alongside, or in front of a ghost.
+    if (beforeMove(s) && hasPower(s, c, 'danceOfTheTwinWinds') && !y.usedPowers.includes('danceOfTheTwinWinds')) {
+      const twin: Candidate[] = []
+      for (const o of livingTaoists(s)) {
+        if (o.color === c || o.tile == null || o.underground) continue
+        for (const to of adjacentTiles(o.tile)) {
+          const v = positionValue(s, o.color, to) - positionValue(s, o.color, o.tile) + (to === here ? 0.5 : 0)
+          twin.push({ plan: [{ type: 'power', by: c, use: { power: 'danceOfTheTwinWinds', taoist: o.color, to } }], pre: v })
+        }
+      }
+      out.push(...twin.sort((a, b) => b.pre - a.pre).slice(0, 2))
     }
   }
-  const vt = s.village[tile]!
-  if (helpOk && !vt.haunted && !shadowOnTile(s, tile)) {
-    for (const h of helpOptions(s, c, tile, rand)) out.push({ action: { type: 'help', by: c, params: h.params }, value: h.value })
+  // Yin-Yang: restore a tile, or a villager's help from anywhere.
+  if (t.yinYang && !t.underground) {
+    const haunted = s.village.filter((x) => x.haunted)
+    for (const h of haunted.slice(0, 3)) out.push({ plan: [{ type: 'yinYang', by: c, use: { kind: 'flip', tile: h.idx } }], pre: -W.yinYang + (haunted.length >= 2 ? 40 : 10) })
+    const remote: Candidate[] = []
+    for (let tile = 0; tile < 9; tile++) {
+      for (const h of helpOptions(s, c, tile)) {
+        remote.push({ plan: [{ type: 'yinYang', by: c, use: { kind: 'help', tile, params: h.params as HelpParams } }], pre: h.value - W.yinYang })
+      }
+    }
+    out.push(...remote.sort((a, b) => b.pre - a.pre).slice(0, 2))
   }
-  if (s.whiteMoon && !step2Problem(s, 'save') && vt.portal && vt.villagers.length > 0) {
-    out.push({ action: { type: 'saveVillager', by: c }, value: 2.2 + s.whiteMoon.dead.length * 0.15 })
+  // Step 3: where the Buddhas go (or not at all).
+  if (!t.underground && t.buddhas - y.newBuddhas > 0) {
+    const empty = facedSpaces(here).filter((r) => !ghostAt(s, r) && !s.boards[r.board].buddhas[r.space])
+    const sets: GhostRef[][] = empty.map((r) => [r])
+    if (empty.length === 2 && t.buddhas - y.newBuddhas >= 2) sets.push(empty)
+    for (const set of sets) out.push({ plan: [{ type: 'placeBuddha', by: c, spaces: set }], pre: W.buddhaOnBoard - W.buddhaHeld })
   }
+  // Doing nothing more this turn.
+  out.push({ plan: [{ type: 'endTurn', by: c, reclaim: here === CENTER_TILE ? s.centerPowerTokens : 0 }], pre: 0 })
   return out
 }
 
-function helpOptions(s: GameState, c: Color, tile: TileIdx, rand: () => number): Array<{ params: HelpParams; value: number }> {
-  const t = s.taoists[c]
-  const kind = s.village[tile]!.kind
-  const threats = allThreats(s)
-  const haunted = hauntedCount(s)
-  switch (kind) {
-    case 'circleOfPrayer': {
-      const cur = s.village[tile]!.circleToken
-      const byColor = (col: string) => threats.filter((g) => g.card.color === col).reduce((n, g) => n + g.threat, 0)
-      return TAO_COLORS.filter((col) => col !== cur && s.taoSupply[col] > 0).map((col) => ({
-        params: { kind, color: col },
-        value: 0.35 * byColor(col) - (cur ? 0.35 * byColor(cur) : 0),
-      }))
-    }
-    case 'buddhistTemple':
-      if (s.templeBuddhas <= 0) return []
-      // A placed Buddha destroys the next ghost to arrive on its space: about one free exorcism.
-      return [{ params: { kind }, value: t.buddhas > 0 ? 0.3 : 2.4 + threats.length * 0.05 }]
-    case 'cemetery': {
-      if (isSolo(s)) return []
-      const dead = (['red', 'blue', 'green', 'yellow'] as Color[]).find((x) => !s.boards[x].neutral && !s.taoists[x].alive)
-      return dead ? [{ params: { kind, revive: dead }, value: 7 }] : []
-    }
-    case 'taoistAltar': {
-      const h = s.village.find((x) => x.haunted)
-      // It brings a ghost in: only worth it when a third haunting is near.
-      return h ? [{ params: { kind, tile: h.idx }, value: haunted >= 2 ? 6 : 0.6 }] : []
-    }
-    case 'herbalistShop':
-      return [{ params: { kind }, value: Math.max(0.3, 1.7 - 0.3 * taoCount(t)) }]
-    case 'sorcerersHut': {
-      const g = threats.find((x) => !x.card.incarnation && !isSkeleton(x.ghost.card))
-      if (!g) return []
-      // Qi is the scarcest resource: only banish something truly dangerous.
-      return [{ params: { kind, ghost: g.ref }, value: g.threat - (t.qi <= 2 ? 50 : 4) }]
-    }
-    case 'nightWatchman': {
-      let best: { board: Color; v: number } | null = null
-      for (const b of ['red', 'blue', 'green', 'yellow'] as Color[]) {
-        const n = s.boards[b].spaces.filter((g) => g?.figure === 'stone').length
-        const v = n * [3, 5.5, 12][Math.min(2, haunted)]!
-        if (!best || v > best.v) best = { board: b, v }
-      }
-      return best && best.v > 0 ? [{ params: { kind, board: best.board }, value: best.v }] : []
-    }
-    case 'pavilion': {
-      const buddhaSpaces: GhostRef[] = []
-      for (const b of ['red', 'blue', 'green', 'yellow'] as Color[]) {
-        s.boards[b].buddhas.forEach((on, i) => on && !s.boards[b].spaces[i] && buddhaSpaces.push({ board: b, space: i as 0 | 1 | 2 }))
-      }
-      const g = threats.find((x) => !x.card.incarnation && !isSkeleton(x.ghost.card))
-      if (!g || buddhaSpaces.length === 0) return []
-      const others = isSolo(s) ? [c] : livingTaoists(s).filter((x) => x.color !== c && x.tile != null).map((x) => x.color)
-      const mover = others[0] ?? null
-      const from = mover ? s.taoists[mover].tile! : null
-      const to = mover && from != null ? (s.taoists[mover].underground ? adjacentTiles(from)[0]! : adjacentTiles(from)[0]!) : null
-      return [{ params: { kind, ghost: g.ref, to: buddhaSpaces[0]!, taoist: mover, taoistTo: to }, value: g.threat }]
-    }
-    case 'teaHouse': {
-      const color = neededColors(s).find((x) => s.taoSupply[x] > 0)
-      if (!color) return []
-      return [{ params: { kind, color }, value: (t.qi <= 1 ? 3.2 : t.qi === 2 ? 1.7 : 0.7) - 0.6 }]
-    }
-    case 'kungFuSchool': {
-      const out: Array<{ params: HelpParams; value: number }> = []
-      for (const scope of ['ownColor', 'black'] as const) {
-        const color = scope === 'ownColor' ? c : 'black'
-        const targets = threats.filter((g) => g.card.color === color && !g.card.incarnation && !isSkeleton(g.ghost.card))
-        if (targets.length === 0) continue
-        const best = targets.slice(0, 2)
-        const p = successChance(s, c, tile, best.map((g) => g.ref), exorcismDice(s, c), hasPower(s, c, 'godsFavorite'), rand, 80)
-        out.push({ params: { kind, scope }, value: p * best.reduce((n, g) => n + g.threat, 0) * 0.85 })
-      }
-      return out
-    }
-    case 'calligrapher': {
-      const bs = s.blackSecret
-      if (!bs || bs.mantras.length === 0) return []
-      const i = bs.mantras.reduce((bi, m, k, arr) => (m.level - m.qi < arr[bi]!.level - arr[bi]!.qi ? k : bi), 0)
-      return [{ params: { kind, swap: null, placeQi: i }, value: 0.8 }]
-    }
+/** Trim to the most promising plans; always keep the quick policy's own choice. */
+function shortlist(s: GameState, c: Color, cands: Candidate[]): Action[][] {
+  const seen = new Set<string>()
+  const plans: Action[][] = []
+  const quick = quickStep(s, c)
+  const add = (p: Action[]) => {
+    const k = JSON.stringify(p)
+    if (seen.has(k)) return
+    seen.add(k)
+    plans.push(p)
   }
+  add([quick])
+  for (const x of [...cands].sort((a, b) => b.pre - a.pre)) {
+    if (plans.length >= SEARCH.maxPlans) break
+    add(x.plan)
+  }
+  return plans
+}
+
+function searchStep(s: GameState, c: Color): Action {
+  const plans = shortlist(s, c, candidatePlans(s, c)).filter((p) => legal(s, p[0]!))
+  if (plans.length === 0) return quickStep(s, c)
+  if (plans.length === 1) return plans[0]![0]!
+  const y = s.yang!
+  const base = hash(s.rng ^ Math.imul(s.turn, 2654435761), y.helps * 31 + y.exorcisms * 17 + (y.moved ? 7 : 0) + (y.step3 ? 3 : 0) + y.usedPowers.length * 101)
+  // Successive halving: every plan gets `samples` rollouts, then the better
+  // half gets as many again, and so on. Sample k is the same re-dealt state
+  // for every plan (common random numbers), so plans are compared fairly.
+  const states: GameState[] = []
+  const stateFor = (k: number) => (states[k] ??= sanitize(s, hash(base, k + 1)))
+  let pool = plans.map((plan) => ({ plan, total: 0, n: 0 }))
+  let target = SEARCH.samples
+  for (let round = 0; ; round++) {
+    for (const p of pool) {
+      for (let k = p.n; k < target; k++) p.total += rollout(stateFor(k), p.plan)
+      p.n = target
+    }
+    pool.sort((a, b) => b.total / b.n - a.total / a.n)
+    if (round >= SEARCH.rounds || pool.length <= 1) break
+    pool = pool.slice(0, Math.max(1, Math.ceil(pool.length * SEARCH.keep)))
+    target *= 2
+  }
+  return pool[0]!.plan[0]!
 }
 
 export function taoistYang(s: GameState, c: Color): Action {
-  const y = s.yang!
   const t = s.taoists[c]
-  const rand = aiRandom(s.rng ^ (s.turn * 7919) ^ (y.helps * 31 + y.exorcisms * 17))
-
-  // --- Before the move: free powers. ---
-  if (beforeMove(s)) {
-    if (hasPower(s, c, 'bottomlessPockets') && !y.usedPowers.includes('bottomlessPockets')) {
-      const color = neededColors(s).find((x) => s.taoSupply[x] > 0)
-      if (color) return { type: 'power', by: c, use: { power: 'bottomlessPockets', color } }
-    }
-    if (hasPower(s, c, 'enfeeblementMantra') && !y.usedPowers.includes('enfeeblementMantra') && s.mantra === 'ready') {
-      const g = allThreats(s).find((x) => !isSkeleton(x.ghost.card))
-      if (g) return { type: 'power', by: c, use: { power: 'enfeeblementMantra', ghost: g.ref } }
-    }
-  }
-
-  // --- Steps 1–2 by lookahead: simulate the candidate move + action plans. ---
-  if (LOOKAHEAD.on && !t.underground) {
-    const planned = lookaheadStep(s, c, rand)
-    if (planned !== undefined) {
-      if (planned) return planned
-    }
-  }
-
-  // --- Step 1: move to the best spot. ---
-  if (!LOOKAHEAD.on && beforeMove(s) && !t.underground) {
-    const fly = hasPower(s, c, 'danceOfTheSpires')
-    const spiresToken = !fly ? borrowablePowers(s, c).find((b) => s.boards[b].power === 'danceOfTheSpires') : undefined
-    const here = t.tile!
-    const tiles = [0, 1, 2, 3, 4, 5, 6, 7, 8].filter((x) => x === here || isAdjacent(here, x) || fly || spiresToken !== undefined)
-    let best = { tile: here, value: -Infinity }
-    for (const tile of tiles) {
-      const opts = step2Options(s, c, tile, rand)
-      let v = opts.reduce((m, o) => Math.max(m, o.value), 0)
-      // Combine with a second action for the blue powers.
-      if (hasPower(s, c, 'heavenlyGust') || hasPower(s, c, 'secondWind')) {
-        const sorted = opts.map((o) => o.value).sort((a, b) => b - a)
-        v += Math.max(0, sorted[1] ?? 0) * 0.6
-      }
-      if (!isAdjacent(here, tile) && tile !== here && !fly) v -= 0.8 // spending a power token
-      // Stand in front of trouble (for next turn too), and spread out from the other Taoists.
-      for (const g of allThreats(s)) if (facedSpaces(tile).some((r) => refKey(r) === refKey(g.ref))) v += 0.12 * g.threat
-      if (facedSpaces(tile).some((r) => r.board === c)) v += 0.2
-      if (livingTaoists(s).some((o) => o.color !== c && o.tile === tile && !o.underground)) v -= 0.15
-      if (tile === CENTER_TILE && s.centerPowerTokens > 0 && t.powerTokens === 0) v += 0.3
-      if (v > best.value) best = { tile, value: v }
-    }
-    if (best.tile !== here) {
-      if (!fly && !isAdjacent(here, best.tile) && spiresToken) return { type: 'powerToken', by: c, board: spiresToken }
-      return { type: 'move', by: c, to: best.tile }
-    }
-  }
-
-  // --- Step 2: exorcise or ask for help. ---
-  if (!LOOKAHEAD.on || t.underground) {
-    const opts = step2Options(s, c, t.tile!, rand)
-      .filter((o) => o.value > 0.25)
-      .sort((a, b) => b.value - a.value)
-    for (const o of opts) if (legal(s, o.action)) return o.action
-  }
-
-  // --- Yin-Yang: save the village from a third haunting, or a dead friend. ---
-  if (t.yinYang) {
-    const hauntedTiles = s.village.filter((x) => x.haunted)
-    if (hauntedTiles.length >= 2) {
-      const a: Action = { type: 'yinYang', by: c, use: { kind: 'flip', tile: hauntedTiles[0]!.idx } }
-      if (legal(s, a)) return a
-    }
-  }
-
-  // --- Step 3: Buddhas and moon crystals. ---
-  if (!t.underground && t.buddhas - y.newBuddhas > 0) {
-    const empty = facedSpaces(t.tile!).filter((r) => !ghostAt(s, r) && !s.boards[r.board].buddhas[r.space])
-    if (empty.length) {
-      const a: Action = { type: 'placeBuddha', by: c, spaces: [empty[0]!] }
-      if (legal(s, a)) return a
-    }
-  }
-  if (s.whiteMoon && !t.underground && t.crystals - y.newCrystals > 0) {
-    const corner = (Object.keys(CORNER_TILE) as Corner[]).find((k) => CORNER_TILE[k] === t.tile && !s.whiteMoon!.receptacles[k])
-    if (corner) return { type: 'placeCrystal', by: c, corner }
-  }
-
-  const reclaim = t.tile === CENTER_TILE && !t.underground ? s.centerPowerTokens : 0
-  return { type: 'endTurn', by: c, reclaim }
+  const power = freePower(s, c)
+  if (power) return power
+  if (SEARCH.on && !t.underground && t.tile != null) return searchStep(s, c)
+  const a = quickStep(s, c)
+  return legal(s, a) ? a : finishTurn(s, c)
 }
-
-/** Switch for comparing the lookahead against the plain heuristic (tests, tuning). */
-export const LOOKAHEAD = { on: true, samples: 4, maxPlans: 14 }
-
-/**
- * The next step-1/2 action by lookahead, `null` to move on to step 3, or
- * `undefined` when there's nothing to decide (fall through).
- */
-function lookaheadStep(s: GameState, c: Color, rand: () => number): Action | null | undefined {
-  const t = s.taoists[c]
-  const here = t.tile!
-  const canMove = beforeMove(s)
-  const canAct = !step2Problem(s, 'exorcise') || !step2Problem(s, 'help') || !step2Problem(s, 'save')
-  if (!canMove && !canAct) return undefined
-  const fly = hasPower(s, c, 'danceOfTheSpires')
-  const tiles = canMove ? [0, 1, 2, 3, 4, 5, 6, 7, 8].filter((x) => x === here || isAdjacent(here, x) || fly) : [here]
-  const scored: Array<{ plan: Action[]; h: number }> = []
-  for (const tile of tiles) {
-    const move: Action[] = tile === here ? [] : [{ type: 'move', by: c, to: tile }]
-    scored.push({ plan: move, h: 0 })
-    for (const o of step2Options(s, c, tile, rand)) scored.push({ plan: [...move, o.action], h: o.value })
-  }
-  // Keep the most promising handful (always keep "stay and pass").
-  scored.sort((a, b) => b.h - a.h)
-  const plans = [[] as Action[], ...scored.filter((x) => x.plan.length > 0).slice(0, LOOKAHEAD.maxPlans).map((x) => x.plan)]
-  const best = bestPlan(s, c, plans, LOOKAHEAD.samples)
-  if (!best || best.actions.length === 0) return null
-  return best.actions[0]!
-}
-
-export { barrierTargets }

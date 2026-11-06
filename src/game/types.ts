@@ -504,6 +504,8 @@ export interface GameEvent {
   tile?: TileIdx
   ref?: GhostRef
   card?: string
+  /** Signed amount, e.g. −1 / +2 on Qi events. */
+  n?: number
 }
 
 export interface GameState {

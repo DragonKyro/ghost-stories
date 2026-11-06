@@ -1,11 +1,11 @@
-// Board evaluation for the heuristic AI: how dangerous each ghost is, and how
-// likely an exorcism is to succeed.
+// Small helpers shared by the AI: a deterministic PRNG, a rough ghost-threat
+// ranking (prompts, Wu-Feng), the Tao a Taoist can pool, and colour needs.
+// The position score lives in value.ts, exact exorcism odds in prob.ts.
 
-import { covers, requirementsFor, type Requirement } from '@/game/exorcism'
-import { cardAt, ghostsInPlay, taoBlocked, whiteIsWild, type PlacedGhost } from '@/game/rules'
+import { ghostsInPlay, taoBlocked, type PlacedGhost } from '@/game/rules'
 import { lineOf } from '@/game/geometry'
-import type { Color, DieFace, ExorcismRoll, GameState, GhostRef, TaoColor } from '@/game/types'
-import { DIE_FACES, TAO_COLORS } from '@/game/types'
+import type { Color, GameState, TaoColor } from '@/game/types'
+import { TAO_COLORS } from '@/game/types'
 
 /** Small deterministic PRNG so AI decisions are reproducible in tests. */
 export function aiRandom(seed: number): () => number {
@@ -65,46 +65,16 @@ export function poolAt(s: GameState, actor: Color, tile: number): { tokens: Reco
   return { tokens, crystals }
 }
 
-/** Estimated chance that `n` dice (+ the pool) exorcise these targets. */
-export function successChance(
-  s: GameState,
-  actor: Color,
-  tile: number,
-  targets: GhostRef[],
-  n: number,
-  reroll: boolean,
-  rand: () => number,
-  samples = 160,
-): number {
-  if (targets.some((r) => !cardAt(s, r))) return 0
-  const fake: ExorcismRoll = { mode: 'exorcism', actor, targets, demons: [], dice: [], canReroll: false }
-  const reqs: Requirement[] = requirementsFor(s, fake, targets, [])
-  const { tokens, crystals } = poolAt(s, actor, tile)
-  const wild = whiteIsWild(s)
-  let ok = 0
-  for (let i = 0; i < samples; i++) {
-    let dice: DieFace[] = Array.from({ length: n }, () => DIE_FACES[Math.floor(rand() * 6)]!)
-    if (covers(reqs, dice, wild, tokens, crystals)) {
-      ok++
-      continue
-    }
-    if (reroll) {
-      dice = dice.map((d) => (useful(d, reqs) ? d : DIE_FACES[Math.floor(rand() * 6)]!))
-      if (covers(reqs, dice, wild, tokens, crystals)) ok++
-    }
-  }
-  return ok / samples
-}
-
-function useful(d: DieFace, reqs: Requirement[]): boolean {
-  if (d === 'white') return true
-  return reqs.some((r) => !r.immune && (r.base[d] ?? 0) > 0)
-}
-
-/** Colours of Tao most useful right now (by threat of ghosts needing them). */
+/**
+ * Colours of Tao most useful right now: what the ghosts in play need
+ * (weighted by how dangerous they are), less what the Taoists already hold.
+ */
 export function neededColors(s: GameState): TaoColor[] {
   const score: Record<TaoColor, number> = { red: 0, blue: 0, green: 0, yellow: 0, black: 0 }
+  const have: Record<TaoColor, number> = { red: 0, blue: 0, green: 0, yellow: 0, black: 0 }
   for (const g of allThreats(s)) for (const c of TAO_COLORS) score[c] += (g.card.resistance[c] ?? 0) * g.threat
-  for (const c of TAO_COLORS) score[c] += 0.1 // tie-break so every colour has some value
+  for (const t of Object.values(s.taoists)) if (t.alive) for (const c of TAO_COLORS) have[c] += t.tao[c]
+  // Every colour keeps arriving: a little base value, black (needed by black ghosts only) a little less.
+  for (const c of TAO_COLORS) score[c] = (score[c] + (c === 'black' ? 2 : 3)) / (1 + 0.6 * have[c])
   return [...TAO_COLORS].sort((a, b) => score[b] - score[a])
 }

@@ -11,6 +11,8 @@ A web version of the cooperative board game *Ghost Stories* (Antoine Bauza, Repo
 - **White Moon:** villagers and their families, fleeing and Devourers, Su-Ling, moon crystals, the receptacles and the Mystic Barrier, the Portal and the Kung-Fu School.
 - **Black Secret:** one more player (or the AI) is Wu-Feng — every ghost drawn is theirs to place, turn into a demon or spend on a curse; catacombs under the village with ladders, demons and tokens; Bloody Mantras, blood brothers, the Shadow of Wu-Feng, the Calligrapher.
 
+It works on phones (portrait and landscape) and tablets as well as desktops, and every game ends with a stats screen.
+
 The turn follows the rulebook step by step: the Yin phase resolves on its own (and stops for every choice the rules give the players: where an arriving ghost goes, who takes a possessed board's Qi loss, the Gods' Favorite reroll, …); the Yang phase panel shows the three steps in order with only the moves the rules allow at that moment. A searchable rulebook is one click away.
 
 ## What is Ghost Stories?
@@ -22,13 +24,13 @@ The Esoteric Order of Gamers rules summary in [`ghost stories rules.pdf`](./ghos
 ## Roadmap
 
 - [x] Rules engine following the summary: base game, White Moon, Black Secret (deterministic, seeded dice, step-by-step prompts)
-- [x] Heuristic AI for Taoists and for Wu-Feng
+- [x] AI for Taoists (search through the real engine, playing only on what the players can see) and for Wu-Feng
 - [x] Game screen and hand-drawn ink-painting art set
 - [x] Online multiplayer on Firebase Realtime Database
 - [x] Rulebook with search
-- [ ] Stronger AI (lookahead)
-- [ ] End-of-game stats
-- [ ] Phone-sized layout
+- [x] End-of-game stats (Qi over the game, ghosts and hauntings, who exorcised what, dice luck)
+- [x] Phone and tablet layouts
+- [ ] Stronger AI still: 4 AI seats win about 1 game in 10 on Initiation, solo about 1 in 5; teach it the White Moon villagers and the Black Secret catacombs
 
 ## Ideas for later
 

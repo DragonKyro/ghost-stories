@@ -330,6 +330,10 @@ export interface SpendPlan {
  * The cheapest spend that exorcises `refs` (+ demons) with this roll, or null.
  * Tokens come from the actor first, then from Taoists on the same tile;
  * crystals are used only when tokens run out.
+ *
+ * It enumerates how many tokens of each needed colour to spend, not which
+ * individual tokens, so it stays fast when the Taoists hold a lot of Tao (a
+ * token of a colour no target needs can never help).
  */
 export function cheapestSpend(s: GameState, roll: ExorcismRoll, refs: GhostRef[], demons: string[] = []): SpendPlan | null {
   const wild = whiteIsWild(s)
@@ -338,25 +342,46 @@ export function cheapestSpend(s: GameState, roll: ExorcismRoll, refs: GhostRef[]
   const spenders = spendersFor(s, roll)
   const ordered = [roll.actor, ...spenders.filter((c) => c !== roll.actor)].filter((c) => spenders.includes(c))
   const blocked = taoBlocked(s) || roll.mode === 'barrier'
-  const pool: TaoSpend[] = []
-  if (!blocked) {
-    for (const c of ordered) for (const col of TAO_COLORS) for (let i = 0; i < s.taoists[c].tao[col]; i++) pool.push({ from: c, color: col })
-  }
-  const crystalPool: CrystalSpend[] = []
+  const avail = zero()
+  if (!blocked) for (const c of ordered) for (const col of TAO_COLORS) avail[col] += s.taoists[c].tao[col]
+  const crystalOwners: CrystalSpend['from'][] = []
   if (s.whiteMoon) {
-    if (roll.mode === 'barrier') for (let i = 0; i < (s.whiteMoon.barrier?.crystals ?? 0); i++) crystalPool.push({ from: 'barrier', as: 'red' })
-    else for (const c of ordered) for (let i = 0; i < s.taoists[c].crystals; i++) crystalPool.push({ from: c, as: 'red' })
+    if (roll.mode === 'barrier') for (let i = 0; i < (s.whiteMoon.barrier?.crystals ?? 0); i++) crystalOwners.push('barrier')
+    else for (const c of ordered) for (let i = 0; i < s.taoists[c].crystals; i++) crystalOwners.push(c)
   }
-  // Breadth-first by number of items spent: tokens before crystals at each size.
-  const maxItems = Math.min(pool.length + crystalPool.length, 10)
+  const colors = TAO_COLORS.filter((c) => avail[c] > 0 && reqs.some((r) => (r.base[c] ?? 0) > 0))
+  const maxTokens = colors.reduce((n, c) => n + avail[c], 0)
+  const vec = zero()
+  // Spread k tokens over the needed colours (each bounded by what's held); test with j crystals.
+  const spread = (i: number, left: number, j: number): boolean => {
+    if (i === colors.length) return left === 0 && covers(reqs, roll.dice, wild, vec, j)
+    const c = colors[i]!
+    for (let x = Math.min(left, avail[c]); x >= 0; x--) {
+      vec[c] = x
+      if (spread(i + 1, left - x, j)) return true
+    }
+    vec[c] = 0
+    return false
+  }
+  // Fewest items first; at each size, tokens before crystals.
+  const maxItems = Math.min(maxTokens + crystalOwners.length, 12)
   for (let n = 1; n <= maxItems; n++) {
-    for (let k = Math.max(0, n - crystalPool.length); k <= Math.min(n, pool.length); k++) {
-      const crystalsN = n - k
-      const found = pickTokens(pool, k, (picked) => covers(reqs, roll.dice, wild, spendVec(picked), crystalsN))
-      if (found) {
-        const crystals = crystalPool.slice(0, crystalsN).map((x) => ({ ...x, as: crystalColor(reqs) }))
-        return { spend: found, crystals }
+    for (let j = 0; j <= Math.min(n, crystalOwners.length); j++) {
+      const k = n - j
+      if (k > maxTokens) continue
+      for (const c of TAO_COLORS) vec[c] = 0
+      if (!spread(0, k, j)) continue
+      const spend: TaoSpend[] = []
+      for (const color of colors) {
+        let left = vec[color]
+        for (const from of ordered) {
+          const take = Math.min(left, s.taoists[from].tao[color])
+          for (let i = 0; i < take; i++) spend.push({ from, color })
+          left -= take
+        }
       }
+      const as = crystalColor(reqs)
+      return { spend, crystals: crystalOwners.slice(0, j).map((from) => ({ from, as })) }
     }
   }
   return null
@@ -365,29 +390,6 @@ export function cheapestSpend(s: GameState, roll: ExorcismRoll, refs: GhostRef[]
 function crystalColor(reqs: Requirement[]): TaoColor {
   for (const r of reqs) for (const c of TAO_COLORS) if ((r.base[c] ?? 0) > 0) return c
   return 'red'
-}
-
-/** Pick k tokens (distinct colour multisets only) satisfying `ok`. */
-function pickTokens(pool: TaoSpend[], k: number, ok: (picked: TaoSpend[]) => boolean): TaoSpend[] | null {
-  if (k === 0) return ok([]) ? [] : null
-  const seen = new Set<string>()
-  const pick: TaoSpend[] = []
-  const rec = (start: number): TaoSpend[] | null => {
-    if (pick.length === k) {
-      const key = pick.map((p) => p.color).sort().join(',')
-      if (seen.has(key)) return null
-      seen.add(key)
-      return ok(pick) ? pick.slice() : null
-    }
-    for (let i = start; i < pool.length; i++) {
-      pick.push(pool[i]!)
-      const r = rec(i + 1)
-      pick.pop()
-      if (r) return r
-    }
-    return null
-  }
-  return rec(0)
 }
 
 /** The best set of targets this roll can take (most targets, then cheapest). */

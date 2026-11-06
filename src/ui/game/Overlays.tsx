@@ -7,6 +7,7 @@ import type { GameState } from '@/game/types'
 import { useGameStore } from '@/store/gameStore'
 import { useLogStore } from '@/store/logStore'
 import { useNetworkStore } from '@/store/networkStore'
+import { useUiStore } from '@/store/uiStore'
 import { Logo, TaoistFigure } from '@/ui/art'
 import { sharedDevice } from './seats'
 import { colorVars } from './Board'
@@ -45,14 +46,19 @@ export function GameOverOverlay({ game }: { game: GameState }) {
   return (
     <div className="gs-overlay">
       <div className="gs-dialog">
-        <Logo width={260} />
+        <div className="gs-logo">
+          <Logo width={260} />
+        </div>
         <h2 style={{ color: win ? '#f3dc95' : '#e0563f', marginTop: 10 }}>{win ? 'Victory' : 'Defeat'}</h2>
         <p>{win ? 'The last incarnation of Wu-Feng is exorcised. The village is saved!' : game.outcome?.result === 'loss' ? `The village falls: ${LOSS_TEXT[game.outcome.reason]}` : ''}</p>
         <p className="gs-mini">
           {game.turn} turns · {exorcised} ghosts exorcised · {game.deck.length} cards left in the deck
         </p>
         <div className="gs-btnrow" style={{ justifyContent: 'center', marginTop: 12 }}>
-          <button className="gs-btn primary" onClick={() => (online ? leave() : quit())}>
+          <button className="gs-btn primary" onClick={() => useUiStore.getState().setShowStats(true)}>
+            See the stats
+          </button>
+          <button className="gs-btn" onClick={() => (online ? leave() : quit())}>
             Back to the menu
           </button>
           <button

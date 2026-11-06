@@ -58,18 +58,18 @@ const BOARD_CELL: Record<Color, CSSProperties> = {
   blue: { gridColumn: 5, gridRow: '2 / 5' },
 }
 
-export function Board({ game, ia, tile }: { game: GameState; ia: Interaction; tile: number }) {
+export function Board({ game, ia, tile, compact = false }: { game: GameState; ia: Interaction; tile: number; compact?: boolean }) {
   return (
     <div className="gs-board">
       {game.village.map((t) => (
-        <TileView key={t.idx} game={game} idx={t.idx} ia={ia} size={tile} />
+        <TileView key={t.idx} game={game} idx={t.idx} ia={ia} size={tile} compact={compact} />
       ))}
       {COLORS.map((c) => (
         <PlayerBoardView key={c} game={game} color={c} ia={ia} tile={tile} />
       ))}
       {COLORS.map((c) => (
         <div key={`p-${c}`} style={{ gridColumn: PLATE_CELL[c].col, gridRow: PLATE_CELL[c].row, display: 'flex' }}>
-          <PlayerPlate game={game} color={c} />
+          <PlayerPlate game={game} color={c} compact={compact} />
         </div>
       ))}
     </div>
@@ -78,7 +78,7 @@ export function Board({ game, ia, tile }: { game: GameState; ia: Interaction; ti
 
 // ---------------------------------------------------------------------------
 
-function TileView({ game, idx, ia, size }: { game: GameState; idx: TileIdx; ia: Interaction; size: number }) {
+function TileView({ game, idx, ia, size, compact }: { game: GameState; idx: TileIdx; ia: Interaction; size: number; compact: boolean }) {
   const t = game.village[idx]!
   const setInspect = useUiStore((u) => u.setInspect)
   const col = (idx % 3) + 2
@@ -94,12 +94,12 @@ function TileView({ game, idx, ia, size }: { game: GameState; idx: TileIdx; ia: 
     <div
       className={`gs-tile ${t.haunted ? 'haunted' : ''} ${target ? `gs-target ${ia.soft ? 'gs-soft' : ''}` : ''}`}
       style={{ gridColumn: col, gridRow: row }}
-      onClick={() => target && ia.onTile(idx)}
-      onMouseEnter={() => setInspect({ kind: 'tile', tile: idx })}
-      onMouseLeave={() => setInspect(null)}
+      onClick={() => (target ? ia.onTile(idx) : setInspect({ kind: 'tile', tile: idx }))}
+      onPointerEnter={(e) => e.pointerType === 'mouse' && setInspect({ kind: 'tile', tile: idx })}
+      onPointerLeave={(e) => e.pointerType === 'mouse' && setInspect(null)}
     >
       <TileArt kind={t.kind} haunted={t.haunted} size={size} className="gs-tileart" />
-      <div className="gs-tilename">{TILE_NAME[t.kind]}</div>
+      {!compact && <div className="gs-tilename">{TILE_NAME[t.kind]}</div>}
       <div className="gs-corner-tl">
         {t.kind === 'circleOfPrayer' && t.circleToken && <TaoToken color={t.circleToken} size={Math.round(size * 0.17)} />}
         {t.kind === 'buddhistTemple' && Array.from({ length: game.templeBuddhas }, (_, i) => <BuddhaFigure key={i} size={Math.round(size * 0.17)} />)}
@@ -156,9 +156,9 @@ function SpaceView({ game, ghostRef, ia, tile }: { game: GameState; ghostRef: Gh
   return (
     <div
       className={`gs-space ${target ? `gs-target ${ia.soft ? 'gs-soft' : ''}` : ''} ${picked ? 'gs-picked' : ''}`}
-      onClick={() => target && ia.onSpace(ghostRef)}
-      onMouseEnter={() => g && setInspect({ kind: 'ghost', ref: ghostRef })}
-      onMouseLeave={() => setInspect(null)}
+      onClick={() => (target ? ia.onSpace(ghostRef) : g && setInspect({ kind: 'ghost', ref: ghostRef }))}
+      onPointerEnter={(e) => e.pointerType === 'mouse' && g && setInspect({ kind: 'ghost', ref: ghostRef })}
+      onPointerLeave={(e) => e.pointerType === 'mouse' && setInspect(null)}
     >
       <div className={`gs-cardslot ${card ? 'filled' : ''}`}>
         {card ? <GhostCardArt card={card} width={cardW} compact /> : <span>{ghostRef.space + 1}</span>}
@@ -189,13 +189,14 @@ function SpaceView({ game, ghostRef, ia, tile }: { game: GameState; ghostRef: Gh
 
 // ---------------------------------------------------------------------------
 
-export function PlayerPlate({ game, color }: { game: GameState; color: Color }) {
+export function PlayerPlate({ game, color, compact = false }: { game: GameState; color: Color; compact?: boolean }) {
   const b = game.boards[color]
   const t = game.taoists[color]
   const online = useNetworkStore((n) => n.connection === 'in-game')
   const who = online ? seatName(color) : t.kind === 'ai' ? 'AI' : null
   const powerOn = boardPowerActive(game, color) && !powersSuppressed(game)
-  const s = 16
+  const s = compact ? 11 : 16
+  if (compact) return <CompactPlate game={game} color={color} powerOn={powerOn} who={who} />
   return (
     <div className={`gs-plate ${game.active === color ? 'active' : ''} ${!t.alive && !b.neutral ? 'dead' : ''}`} style={{ ...colorVars(color), flex: 1 }}>
       <div className="gs-plate-head">
@@ -242,6 +243,58 @@ export function PlayerPlate({ game, color }: { game: GameState; color: Color }) 
         </>
       ) : (
         <div className="gs-row gs-count">Lies on the Cemetery. Their board is possessed.</div>
+      )}
+    </div>
+  )
+}
+
+/** Small tiles (phones): the essentials as icons and numbers. */
+function CompactPlate({ game, color, powerOn, who }: { game: GameState; color: Color; powerOn: boolean; who: string | null }) {
+  const b = game.boards[color]
+  const t = game.taoists[color]
+  const s = 11
+  return (
+    <div
+      className={`gs-plate compact ${game.active === color ? 'active' : ''} ${!t.alive && !b.neutral ? 'dead' : ''}`}
+      style={{ ...colorVars(color), flex: 1 }}
+      title={`${COLOR_NAME[color]}${who ? ` (${who})` : ''} — ${POWER_NAME[b.power]}`}
+    >
+      <div className="gs-plate-head">
+        <PowerIcon power={b.power} size={14} style={{ opacity: powerOn ? 1 : 0.35 }} />
+        <span>{COLOR_NAME[color]}</span>
+      </div>
+      {b.neutral ? (
+        <div className="gs-row">
+          <QiToken size={s} />
+          <span className="gs-count">{b.qi}</span>
+          <span className="gs-count">{b.possessed ? 'poss.' : 'neutral'}</span>
+        </div>
+      ) : t.alive ? (
+        <>
+          <div className="gs-row">
+            <QiToken size={s} />
+            <span className="gs-count">{t.qi}</span>
+            {t.yinYang && <YinYangToken size={s} />}
+            {t.buddhas > 0 && (
+              <>
+                <BuddhaFigure size={s} />
+                <span className="gs-count">{t.buddhas}</span>
+              </>
+            )}
+          </div>
+          <div className="gs-row">
+            {TAO_COLORS.filter((x) => t.tao[x] > 0).map((x) => (
+              <span key={x} style={{ display: 'inline-flex', alignItems: 'center' }}>
+                <TaoToken color={x} size={s} />
+                {t.tao[x] > 1 && <span className="gs-count">{t.tao[x]}</span>}
+              </span>
+            ))}
+            {t.powerTokens > 0 && <span className="gs-count">⚑{t.powerTokens}</span>}
+            {t.crystals > 0 && <span className="gs-count">◆{t.crystals}</span>}
+          </div>
+        </>
+      ) : (
+        <div className="gs-row gs-count">dead</div>
       )}
     </div>
   )

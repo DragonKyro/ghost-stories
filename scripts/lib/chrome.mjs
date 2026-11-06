@@ -116,8 +116,16 @@ export async function openBrowser() {
     async close() {
       ws.close();
       proc.kill();
-      await sleep(300);
-      rmSync(profile, { recursive: true, force: true });
+      // Chrome may still hold files in its profile for a moment after exiting.
+      for (let i = 0; i < 5; i++) {
+        await sleep(300);
+        try {
+          rmSync(profile, { recursive: true, force: true });
+          return;
+        } catch {
+          /* try again */
+        }
+      }
     },
   };
 }

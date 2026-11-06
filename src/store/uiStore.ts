@@ -41,6 +41,9 @@ interface UiStore {
   /** Black Secret: a Taoist moved by Twin Winds changes levels afterwards. */
   climb: boolean
   sidePanel: 'log' | 'chat' | 'expansion'
+  /** The stats screen is open. */
+  showStats: boolean
+  setShowStats: (b: boolean) => void
   select: (s: Selecting | null) => void
   setInspect: (i: UiStore['inspect']) => void
   setCarry: (b: boolean) => void
@@ -55,6 +58,8 @@ export const useUiStore = create<UiStore>((set) => ({
   carry: false,
   climb: false,
   sidePanel: 'log',
+  showStats: false,
+  setShowStats: (showStats) => set({ showStats }),
   select: (selecting) => set({ selecting }),
   setInspect: (inspect) => set({ inspect }),
   setCarry: (carry) => set({ carry }),

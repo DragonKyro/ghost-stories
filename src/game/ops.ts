@@ -175,14 +175,14 @@ export function loseQi(s: GameState, board: Color, why: string): void {
   const b = s.boards[board]
   if (t.alive) {
     t.qi -= 1
-    ev(s, 'qi', `${COLOR_NAME[board]} loses 1 Qi (${why}) — ${t.qi} left.`, { color: board })
+    ev(s, 'qi', `${COLOR_NAME[board]} loses 1 Qi (${why}) — ${t.qi} left.`, { color: board, n: -1 })
     if (s.blackSecret) bsQiLost(s, board)
     if (t.qi <= 0) killTaoist(s, board)
     return
   }
   if (b.neutral && !b.possessed && b.qi > 0) {
     b.qi -= 1
-    ev(s, 'qi', `The neutral ${board} board loses 1 Qi (${why}) — ${b.qi} left.`, { color: board })
+    ev(s, 'qi', `The neutral ${board} board loses 1 Qi (${why}) — ${b.qi} left.`, { color: board, n: -1 })
     if (s.blackSecret) bsQiLost(s, board)
     if (b.qi === 0) possess(s, board, 'it lost its last Qi')
     return
@@ -202,7 +202,7 @@ export function gainQi(s: GameState, c: Color, n: number, why: string): void {
   const t = s.taoists[c]
   if (!t.alive || n <= 0) return
   t.qi += n
-  ev(s, 'qi', `${COLOR_NAME[c]} gains ${n} Qi (${why}) — ${t.qi} now.`, { color: c })
+  ev(s, 'qi', `${COLOR_NAME[c]} gains ${n} Qi (${why}) — ${t.qi} now.`, { color: c, n })
   if (s.blackSecret) {
     // Regaining Qi above 1 ends the blood brotherhood; nothing else to do here.
   }

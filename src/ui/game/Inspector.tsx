@@ -1,6 +1,7 @@
 // Hover details: a ghost card at full size with its abilities spelled out,
 // or a village tile's action.
 
+import type React from 'react'
 import { cardOnBoard } from '@/game/catalogue'
 import { lineOf } from '@/game/geometry'
 import { boardName, suLingAt, TILE_NAME } from '@/game/rules'
@@ -10,15 +11,20 @@ import { AbilityIcon, GhostCardArt, TileArt } from '@/ui/art'
 import { ABILITY_TEXT, GROUP_TEXT, TILE_HELP } from './text'
 import { familyName } from '@/game/whiteMoon'
 
-export function Inspector({ game, tile }: { game: GameState; tile: number }) {
+export function Inspector({ game, tile, stacked = false }: { game: GameState; tile: number; stacked?: boolean }) {
   const inspect = useUiStore((u) => u.inspect)
+  const setInspect = useUiStore((u) => u.setInspect)
   if (!inspect) return null
-  const pos = { left: tile * 1.18 + tile * 0.1, top: tile * 1.18 + tile * 0.1 }
+  // Phones: a card pinned over the board; tap it to close.
+  const pos: React.CSSProperties = stacked
+    ? { left: 4, right: 4, top: 4, pointerEvents: 'auto', maxWidth: 'none', transform: 'scale(0.92)', transformOrigin: 'top center' }
+    : { left: tile * 1.18 + tile * 0.1, top: tile * 1.18 + tile * 0.1 }
+  const close = stacked ? () => setInspect(null) : undefined
   if (inspect.kind === 'tile') {
     const t = game.village[inspect.tile]
     if (!t) return null
     return (
-      <div className="gs-inspect" style={pos}>
+      <div className="gs-inspect" style={pos} onClick={close}>
         <TileArt kind={t.kind} haunted={t.haunted} size={130} />
         <div style={{ maxWidth: 240 }}>
           <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--accent)' }}>{TILE_NAME[t.kind]}</div>
@@ -44,8 +50,8 @@ export function Inspector({ game, tile }: { game: GameState; tile: number }) {
       </div>
     ))
   return (
-    <div className="gs-inspect" style={pos}>
-      <GhostCardArt card={card} width={150} />
+    <div className="gs-inspect" style={pos} onClick={close}>
+      <GhostCardArt card={card} width={stacked ? 110 : 150} />
       <div style={{ maxWidth: 260 }}>
         <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--accent)' }}>{card.name}</div>
         <div className="gs-mini">
