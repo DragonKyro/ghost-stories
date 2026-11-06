@@ -100,4 +100,5 @@ Done: engine rewrite to the rules summary (base game, White Moon, Black Secret),
 
 Next:
 - **AI strength** — self-play win rates (seeds 7001–7300, 300 games each): 4 AI Initiation 8% (10–13% on other seed sets), Normal 2%; solo Initiation 19%, Normal 14%; 2 players Initiation 12%, Normal 4% (the old AI: 0–1%). Most 4-player losses come in the last ~10 cards, after the incarnation shows up. Next: re-tune `W` with the search on and more seeds; the AI ignores White Moon villagers (many expansion games are lost to the 12th dead villager) and never goes underground in Black Secret; Wu-Feng's AI is unchanged.
+- **Neural-network AI** (`src/ai/nn/`, `training/`) — encoder, every-legal-action enumeration, network (TS + PyTorch, parity-tested) done; phase 1 (imitation of the search AI, solo Normal, `training/README.md` → Results) gives a calibrated value head (AUC 0.85) and a policy that alone wins ~3% (search: 14%). Next: the network inside the search (policy prior for the shortlist, value at the rollout leaves), then expert iteration.
 - Scoring (rulebook scoring isn't in the summary).

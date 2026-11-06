@@ -65,12 +65,53 @@ Default size: d = 64, 4 heads, 3 layers, FFN 128 → 234k parameters (d = 128,
 8 heads, 4 layers → 903k). On the RTX A2000, base-game batches train at about
 4,000 samples/s (d = 64) / 2,000 samples/s (d = 128).
 
+## Imitation training (phase 1)
+
+```sh
+# 1. Data: the search AI plays solo games (seat = seed % 4, power side = seed / 4 % 2);
+#    every decision of the player is recorded. ~10 min for 10k games on 18 workers.
+node scripts/nn/ts.mjs scripts/nn/gen.ts --games 10000 --start 100000 --workers 18 --out training/data/solo-normal-v1 --dump 8
+# 2. Check the pipeline (packed == padded forward; shards == encoder output).
+training/.venv/Scripts/python training/selftest.py training/data/solo-normal-v1
+# 3. Train (progress every 100 updates; checkpoints + background play-tests every 1000).
+training/.venv/Scripts/python training/train.py --data training/data/solo-normal-v1 --run training/runs/bc-v1
+# 4. Play-test any checkpoint, or the baselines, on the evaluation seeds (7001-7300).
+node scripts/nn/ts.mjs scripts/nn/eval.ts --weights training/runs/bc-v1/step-5000.json
+node scripts/nn/ts.mjs scripts/nn/eval.ts --policy quick      # or search
+```
+
+- Shards (`scripts/nn/shard.ts`) are sparse and columnar: ~2.7 KB per decision;
+  `nn/dataset.py` loads them onto the GPU and assembles each batch there
+  (dense state, relations, candidates packed back to back — no padding).
+- Validation is whole held-out games (seed % 25 == 0). The progress line shows
+  policy loss / agreement with the teacher (overall, Yang steps, ghost
+  placement, exorcism commits), value BCE / Brier / AUC / calibration, and
+  samples per second.
+- Seeds 7001-7300 are the evaluation seeds (the same setups the search AI was
+  benchmarked on); `gen.ts` refuses to train on them.
+
+## Results
+
+**bc-v1** (2026-11-06): imitation of the search AI on 10,000 solo Normal games
+(827k decisions, all 7 monk/power combinations), d = 64 / 3 layers (234k params),
+5,000 updates × 256 (1.6 epochs), 8.5 min on the RTX A2000.
+
+- Held-out agreement with the teacher: 84.1% (Yang steps 81.9%, ghost placement
+  99.0%, exorcism commits 93.3%); train and held-out loss stayed equal (no overfitting).
+- Value head: AUC 0.85, calibrated (mean prediction 0.208 vs 0.198 actual).
+- Network alone (argmax, no search), 300 eval games: 0.7% → 3.0% → 2.7% → 3.7% →
+  2.3% at updates 1k–5k; 56.7 turns, 52% of the deck. Quick policy: 2.0%, 47.1
+  turns, 44%. Search AI (teacher): 14.3%, 60.9 turns, 61%.
+- `scripts/nn/diagnose.ts`: the misses are mostly moves (73% agreement; where the
+  teacher's search matters most — red with the Dance of the Spires, who can fly
+  anywhere, won 1/75), Tao colour picks (12–27%, mostly ties the teacher breaks in
+  a fixed colour order the network can't see), and rare Yin-Yang remote helps.
+
+So the network has learnt a sound value function and a policy that survives
+longer than the quick policy, but playing alone it doesn't win more; the search
+is what wins. Next is putting the network inside the search.
+
 ## Next
 
-1. Data: the search AI plays solo Normal (any monk) in Node workers and writes
-   encoded positions + its per-action preferences + the game result to
-   `training/data/` (packed, not padded: Yang decisions average 104 legal actions
-   and reach ~400).
-2. Imitation: train the network on that; check it beats the quick policy alone.
-3. Expert iteration: search guided by the network's policy and value; retrain on
+1. Expert iteration: search guided by the network's policy and value; retrain on
    its games; keep a new network only if it wins more on held-out seeds.

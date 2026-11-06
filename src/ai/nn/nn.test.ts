@@ -13,7 +13,7 @@ import { encodeCandidates } from './candidates'
 import { encodeState } from './encode'
 import { frameFor } from './frame'
 import { nnDecide, samplePositions } from './index'
-import { actionKey, legalActions } from './legal'
+import { actionKey, legalActions, matchKey } from './legal'
 import { Net } from './model'
 import { CAND, N_TOKENS, SCHEMA_HASH, TOKEN, TOKENS, cardSlot, schemaJson } from './schema'
 
@@ -61,10 +61,6 @@ function fieldAt(L: (typeof TOKENS)[number]['layout'], off: number): string {
   return String(off)
 }
 
-/** Compare keys ignoring choices that don't change anything (a crystal's colour; false flags). */
-function looseKey(a: Action): string {
-  return actionKey(JSON.parse(JSON.stringify(a, (k, v: unknown) => (k === 'as' ? undefined : (k === 'carry' || k === 'climb') && v === false ? undefined : v))) as Action)
-}
 
 describe('nn schema', () => {
   it('lays out every token type and fits every ghost card', () => {
@@ -181,8 +177,8 @@ describe('nn legal actions', () => {
       // Legal by the real engine (applyAction copies the state and throws on anything illegal).
       for (const a of actions.slice(0, 40)) expect(() => applyAction(s, a)).not.toThrow()
       if (!heuristic) {
-        const keys = new Set(actions.map(looseKey))
-        if (!keys.has(looseKey(taken))) missing.push(`${s.prompt?.kind ?? 'yang'}: ${JSON.stringify(taken)}`)
+        const keys = new Set(actions.map(matchKey))
+        if (!keys.has(matchKey(taken))) missing.push(`${s.prompt?.kind ?? 'yang'}: ${JSON.stringify(taken)}`)
       }
       expect(new Set(actions.map(actionKey)).size).toBe(actions.length)
     }

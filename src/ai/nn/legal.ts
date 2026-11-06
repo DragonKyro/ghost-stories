@@ -64,6 +64,17 @@ export function actionKey(a: Action): string {
   })
 }
 
+/** Like actionKey, ignoring choices that change nothing (a moon crystal's colour, `false` flags): for matching another AI's action. */
+export function matchKey(a: Action): string {
+  return actionKey(JSON.parse(JSON.stringify(a, (k, v: unknown) => (k === 'as' ? undefined : (k === 'carry' || k === 'climb') && v === false ? undefined : v))) as Action)
+}
+
+/** Index of `a` in `actions` (by matchKey), or −1. */
+export function indexOfAction(actions: Action[], a: Action): number {
+  const k = matchKey(a)
+  return actions.findIndex((x) => matchKey(x) === k)
+}
+
 function dedupe(as: Action[]): Action[] {
   const seen = new Set<string>()
   const out: Action[] = []

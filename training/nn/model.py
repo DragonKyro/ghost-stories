@@ -96,6 +96,19 @@ class PolicyHead(nn.Module):
         logits = self.fc2(u).squeeze(-1)
         return logits.masked_fill(~cmask, float('-inf'))
 
+    def packed(self, hf, present, g, feat, ptr, seg):
+        """Candidates back to back: feat [Nc, A], ptr [Nc, K] (kept-token indices, -1 none), seg [Nc] = sample index."""
+        B, T, d = hf.shape
+        K = self.ptr.shape[0]
+        e = self.cand(feat)
+        proj = torch.einsum('btd,kod->bkto', hf, self.ptr).reshape(B * K * T, d)
+        idx = ptr.clamp(min=0)
+        valid = (ptr >= 0) & present[seg[:, None], idx]
+        flat = seg[:, None] * (K * T) + torch.arange(K, device=hf.device) * T + idx
+        e = e + (proj[flat] * valid[..., None]).sum(1)
+        u = F.relu(self.fc1(torch.cat([e, g[seg]], dim=-1)))
+        return self.fc2(u).squeeze(-1)
+
 
 class GhostNet(nn.Module):
     def __init__(self, schema: dict, cfg: NetConfig):
@@ -143,3 +156,20 @@ class GhostNet(nn.Module):
         kp = torch.where(ptr >= 0, remap[ptr.clamp(min=0)], ptr)
         logits = self.policy(hf, pk, g, feat, kp, cmask)
         return v, logits
+
+    def forward_packed(self, x, present, rel, feat, ptr, seg):
+        """Like forward, with the candidates packed (see PolicyHead.packed). Returns v [B, 2 + outcomes], logits [Nc]."""
+        hf, g, pk, remap = self.trunk(x, present, rel)
+        v = self.value(g)
+        kp = torch.where(ptr >= 0, remap[ptr.clamp(min=0)], ptr)
+        return v, self.policy.packed(hf, pk, g, feat, kp, seg)
+
+
+def segment_logsumexp(z: torch.Tensor, seg: torch.Tensor, n: int) -> torch.Tensor:
+    m = torch.full((n,), float('-inf'), device=z.device, dtype=z.dtype).scatter_reduce(0, seg, z, 'amax', include_self=True)
+    s = torch.zeros(n, device=z.device, dtype=z.dtype).index_add_(0, seg, torch.exp(z - m[seg]))
+    return m + torch.log(s)
+
+
+def segment_max(z: torch.Tensor, seg: torch.Tensor, n: int) -> torch.Tensor:
+    return torch.full((n,), float('-inf'), device=z.device, dtype=z.dtype).scatter_reduce(0, seg, z, 'amax', include_self=True)
