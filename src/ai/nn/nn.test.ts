@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Action } from '@/game/actions'
 import { applyAction, createGame, waitingFor } from '@/game/engine'
-import { allCards } from '@/game/catalogue'
+import { allCards, baseGhostIds } from '@/game/catalogue'
 import { facingTile, isAdjacent } from '@/game/geometry'
 import { ALL_SPACES } from '@/game/rules'
 import type { Color, GameConfig, GameState, Seat, SeatKind } from '@/game/types'
@@ -10,7 +10,8 @@ import { chooseAction } from '../index'
 import { sanitize } from '../sim'
 import { SEARCH } from '../tuning'
 import { encodeCandidates } from './candidates'
-import { danger } from './danger'
+import { danger, dangerParts } from './danger'
+import { gamePhase } from './phase'
 import { encodeState } from './encode'
 import { frameFor } from './frame'
 import { nnDecide, samplePositions } from './index'
@@ -216,6 +217,56 @@ describe('nn danger hint', () => {
     strong.taoists[seat].qi = 4
     expect(danger(weak, seat)).toBeGreaterThan(danger(strong, seat))
     for (const { s: x, seat: who } of POSITIONS) if (x.phase !== 'gameOver' && who !== 'wufeng') expect(danger(x, who)).toBeLessThan(4)
+  })
+
+  it('splits into haunting, Qi and the deck clock, and counts every board for Qi', () => {
+    const { s } = POSITIONS.find((p) => p.config.seats.blue === 'ai' && !p.config.whiteMoon && p.s.phase !== 'gameOver')!
+    const seat: Color = 'blue'
+    const p = dangerParts(s, seat)
+    expect(p.haunt + p.qi + p.clock).toBeCloseTo(danger(s, seat), 10)
+    // A haunted tile is a haunting danger only.
+    const haunted = JSON.parse(JSON.stringify(s)) as GameState
+    haunted.village.filter((t) => !t.haunted).slice(0, 1).forEach((t) => (t.haunted = true))
+    const ph = dangerParts(haunted, seat)
+    expect(ph.haunt).toBeGreaterThan(p.haunt)
+    expect(ph.qi).toBeCloseTo(p.qi, 10)
+    // A neutral board losing Qi, then being possessed, raises the Qi danger.
+    const neutral = COLORS.find((c) => s.boards[c].neutral && !s.boards[c].possessed)!
+    const low = JSON.parse(JSON.stringify(s)) as GameState
+    low.boards[neutral].qi = 1
+    const gone = JSON.parse(JSON.stringify(s)) as GameState
+    gone.boards[neutral].qi = 0
+    gone.boards[neutral].possessed = true
+    expect(dangerParts(low, seat).qi).toBeGreaterThan(p.qi)
+    expect(dangerParts(gone, seat).qi).toBeGreaterThan(dangerParts(low, seat).qi)
+    // A full neutral board (it will lose a Qi every turn) is a Qi danger too.
+    const full = JSON.parse(JSON.stringify(s)) as GameState
+    const ghost = { uid: 999, card: baseGhostIds()[0]!, figure: null, mantra: false }
+    full.boards[neutral].spaces = [ghost, { ...ghost, uid: 998 }, { ...ghost, uid: 997 }]
+    full.boards[neutral].buddhas = [false, false, false]
+    expect(dangerParts(full, seat).qi).toBeGreaterThan(p.qi)
+  })
+})
+
+describe('game phases', () => {
+  it('go early → mid → late in solo Normal, late once the incarnation is drawn', () => {
+    const seen: string[] = []
+    for (const { s, config } of POSITIONS) {
+      if (config.difficulty !== 'normal' || config.whiteMoon || config.blackSecret || COLORS.filter((c) => config.seats[c] !== 'neutral').length !== 1) continue
+      const deck0 = 30
+      const ph = gamePhase(s, deck0)
+      const drawn = deck0 - s.deck.length
+      const incOut = !s.deck.some((c) => c.startsWith('wf-'))
+      if (incOut) expect(ph).toBe('late')
+      else expect(ph).toBe(drawn < 10 ? 'early' : 'mid')
+      seen.push(ph)
+    }
+    expect(new Set(seen)).toEqual(new Set(['early', 'mid']))
+    // Once the incarnation has been drawn it's the late game, wherever the deck is.
+    const { s } = POSITIONS.find((p) => p.config.difficulty === 'normal' && !p.config.whiteMoon && !p.config.blackSecret && p.s.deck.some((c) => c.startsWith('wf-')))!
+    const drawn = JSON.parse(JSON.stringify(s)) as GameState
+    drawn.deck = drawn.deck.filter((c) => !c.startsWith('wf-'))
+    expect(gamePhase(drawn, 30)).toBe('late')
   })
 })
 

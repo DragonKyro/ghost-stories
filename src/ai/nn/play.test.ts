@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { chooseAction } from '../index'
 import { applyAction, createGame, waitingFor } from '@/game/engine'
 import type { Color, GameConfig, SeatKind } from '@/game/types'
-import { COLORS } from '@/game/types'
+import { COLORS, POWERS_BY_COLOR } from '@/game/types'
 import { networkPlays, nnDecide, nnSampleAction, sampleIndex } from './index'
 import { Net, type WeightsFile } from './model'
 import { SCHEMA_HASH } from './schema'
@@ -111,6 +111,33 @@ describe('the shipped network', () => {
       s = applyAction(s, d.actions[sampleIndex(d.probs, rand)]!)
     }
   })
+})
+
+// Every weights file the game can load: the shared network and any monk specialists
+// (src/ai/nn/weights/<seat>-<power>.json, from training/specialists.py).
+const WEIGHTS_DIR = path.resolve(process.cwd(), 'src/ai/nn/weights')
+const files = fs.readdirSync(WEIGHTS_DIR).filter((f) => f.endsWith('.json'))
+
+describe('weights files', () => {
+  it('include the shared network', () => {
+    expect(files).toContain('ghost-net-v1.json')
+  })
+  for (const f of files.filter((x) => x !== 'ghost-net-v1.json')) {
+    it(`${f}: a specialist for a real monk, on this encoder, playing a legal game as that monk`, () => {
+      const m = /^(red|blue|green|yellow)-([A-Za-z]+)\.json$/.exec(f)
+      expect(m, 'specialists are named <seat>-<power>.json').not.toBeNull()
+      const [seat, power] = [m![1] as Color, m![2]!]
+      expect(POWERS_BY_COLOR[seat] as readonly string[]).toContain(power)
+      const w = JSON.parse(fs.readFileSync(path.join(WEIGHTS_DIR, f), 'utf8')) as WeightsFile
+      expect(w.schema.hash, `${f} was trained on another encoder`).toBe(SCHEMA_HASH)
+      const spec = Net.fromJson(w)
+      const config: GameConfig = { difficulty: 'normal', seats: { ...all('neutral'), [seat]: 'ai' }, seed: 41, powers: { [seat]: power as never } }
+      const rand = rng(41)
+      let s = createGame(config)
+      for (let i = 0; i < 4000 && s.phase !== 'gameOver'; i++) s = applyAction(s, nnSampleAction(spec, s, waitingFor(s)!, rand)!)
+      expect(s.phase).toBe('gameOver')
+    }, 60_000)
+  }
 })
 
 describe('sampleIndex', () => {

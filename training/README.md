@@ -7,19 +7,17 @@ pass (`src/ai/nn/model.ts`).
 
 ## Setup
 
-PyTorch with CUDA is large and this network resets downloads from public
-PyPI, so the venv is built on top of an existing PyTorch install:
+Training runs with the conda env `train` (Python 3.11, PyTorch 2.13 with CUDA, numpy) directly —
+no virtualenv:
 
 ```sh
-# from the repo root; any Python 3.11 that already has torch (+ CUDA) and numpy
-/c/ProgramData/anaconda3/envs/train/python.exe -m venv --system-site-packages training/.venv
-training/.venv/Scripts/python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+conda activate train            # or call /c/ProgramData/anaconda3/envs/train/python.exe directly
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 ```
 
-On a machine with open internet: `python -m venv training/.venv` then
-`training/.venv/Scripts/pip install -r training/requirements.txt` (CUDA builds:
-`--index-url https://download.pytorch.org/whl/cu124`). Set `TRAIN_PYTHON` to use
-another interpreter. `training/.venv`, `training/data/` and `training/runs/` are
+`npm run nn:parity` finds it by itself (`TRAIN_PYTHON`, else that env, else the active conda env).
+On another machine, any Python with `pip install -r training/requirements.txt` (CUDA builds:
+`--index-url https://download.pytorch.org/whl/cu124`). `training/data/` and `training/runs/` are
 gitignored.
 
 ## What's here
@@ -31,14 +29,16 @@ gitignored.
   TypeScript forward pass matches PyTorch on it. **Run `npm run nn:parity` after
   any encoder change** (the test fails with the schema hash otherwise).
 - `nn/dataset.py` — sparse shards (`scripts/nn/shard.ts`) → GPU-resident batches.
-- `rl.py` — self-play PPO from a checkpoint (see "Continuing training"); `train.py` — supervised
+- `rl.py` — self-play PPO from a checkpoint (see "Continuing training"); `nn/curriculum.py` — which
+  monk each self-play game is, where it starts, how the danger hint is split (checked by
+  `test_curriculum.py`); `train.py` — supervised
   training on shards (policy cross-entropy + value), the tool for warm-starting a new network
   by imitating data; `selftest.py` — checks the shard pipeline; `smoke.py` — forward + backward
   on the GPU, prints samples/s.
 - `scripts/nn/`: `actor.ts` (the self-play server `rl.py` drives), `eval.ts` (play-test any
-  checkpoint on fixed seeds, any setup: `--setup norm4`, `--sample --temp 0.75`), `starts.ts`
-  (mid-game start bank), `gen.ts` (shards of the rules-based AI's games), `diagnose.ts`
-  (where the network disagrees with that AI), `configs.ts`, `shard.ts`.
+  checkpoint on fixed seeds, any setup: `--setup norm4`, `--sample --temp 0.75`, `--attempts 16`),
+  `qi.ts` (where the Qi goes, how turns are used, per monk), `gen.ts` (shards of the rules-based AI's
+  games), `diagnose.ts` (where the network disagrees with that AI), `configs.ts`, `shard.ts`.
 - The weights the game uses: `src/ai/nn/weights/ghost-net-v1.json` (a copy of
   `runs/rl-v4/step-50000.json`).
 
@@ -75,28 +75,101 @@ Default size: d = 64, 4 heads, 3 layers, FFN 128 → 234k parameters (d = 128,
 8 heads, 4 layers → 903k). On the RTX A2000, base-game batches train at about
 4,000 samples/s (d = 64) / 2,000 samples/s (d = 128).
 
-## Continuing training
+## Specialists (prepared, not started)
+
+One network per monk, each fine-tuned from the shared 50k network on that monk's games only:
 
 ```sh
-# Self-play PPO from the 50,000-update checkpoint to 55,000 (the architecture and encoder schema come
-# from step-50000.json beside the .pt). Progress lines go to <run>/progress.txt every 100 updates, a
-# play-test (network alone, 300 evaluation seeds) every 1,000.
-training/.venv/Scripts/python training/rl.py --run training/runs/rl-v5   --init training/runs/rl-v4/step-50000.pt --total-updates 55000   --rl-lr 7e-5 --sched-start 10000 --sched-end 50000 --ent 0.003   --beta-start 0.3 --beta-end 0.3 --kappa-start 0.15 --kappa-end 0.15   --starts training/data/starts-v1.jsonl --start-frac-start 0.2 --start-frac-end 0.2   --eval-every 1000 --eval-temp 0.75 --seed-base 1400000
-# Play-test any checkpoint on the evaluation seeds (7001-7300); --setup norm4 etc. for other setups.
-node scripts/nn/ts.mjs scripts/nn/eval.ts --weights training/runs/rl-v4/step-50000.json --sample --temp 0.75
-# To ship new weights: copy the .json over src/ai/nn/weights/ghost-net-v1.json (run npm run test:run).
+conda activate train
+python training/specialists.py                    # all seven, weakest first; ~70-90 min each at 10k updates
+python training/specialists.py --monks blue/heavenlyGust --updates 5000   # one monk, a shorter run
+python training/specialists.py --ship             # also install those that beat the 50k network
 ```
 
+- **Training** (`rl.py --monk seat/power`): every self-play game and play-test is that monk; a
+  tether (`--tether 0.05`, a KL penalty to the 50k network's policy) keeps the shared skills while it
+  specialises; danger hint with the extended Qi terms and a fixed split (Qi and haunting 0.15 each —
+  rl-v5's loss-share split is off by default now, `--danger-split adaptive`); 30% of the games start
+  from positions captured in its own recent games, in the phase it loses most; lr 5e-5 decaying to
+  1.5e-5. Each run folder `training/runs/spec-<seat>-<power>/` has its own `progress.txt`
+  (play-tests every 1,000 updates: 300 games of that monk, seeds 7001-7300); `training/runs/
+  specialists.txt` gets a line per monk. Stopping and rerunning picks up where it stopped.
+- **Selection**: the best 3 play-test checkpoints and the last one are re-tested on held-out seeds
+  (9001-9600, 600 games of that monk); the best is the candidate.
+- **Confirmation**: candidate vs the 50k network on fresh seeds (10001-10600) — choosing the best of
+  four on one set flatters it, so the decision is made on another. With `--ship`, a specialist that
+  wins by at least a point goes to `src/ai/nn/weights/<seat>-<power>.json`; otherwise the 50k network
+  stays for that monk. (600 games give about +-3.5 points, so only clear gains count.)
+- **The game** (`src/ui/game/aiNet.ts`) loads the playing monk's specialist if there is one, else the
+  shared network, and downloads only that file; `play.test.ts` checks every weights file (a real monk,
+  the current encoder, a legal game).
+
+The 50k network per monk on the play-test seeds (300 games each, sampled at 0.75) — what each
+specialist's play-tests start from:
+
+| Monk | Wins |
+|---|---|
+| Blue / Heavenly Gust | 13.0% |
+| Red / Dance of the Spires | 24.3% |
+| Green / Gods' Favorite | 28.7% |
+| Yellow / Enfeeblement Mantra | 31.3% |
+| Green / Strength of the Mountain | 32.3% |
+| Blue / Second Wind | 37.3% |
+| Yellow / Bottomless Pockets | 40.7% |
+
+## Continuing the shared network
+
+The shared-network curriculum as tried in **rl-v5** (stopped at 57,400 updates and discarded — see
+Results; note `--danger-split` now defaults to `fixed`):
+
+```sh
+python training/rl.py --run training/runs/rl-v5 --init training/runs/rl-v4/step-50000.pt \
+  --total-updates 75000 --rl-lr 5e-5 --sched-start 50000 --sched-end 75000 --ent 0.003 \
+  --beta-start 0.3 --beta-end 0.3 --kappa-start 0.15 --kappa-end 0.15 --danger-split adaptive \
+  --start-frac 0.5 --monk-gamma 3 --captures 2 --eval-every 1000 --eval-temp 0.75 --seed-base 1500000
+# Play-test any checkpoint on the evaluation seeds (7001-7300); --monk blue/heavenlyGust for one monk.
+node scripts/nn/ts.mjs scripts/nn/eval.ts --weights training/runs/rl-v4/step-50000.json --sample --temp 0.75
+# To ship new shared weights: copy the .json over src/ai/nn/weights/ghost-net-v1.json (run npm run test:run).
+```
+
+What's new in it, against rl-v4:
+
+- **Danger hint by how it loses** (`src/ai/nn/danger.ts`). Split in parts — haunting (haunted tiles,
+  haunters about to add one), Qi (the Taoist's Qi; overrun on *every* board, a neutral board's own Qi
+  — a possessed one passes its Qi losses to the Taoist and loses its power — boards one ghost from
+  full, tormentors) and the deck clock. The trainer weights the Qi and haunting parts by the shares of
+  recent whole-game losses to running out of Qi and to the third haunting (2:1 now, so 0.20 vs 0.10
+  of kappa 0.15 x 2). Before, overrun counted on the Taoist's own board only, though 37% of the Qi
+  lost is overrun and half of it on neutral boards.
+- **Weak monks trained harder** (`nn/curriculum.py`). Each game's monk is drawn with weight
+  (1 - its recent win rate) ** 3, floor 6%: from the measured rates, Heavenly Gust 24% of the games,
+  Gods' Favorite / Dance of the Spires / Enfeeblement Mantra 15% each, Strength of the Mountain 12%,
+  Second Wind 11%, Bottomless Pockets 8% (rl-v4: 12.5% each, red 25%). The win rates are moving
+  averages over recent whole games, so the shares follow as monks improve.
+- **More practice where it loses** (early / mid / late game, `src/ai/nn/phase.ts`). Half the games
+  start from a position in a phase drawn by its share of recent whole-game losses (floor 15%): 15% /
+  46% / 39% now. Positions come from the network's own games (each game captures 2 start-of-turn
+  positions; 400 kept per monk and phase), unseen cards and dice re-dealt; the old bank of the search
+  AI's positions is gone.
+- The curriculum state (moving averages) is saved beside every checkpoint
+  (`step-N.curriculum.json`) and picked up by the next run; `rl-v4/step-50000.curriculum.json` is
+  seeded from the 1,200-game evaluation.
+- Play-tests sample at temperature 0.75 (how the game plays) and report the losses by phase and the
+  wins by monk; `--eval-greedy` adds the most-likely-move test.
+- Expected time: about 3.5 hours (25,000 updates of ~180-game rounds at 10-20 s of play each plus
+  the PPO updates).
+
+Notes:
+
 - Self-play shards are written by the actors, loaded onto the GPU and deleted after each round; nothing
-  accumulates. `rl.py` always plays solo Normal as every monk; mid-game starts come from
-  `training/data/starts-v1.jsonl` (late positions of the old search AI's games, unseen cards and dice
-  re-dealt each time).
+  accumulates. `rl.py` plays solo Normal only.
 - Seeds 7001-7300 (and up to 8200 in the final evaluation) are never used for training.
-- Cleaned 2026-11-09: the earlier runs (bc-v1, rl-v1..v3, rl-v4's intermediate checkpoints) and the
-  2.1 GB imitation dataset (10,000 games of the rules-based search AI, 827k decisions) were deleted;
-  the warm-start they gave is contained in `step-50000`. To regenerate the dataset (only for a new
-  encoder layout / architecture): `node scripts/nn/ts.mjs scripts/nn/gen.ts --games 10000 --start 100000
-  --workers 18 --out training/data/solo-normal-v1`, then `train.py` (22 min + 9 min).
+- Cleaned 2026-11-09: the earlier runs (bc-v1, rl-v1..v3, rl-v4's intermediate checkpoints), the
+  2.1 GB imitation dataset (10,000 games of the rules-based search AI, 827k decisions) and the old
+  start bank were deleted; the warm-start they gave is contained in `step-50000`. To regenerate the
+  dataset (only for a new encoder layout / architecture): `node scripts/nn/ts.mjs scripts/nn/gen.ts
+  --games 10000 --start 100000 --workers 18 --out training/data/solo-normal-v1`, then `train.py`
+  (22 min + 9 min).
 
 ## Results
 
@@ -153,7 +226,7 @@ after the incarnation appears).
 carried between segments). Segments 1–4 as rl-v3 (beta 0.3, kappa 0.15); 5: heavier
 low-Qi danger (didn't help, reverted); 6–8: plus mid-game starts — 40% → 20% of
 self-play games begin from late positions of the search AI's games
-(`scripts/nn/starts.ts`, `training/data/starts-v1.jsonl`, 1,708 positions, unseen
+(1,708 positions from 5,000 search-AI games, since deleted; unseen
 cards and dice re-dealt each time).
 
 The network plays clearly better **sampling its moves** (temperature 0.5–1) than
@@ -254,20 +327,38 @@ longer runs.
   Heavenly Gust uses help + exorcise in the same turn in 24% of its turns and gets fewer turns
   (14 vs 16-18).
 
+### rl-v5 (2026-11-09; stopped and deleted)
+
+From step-50000 with the curriculum above (danger split by loss share, monks weighted by
+(1 - win rate) ** 3, half the games started in the phase it loses most). Play-tests (300 evaluation
+games, sampled at temperature 0.75) against rl-v4's last six (1,800 games: 27.2% wins, 148 Qi deaths
+and 69 third hauntings per 300):
+
+| Updates | Wins | Lost to Qi (of 300) | Lost to haunting | Red / Spires |
+|---|---|---|---|---|
+| 51k-55k (average) | 24.2% | 143 | 84 | 13/75 |
+| 56k | 28.3% | 126 | 87 | 23/75 |
+| 57k | 29.0% | 120 | 93 | 21/75 |
+
+- It dipped for 5,000 updates, then recovered; pooled over 55k-57k, 27.3% — no net gain.
+- Splitting the danger hint by loss share cut the haunting weight (0.15 -> about 0.10, Qi up to about
+  0.20): third hauntings rose from 23% to 28-31% of games and stayed up. A danger that causes fewer
+  losses can still be the one the network most needs warning about.
+- The new Qi terms (overrun on every board, the neutral boards' Qi) did cut the deaths, to the lowest
+  of any run (120-126 per 300 at the end).
+- Weighting monks by weakness cut red from 25% of the games (rl-v4) to 15%; red fell from 27% to 18%
+  before recovering. Heavenly Gust, the target, rose only from 11.5% to 16%.
+- Lessons for the next scheme: keep the haunting weight; the extended Qi terms look useful; floor
+  every monk's share of the games well above 6% (rl-v4 gave each 12.5%, red 25%).
+
 ## Next
 
-Ordered by expected gain per effort:
-
-1. Charge the hint for overrun on every board (full neutral boards, neutral boards at low Qi),
-   not just the Taoist's own: 37% of the Qi lost is overrun, half of it on neutral boards.
-2. Train for the weak monks: sample self-play monks in proportion to how much they lose (Heavenly
-   Gust and Gods' Favorite get 12.5% of the games each now), normalise advantages per monk.
-3. Mid-game starts from the network's own late games (the bank is from the old search AI's games),
-   and a larger share; the endgame conversion (50%) is still the cheapest win to chase.
-4. A larger network (d = 128, 4 layers, 0.9 M parameters) warm-started by distilling this one,
-   then the same self-play; longer runs (50k updates took 4 hours on the RTX A2000).
-5. Other setups: 2-4 players, Nightmare / Hell, White Moon, Black Secret each need their own
-   self-play (and for Black Secret and White Moon, hints that reward saving villagers and
-   fighting in the catacombs) before the network can replace the rules-based AI there.
-6. Optional: a network-guided lookahead at play time (a few sampled plans through the engine,
-   scored by the value head); slower per move and no longer a pure network.
+1. Specialists per monk (above, prepared). Kept from rl-v5: the extended Qi danger terms; dropped:
+   the loss-share danger split.
+2. If wins flatten while the value fit and the policy loss on its own games keep falling, the network
+   is short of capacity: distil it into d = 96 (0.54 M parameters, 15.5 ms per decision) or d = 128
+   (0.9 M, 24.6 ms; d = 64 is 8.5 ms) and compare on the same seeds. Self-play costs about 2-3x as
+   long per update.
+3. Other setups: 2-4 players, Nightmare / Hell (which open with an incarnation in solo), White Moon,
+   Black Secret each need their own self-play before the network replaces the rules-based AI there.
+4. Optional: a network-guided lookahead at play time.

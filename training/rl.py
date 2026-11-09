@@ -17,13 +17,24 @@ round's games train it with PPO:
     (1 + beta) always beats the best loss (beta); beta shrinks so that late in
     training it's nearly all about winning;
   - optionally (--kappa-start/--kappa-end) danger hints (src/ai/nn/danger.ts:
-    haunted tiles and haunters about to add one, low Qi, an overrun board,
-    possessed boards, the deck running out with Wu-Feng in play): each move
-    also earns kappa x how much it lowered the danger score (negative when it
-    rose);
-  - optionally (--starts, --start-frac-*) a share of the games begin from
-    late positions of earlier games (scripts/nn/starts.ts) — endgame
-    practice; the play-tests are always whole games;
+    haunting - haunted tiles and haunters about to add one; Qi - low Qi,
+    overruns on every board, the neutral boards' Qi, near-full boards; the deck
+    running out with Wu-Feng in play): each move also earns kappa x how much it
+    lowered the danger score (negative when it rose);
+  - --monk seat/power trains a specialist: every self-play game (and every
+    play-test) is that monk; --tether keeps it near the starting network's
+    policy (a KL penalty to the frozen --init network), so it specialises where
+    that helps without losing the shared skills (training/specialists.py runs
+    one per monk and picks each one's best checkpoint);
+  - the curriculum (training/nn/curriculum.py): each game's monk is drawn with
+    more weight on the monks that have been losing; --start-frac of the games
+    begin from a position in a phase (early / mid / late) drawn by where whole
+    games have been lost, taken from positions the actors capture from the
+    network's own recent games (unseen cards and dice re-dealt). The danger
+    hint's Qi and haunting parts get kappa each (--danger-split fixed, the
+    default); `adaptive` weights them by the shares of the losses to running out
+    of Qi and to the third haunting (rl-v5: that cut the haunting weight and the
+    third hauntings rose). The play-tests are always whole games;
   - clipped policy ratio, entropy bonus, fresh games every round.
 A progress line every --log-every updates; a greedy play-test of the network
 alone on the evaluation seeds (7001-7300) every --eval-every.
@@ -45,6 +56,7 @@ import torch
 import torch.nn.functional as F
 
 sys.path.insert(0, str(Path(__file__).parent))
+from nn.curriculum import Curriculum, CurriculumConfig  # noqa: E402
 from nn.dataset import Dataset  # noqa: E402
 from nn.model import GhostNet, NetConfig, segment_logsumexp  # noqa: E402
 from nn.weights import save as save_weights  # noqa: E402
@@ -87,7 +99,7 @@ def policy_terms(model, b, B):
     seg = b['seg']
     logp_all = z - segment_logsumexp(z, seg, B)[seg]
     ent = -torch.zeros(B, device=z.device).index_add_(0, seg, logp_all.exp() * logp_all)
-    return v, logp_all[b['tflat']], ent
+    return v, logp_all[b['tflat']], ent, logp_all
 
 
 def gae(values: np.ndarray, seeds: np.ndarray, final: np.ndarray, lam: float):
@@ -134,6 +146,14 @@ class Run:
         self.model = GhostNet(self.schema, NetConfig(**weights['config'])).to(self.dev)
         self.actors = Actors(a.workers, self.dir / 'actor.log')
         self.opt_state = None
+        self.base = None
+        if a.tether > 0:
+            self.base = GhostNet(self.schema, NetConfig(**weights['config'])).to(self.dev)
+            self.base.load_state_dict(torch.load(a.tether_to or a.init, map_location=self.dev)['model'])
+            self.base.eval()
+            for p_ in self.base.parameters():
+                p_.requires_grad_(False)
+        self.monk = a.monk.split('/') if a.monk else None
 
     def say(self, msg: str) -> None:
         print(msg, flush=True)
@@ -156,20 +176,35 @@ class Run:
         opt = getattr(self, 'opt', None)
         torch.save({'model': self.model.state_dict(), 'opt': opt.state_dict() if opt is not None else None, 'step': step, 'args': vars(self.a)},
                    self.dir / f'step-{step:04d}.pt')
+        cur = getattr(self, 'cur', None)
+        if cur is not None:
+            cur.save(self.dir / f'step-{step:04d}.curriculum.json')
         return w
 
     def play_test(self, step: int) -> None:
         w = self.checkpoint(step)
-        r = self.actors.call({'cmd': 'eval', 'weights': str(w), 'seeds': self.eval_seeds})
-        monks = ', '.join(f'{k} {v}' for k, v in r['byMonk'].items())
-        self.say(f'  play-test @ {step}: network alone wins {r["wins"]}/{r["games"]} ({r["wins"] / r["games"]:.1%}), {r["turns"]:.1f} turns, '
-                 f'deck {r["progress"]:.0%}, losses {r["reasons"]} | {monks}')
-        self.log({'step': step, 'eval': r})
-        if self.a.eval_temp > 0:
-            r2 = self.actors.call({'cmd': 'eval', 'weights': str(w), 'seeds': self.eval_seeds, 'temp': self.a.eval_temp, 'iter': step})
-            self.say(f'  play-test @ {step} (sampled, temperature {self.a.eval_temp}): network alone wins {r2["wins"]}/{r2["games"]} '
-                     f'({r2["wins"] / r2["games"]:.1%}), {r2["turns"]:.1f} turns, deck {r2["progress"]:.0%}, losses {r2["reasons"]}')
-            self.log({'step': step, 'evalSampled': r2})
+        a = self.a
+        runs = []
+        if a.eval_temp > 0:
+            runs.append((f'sampled, temperature {a.eval_temp:g}', {'temp': a.eval_temp, 'iter': step}))
+        if a.eval_greedy or a.eval_temp <= 0:
+            runs.append(('most likely move', {}))
+        for label, extra in runs:
+            if self.monk:
+                seat, power = self.monk
+                cmd = {'cmd': 'eval', 'weights': str(w), 'games': [{'seed': x, 'seat': seat, 'power': power} for x in self.eval_seeds], **extra}
+            else:
+                cmd = {'cmd': 'eval', 'weights': str(w), 'seeds': self.eval_seeds, **extra}
+            r = self.actors.call(cmd)
+            monks = ', '.join(f'{k.split("/")[1]} {v}' for k, v in r['byMonk'].items())
+            lp = r.get('lossPhase', {})
+            self.say(f'  play-test @ {step} ({label}): network alone wins {r["wins"]}/{r["games"]} ({r["wins"] / r["games"]:.1%}), '
+                     f'{r["turns"]:.1f} turns, deck {r["progress"]:.0%}, losses {r["reasons"]}, lost in the early / mid / late game '
+                     f'{lp.get("early", 0)} / {lp.get("mid", 0)} / {lp.get("late", 0)} | {monks}')
+            self.log({'step': step, 'eval': r, 'label': label})
+        cur = getattr(self, 'cur', None)
+        if cur is not None:
+            self.say('  ' + cur.describe(self.kappa_now))
 
     # ------------------------------------------------------------------
     def self_play(self, start: int) -> None:
@@ -194,6 +229,14 @@ class Run:
                 self.say(f'  (optimizer state not reusable: {e})')
         self.opt = opt
         danger_w = json.loads(a.danger) if a.danger else None
+        cfg = CurriculumConfig(start_frac=a.start_frac, monk_gamma=a.monk_gamma, monk_floor=a.monk_floor,
+                               phase_floor=a.phase_floor, bank_size=a.bank_size, only_monk=a.monk or None,
+                               danger_split=a.danger_split)
+        prev = Curriculum.load_state(Path(a.init).with_suffix('.curriculum.json'))
+        self.cur = Curriculum(cfg, seed=a.seed + start, state=prev)
+        if prev:
+            self.say(f'  (curriculum carried over from the checkpoint: {prev.games_seen} games seen)')
+        self.kappa_now = a.kappa_start
 
         def beta_at(step: int) -> float:
             return a.beta_start + (a.beta_end - a.beta_start) * frac(step)
@@ -215,15 +258,15 @@ class Run:
             if out.exists():
                 shutil.rmtree(out)
             t_play = time.time()
-            cmd = {'cmd': 'play', 'weights': str(w), 'seeds': seeds, 'out': str(out), 'iter': it}
+            cmd = {'cmd': 'play', 'weights': str(w), 'games': self.cur.assign(seeds), 'out': str(out), 'iter': it, 'captures': a.captures}
             if danger_w:
                 cmd['danger'] = danger_w
-            if a.starts:
-                cmd['starts'] = a.starts
-                cmd['startFrac'] = a.start_frac_start + (a.start_frac_end - a.start_frac_start) * frac(step)
             r = self.actors.call(cmd)
             play_s = time.time() - t_play
             ds = Dataset(out, self.schema, dev)
+            captures = [json.loads(line) for f in sorted(out.glob('captures-*.jsonl'))
+                        for line in f.read_text(encoding='utf-8').splitlines() if line.strip()]
+            self.cur.observe(ds.games.values(), captures)
             shutil.rmtree(out)
             N = ds.N
             # The acting policy's log-probs and estimates, recomputed here (TypeScript agrees to ~1e-4).
@@ -235,27 +278,34 @@ class Run:
                 for i in range(0, N, 2048):
                     j = torch.arange(i, min(N, i + 2048), device=dev)
                     b = ds.batch(j)
-                    v, lp, _ = policy_terms(model, b, j.numel())
+                    v, lp, _, _ = policy_terms(model, b, j.numel())
                     old_logp[j] = lp
                     Vw[j] = torch.sigmoid(v[:, 0])
                     Vp[j] = torch.sigmoid(v[:, 1])
             model.train()
             beta = beta_at(step)
             kappa = kappa_at(step)
+            self.kappa_now = kappa
+            kq, kh, kc = self.cur.danger_split(kappa)
             seeds_np = ds.seed.cpu().numpy()
             adv_w, ret_w = gae(Vw.cpu().numpy(), seeds_np, ds.win.cpu().numpy(), a.lam)
             adv_p, ret_p = gae(Vp.cpu().numpy(), seeds_np, ds.prog.cpu().numpy(), a.lam)
-            adv_h = hint_advantage(ds.phi.cpu().numpy() / a.phi_scale, seeds_np, a.lam)
+            phi, phq, phh = (x.cpu().numpy() / a.phi_scale for x in (ds.phi, ds.phq, ds.phh))
+            adv_h = (kq * hint_advantage(phq, seeds_np, a.lam) + kh * hint_advantage(phh, seeds_np, a.lam)
+                     + kc * hint_advantage(phi - phq - phh, seeds_np, a.lam))
             ret_w = torch.from_numpy(ret_w).to(dev).clamp(0, 1)
             ret_p = torch.from_numpy(ret_p).to(dev).clamp(0, 1)
-            adv = torch.from_numpy(adv_w + beta * adv_p + kappa * adv_h).to(dev)
+            adv = torch.from_numpy(adv_w + beta * adv_p + adv_h).to(dev)
             real_all = ds.ncand > 1
             adv_n = (adv - adv[real_all].mean()) / adv[real_all].std().clamp(min=1e-6)
             ev_w = 1 - float(torch.var(ret_w - Vw) / torch.var(ret_w).clamp(min=1e-8))
             ev_p = 1 - float(torch.var(ret_p - Vp) / torch.var(ret_p).clamp(min=1e-8))
             last = {**r, 'iter': it, 'decisions': N, 'drift': float((old_logp - ds.blogp).abs().mean()), 'vWin': float(Vw.mean()),
                     'vProg': float(Vp.mean()), 'evWin': ev_w, 'evProg': ev_p, 'beta': beta, 'kappa': kappa,
-                    'hint': float(np.abs(adv_h).mean()), 'danger': float(-ds.phi.mean()), 'playSeconds': play_s}
+                    'kq': kq, 'kh': kh, 'hint': float(np.abs(adv_h).mean()), 'danger': float(-ds.phi.mean()),
+                    'dangerQi': float(-ds.phq.mean()), 'dangerHaunt': float(-ds.phh.mean()), 'playSeconds': play_s,
+                    'curriculum': {'monks': self.cur.monk_weights(), 'phases': self.cur.phase_weights(), 'win': dict(self.cur.st.win),
+                                   'lossPhase': dict(self.cur.st.loss_phase), 'lossCause': dict(self.cur.st.loss_cause)}}
             self.log({'step': step, 'phase': 'rl', 'selfplay': last})
             for _epoch in range(a.ppo_epochs):
                 order = torch.randperm(N, device=dev)
@@ -267,7 +317,7 @@ class Run:
                     for grp in opt.param_groups:
                         grp['lr'] = lr_at(step - 1)
                     b = ds.batch(idx)
-                    v, logp, ent = policy_terms(model, b, a.batch)
+                    v, logp, ent, logp_all = policy_terms(model, b, a.batch)
                     real = (b['ncand'] > 1).float()
                     nreal = real.sum().clamp(min=1)
                     ratio = torch.exp(logp - old_logp[idx])
@@ -277,6 +327,15 @@ class Run:
                     v_loss = F.binary_cross_entropy_with_logits(v[:, 0], ret_w[idx]) + F.binary_cross_entropy_with_logits(v[:, 1], ret_p[idx])
                     aux = F.cross_entropy(v[:, 2:], b['outc'])
                     loss = pol_loss + a.w_value * v_loss + a.w_aux * aux - a.ent * ent_mean
+                    if self.base is not None:
+                        with torch.no_grad():
+                            _, zb = self.base.forward_packed(b['x'], b['present'], b['rel'], b['feat'], b['ptr'], b['seg'])
+                            logp_base = zb - segment_logsumexp(zb, b['seg'], a.batch)[b['seg']]
+                        kl_all = torch.zeros(a.batch, device=dev).index_add_(0, b['seg'], logp_all.exp() * (logp_all - logp_base))
+                        kl_base = (kl_all * real).sum() / nreal
+                        loss = loss + a.tether * kl_base
+                    else:
+                        kl_base = torch.zeros((), device=dev)
                     opt.zero_grad(set_to_none=True)
                     loss.backward()
                     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -284,7 +343,7 @@ class Run:
                     with torch.no_grad():
                         kl = (((ratio - 1) - (logp - old_logp[idx])) * real).sum() / nreal
                         clipped = (((ratio - 1).abs() > a.clip).float() * real).sum() / nreal
-                        for key, val in (('pol', pol_loss), ('val', v_loss), ('ent', ent_mean), ('kl', kl), ('clip', clipped)):
+                        for key, val in (('pol', pol_loss), ('val', v_loss), ('ent', ent_mean), ('kl', kl), ('clip', clipped), ('klBase', kl_base)):
                             stats[key] = stats.get(key, torch.zeros((), device=dev)) + val.detach()
                     n_stats += 1
                     if step % a.log_every == 0:
@@ -294,8 +353,10 @@ class Run:
                                if lp.get('gamesStarted') else '')
                         self.say(f'[{step:5d}/{a.total_updates}] self-play | round {lp["iter"]}: wins {lp["wins"]}/{lp["games"]} ({lp["wins"] / lp["games"]:.1%}){mid}, '
                                  f'{lp["turns"]:.1f} turns, deck {lp["progress"]:.0%} | est. win {lp["vWin"]:.3f} (fit {lp["evWin"]:.2f}), est. deck {lp["vProg"]:.0%} '
-                                 f'(fit {lp["evProg"]:.2f}), danger {lp["danger"]:.2f} | beta {lp["beta"]:.2f} kappa {lp["kappa"]:.2f} | policy {s_["pol"]:+.3f} value {s_["val"]:.3f} entropy {s_["ent"]:.3f} '
-                                 f'kl {s_["kl"]:.4f} clip {s_["clip"]:.1%} | logp gap {lp["drift"]:.0e} | play {lp["playSeconds"]:.0f}s/round | '
+                                 f'(fit {lp["evProg"]:.2f}), danger Qi {lp["dangerQi"]:.2f} haunt {lp["dangerHaunt"]:.2f} | beta {lp["beta"]:.2f} '
+                                 f'danger weights Qi {lp["kq"]:.3f} haunt {lp["kh"]:.3f} | lost early/mid/late '
+                                 f'{lp["lossPhase"]["early"]}/{lp["lossPhase"]["mid"]}/{lp["lossPhase"]["late"]} | policy {s_["pol"]:+.3f} value {s_["val"]:.3f} entropy {s_["ent"]:.3f} '
+                                 f'kl {s_["kl"]:.4f} clip {s_["clip"]:.1%} | from start kl {s_["klBase"]:.3f} | logp gap {lp["drift"]:.0e} | play {lp["playSeconds"]:.0f}s/round | '
                                  f'lr {lr_at(step):.1e} | {time.time() - self.t0:.0f}s')
                         self.log({'step': step, 'phase': 'rl', **s_})
                         stats = {}
@@ -327,15 +388,23 @@ def main() -> None:
     ap.add_argument('--kappa-end', type=float, default=0.0, help='... and at the end (linear)')
     ap.add_argument('--phi-scale', type=float, default=1.0, help='danger units per unit of reward')
     ap.add_argument('--danger', default='', help='danger-hint weights as JSON (src/ai/nn/danger.ts DangerWeights; missing keys keep defaults)')
-    ap.add_argument('--starts', default='', help='mid-game start bank (scripts/nn/starts.ts); a share of self-play games begin there')
-    ap.add_argument('--start-frac-start', type=float, default=0.0, help='share of self-play games from the start bank, at the start of this run')
-    ap.add_argument('--start-frac-end', type=float, default=0.0, help='... and at the end (linear)')
+    ap.add_argument('--monk', default='', help='train a specialist: every game as this monk, e.g. blue/heavenlyGust')
+    ap.add_argument('--tether', type=float, default=0.0, help='KL penalty to the starting network\'s policy (specialists: about 0.05)')
+    ap.add_argument('--tether-to', default='', help='the network (.pt) the tether pulls toward (default: --init)')
+    ap.add_argument('--danger-split', choices=['fixed', 'adaptive'], default='fixed', help='Qi / haunting danger weights: kappa each, or by loss share')
+    ap.add_argument('--start-frac', type=float, default=0.5, help='share of self-play games begun from a captured position (curriculum)')
+    ap.add_argument('--monk-gamma', type=float, default=3.0, help='monk weight = (1 - recent win rate) ** gamma')
+    ap.add_argument('--monk-floor', type=float, default=0.06, help='every monk gets at least this share of the games')
+    ap.add_argument('--phase-floor', type=float, default=0.15, help='every phase gets at least this share of the starts')
+    ap.add_argument('--bank-size', type=int, default=400, help='captured positions kept per monk and phase')
+    ap.add_argument('--captures', type=int, default=2, help='positions captured per self-play game for the bank')
     ap.add_argument('--sched-start', type=int, default=-1, help='learning-rate schedule span (default: this run); for runs in segments')
     ap.add_argument('--sched-end', type=int, default=-1)
     ap.add_argument('--log-every', type=int, default=100)
     ap.add_argument('--eval-every', type=int, default=500)
     ap.add_argument('--eval-seeds', default='7001-7300')
-    ap.add_argument('--eval-temp', type=float, default=0.0, help='also play-test sampling moves at this temperature (0 = top choice only)')
+    ap.add_argument('--eval-temp', type=float, default=0.75, help='play-test sampling moves at this temperature (0: most likely move)')
+    ap.add_argument('--eval-greedy', action='store_true', help='also play-test the most likely move')
     ap.add_argument('--workers', type=int, default=18)
     ap.add_argument('--seed-base', type=int, default=300000)
     ap.add_argument('--seed', type=int, default=0)
@@ -349,7 +418,8 @@ def main() -> None:
     m.load_state_dict(ck['model'])
     run.opt_state = ck.get('opt')
     start = int(ck['step'])
-    run.say(f'self-play from {a.init} (update {start}); {a.total_updates - start} PPO updates, lr {a.rl_lr}, '
+    run.say(f'self-play from {a.init} (update {start}){" as " + a.monk if a.monk else ""}; {a.total_updates - start} PPO updates, lr {a.rl_lr}, '
+            f'tether {a.tether}, danger split {a.danger_split}, starts {a.start_frac:.0%}, '
             f'entropy {a.ent}, beta {a.beta_start} -> {a.beta_end}, kappa {a.kappa_start} -> {a.kappa_end}'
             + (f', danger weights {a.danger}' if a.danger else ''))
     run.self_play(start)

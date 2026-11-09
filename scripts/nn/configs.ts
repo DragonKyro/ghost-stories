@@ -13,6 +13,24 @@ export function soloConfig(seed: number, difficulty: Difficulty): GameConfig {
   return { difficulty, seats, seed, powers }
 }
 
+/** The seven solo monks: the seat's colour and its board's power (red is always the Dance of the Spires solo). */
+export const MONKS: ReadonlyArray<readonly [Color, PowerId]> = [
+  ['red', 'danceOfTheSpires'],
+  ['blue', 'heavenlyGust'],
+  ['blue', 'secondWind'],
+  ['green', 'godsFavorite'],
+  ['green', 'strengthOfMountain'],
+  ['yellow', 'bottomlessPockets'],
+  ['yellow', 'enfeeblementMantra'],
+]
+
+/** A solo game as this monk (the neutral boards' power sides from the seed). */
+export function monkConfig(seed: number, seat: Color, power: PowerId, difficulty: Difficulty = 'normal'): GameConfig {
+  const seats = { red: 'neutral', blue: 'neutral', green: 'neutral', yellow: 'neutral' } as Record<Color, SeatKind>
+  seats[seat] = 'ai'
+  return { difficulty, seats, seed, powers: { [seat]: power } }
+}
+
 /** Evaluation setups (the same as scripts/aibench): seat = seed % 4, power sides random. */
 export function evalConfig(seed: number, difficulty: Difficulty): GameConfig {
   const seats = { red: 'neutral', blue: 'neutral', green: 'neutral', yellow: 'neutral' } as Record<Color, SeatKind>

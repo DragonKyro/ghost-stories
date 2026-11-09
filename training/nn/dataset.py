@@ -22,7 +22,7 @@ COLS = {
 }
 EXT = {np.uint32: 'u32', np.uint16: 'u16', np.float16: 'f16', np.uint8: 'u8', np.int8: 'i8', np.float32: 'f32'}
 # Optional columns (older shards don't have them).
-OPTIONAL = {'blogp': np.float32, 'phi': np.float32}
+OPTIONAL = {'blogp': np.float32, 'phi': np.float32, 'phq': np.float32, 'phh': np.float32}
 OFFSETS = {'s_off': 's_idx', 'rel_off': 'rel', 'c_off': None, 'cf_off': 'cf_idx'}
 
 
@@ -98,6 +98,8 @@ class Dataset:
         self.kind = torch.from_numpy(cat['kind'].astype(np.int64)).to(dev)
         self.blogp = torch.from_numpy(cat['blogp']).to(dev)
         self.phi = torch.from_numpy(cat['phi']).to(dev)
+        self.phq = torch.from_numpy(cat['phq']).to(dev)
+        self.phh = torch.from_numpy(cat['phh']).to(dev)
         seeds = cat['game'].astype(np.int64)
         self.seed = torch.from_numpy(seeds).to(dev)
         win = np.array([games[s]['win'] for s in seeds], dtype=np.float32)

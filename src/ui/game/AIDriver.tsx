@@ -19,11 +19,13 @@ export function AIDriver() {
   const game = useGameStore((g) => g.game)
   const handoff = useGameStore((g) => g.handoff)
   const host = useNetworkStore((n) => runsAi(n))
-  const useNet = !!game && (['red', 'blue', 'green', 'yellow'] as const).some((c) => game.taoists[c].kind === 'ai') && networkPlays(game)
+  // The AI Taoist the network plays (solo: the one seat), and so which weights file it needs.
+  const netSeat = game && networkPlays(game) ? (['red', 'blue', 'green', 'yellow'] as const).find((c) => game.taoists[c].kind === 'ai') : undefined
+  const netPower = netSeat ? game!.boards[netSeat].power : undefined
   // Start the weights download as soon as a game the network plays begins.
   useEffect(() => {
-    if (useNet && host) loadAiNet().catch((e) => console.warn('[ai] could not load the network:', e))
-  }, [useNet, host])
+    if (netSeat && host) loadAiNet(netSeat, netPower).catch((e) => console.warn('[ai] could not load the network:', e))
+  }, [netSeat, netPower, host])
   useEffect(() => {
     if (!game || !host || game.phase === 'gameOver' || handoff) return
     const seat = waitingFor(game)
@@ -36,7 +38,7 @@ export function AIDriver() {
       try {
         if (seat !== 'wufeng' && networkPlays(cur)) {
           try {
-            a = nnSampleAction(await loadAiNet(), cur, seat, Math.random)
+            a = nnSampleAction(await loadAiNet(seat, cur.boards[seat].power), cur, seat, Math.random)
           } catch (e) {
             console.warn('[ai] the network failed, using the rules-based AI:', e)
           }

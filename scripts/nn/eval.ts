@@ -6,6 +6,7 @@
 //   node scripts/nn/ts.mjs scripts/nn/eval.ts --weights run/step-1000.json [--seeds 7001-7300] [--workers 10] [--json out.json] [--sample --temp 0.75] [--setup norm4]
 //   node scripts/nn/ts.mjs scripts/nn/eval.ts --policy quick|search [--setup norm4]
 //   ... --sample --attempts 16   (each seed 16 times: how many seeds are ever won; perGame has `attempt`)
+//   ... --monk blue/heavenlyGust  (every seed as that monk: a specialist's evaluation)
 //
 // Without --sample the network plays its most likely action at every decision (no search).
 
@@ -19,8 +20,8 @@ import { hash } from '@/ai/sim'
 import { Net, type WeightsFile } from '@/ai/nn/model'
 import { SEARCH } from '@/ai/tuning'
 import { applyAction, createGame, waitingFor } from '@/game/engine'
-import type { Color, Difficulty } from '@/game/types'
-import { evalConfig, setupConfig, soloConfig } from './configs'
+import type { Color, Difficulty, PowerId } from '@/game/types'
+import { evalConfig, monkConfig, setupConfig, soloConfig } from './configs'
 import { COLORS } from '@/game/types'
 
 interface Job {
@@ -37,6 +38,8 @@ interface Job {
   setup: string | null
   /** Play each seed this many times (the network's sampling differs; the deck order is the seed's). */
   attempts: number
+  /** Play every seed as this monk (`seat/power`, scripts/nn/configs.ts MONKS) instead of the evaluation setups. */
+  monk: string | null
 }
 
 interface GameResult {
@@ -58,7 +61,10 @@ function work(job: Job): void {
   SEARCH.on = job.policy !== 'quick'
   for (const seed of job.seeds) for (let attempt = 0; attempt < job.attempts; attempt++) {
     const t0 = performance.now()
-    let s = createGame(job.setup ? setupConfig(job.setup, seed) : job.trainSetups ? soloConfig(seed, job.difficulty) : evalConfig(seed, job.difficulty))
+    const mk = job.monk ? (job.monk.split('/') as [Color, PowerId]) : null
+    let s = createGame(
+      mk ? monkConfig(seed, mk[0], mk[1], job.difficulty) : job.setup ? setupConfig(job.setup, seed) : job.trainSetups ? soloConfig(seed, job.difficulty) : evalConfig(seed, job.difficulty),
+    )
     let u = hash(seed, 4242 + attempt * 7919) >>> 0 || 1
     const rand = () => {
       u ^= u << 13
@@ -68,7 +74,7 @@ function work(job: Job): void {
       u >>>= 0
       return u / 4294967296
     }
-    const solo = s.config.seats && COLORS.filter((c) => s.config.seats[c] !== 'neutral').length === 1
+    const solo = COLORS.filter((c) => s.config.seats[c] !== 'neutral').length === 1
     const seat = solo ? COLORS.find((c) => s.config.seats[c] !== 'neutral')! : COLORS[seed % 4]!
     const deck0 = s.deck.length
     for (let i = 0; i < 6000 && s.phase !== 'gameOver'; i++) {
@@ -126,7 +132,7 @@ async function main(): Promise<void> {
   const t0 = Date.now()
   await Promise.all(
     Array.from({ length: workers }, (_, k) => {
-      const job: Job = { seeds: seeds.filter((_, i) => i % workers === k), policy, weights, difficulty, sample: process.argv.includes('--sample'), trainSetups: process.argv.includes('--train-setups'), temp: Number(arg('temp', '1')), setup: arg('setup', null), attempts: Number(arg('attempts', '1')) }
+      const job: Job = { seeds: seeds.filter((_, i) => i % workers === k), policy, weights, difficulty, sample: process.argv.includes('--sample'), trainSetups: process.argv.includes('--train-setups'), temp: Number(arg('temp', '1')), setup: arg('setup', null), attempts: Number(arg('attempts', '1')), monk: arg('monk', null) }
       return new Promise<void>((resolve, reject) => {
         const wk = new Worker(file, { workerData: job })
         wk.on('message', (m: GameResult | null) => (m ? results.push(m) : resolve()))

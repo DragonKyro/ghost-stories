@@ -13,7 +13,8 @@
 //                                      (0 = Yang, 1 + PROMPT_KIND otherwise)
 //   blogp.f32                          log-probability the acting policy gave it
 //                                      (self-play; 0 for a teacher's choice)
-//   phi.f32                            minus the danger score (ai/nn/danger.ts) at the decision
+//   phi.f32 / phq.f32 / phh.f32        minus the danger score (ai/nn/danger.ts) at the decision:
+//                                      total, its Qi part, its haunting part
 // Per candidate:
 //   cf_off.u32 / cf_idx.u8 / cf_val.f16  nonzero candidate features
 //   ptr.i8                               N_PTR token slots (−1 = none)
@@ -91,6 +92,8 @@ export class ShardWriter {
     kind: new Grow(u8),
     blogp: new Grow(f32a),
     phi: new Grow(f32a),
+    phq: new Grow(f32a),
+    phh: new Grow(f32a),
   }
   readonly games: unknown[] = []
 
@@ -103,7 +106,7 @@ export class ShardWriter {
   }
 
   /** `logp`: log-probability the acting policy gave the chosen action (0 for a teacher's choice). */
-  add(enc: Encoded, cands: EncodedCandidates, target: number, game: number, kind: number, logp = 0, phi = 0): void {
+  add(enc: Encoded, cands: EncodedCandidates, target: number, game: number, kind: number, logp = 0, phi = 0, phq = 0, phh = 0): void {
     const c = this.cols
     for (const t of TOKENS) {
       const x = enc.x[t.type]
@@ -142,6 +145,8 @@ export class ShardWriter {
     c.kind.push(kind)
     c.blogp.push(logp)
     c.phi.push(phi)
+    c.phq.push(phq)
+    c.phh.push(phh)
     this.samples++
   }
 

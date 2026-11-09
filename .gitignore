@@ -15,7 +15,6 @@ art-renders/
 .firebase/
 
 # NN training (training/README.md): virtualenv, generated data, checkpoints
-training/.venv/
 training/data/
 training/runs/
 __pycache__/
