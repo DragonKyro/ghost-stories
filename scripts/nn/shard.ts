@@ -8,9 +8,12 @@
 //   rel_off.u32 / rel.u8               relation ids among the present tokens
 //                                      (n × n, slot order)
 //   c_off.u32                          candidate range per sample
-//   target.u16 / game.u32 / kind.u8    the teacher's choice (index into the
+//   target.u16 / game.u32 / kind.u8    the action taken (index into the
 //                                      candidates), game seed, decision kind
 //                                      (0 = Yang, 1 + PROMPT_KIND otherwise)
+//   blogp.f32                          log-probability the acting policy gave it
+//                                      (self-play; 0 for a teacher's choice)
+//   phi.f32                            minus the danger score (ai/nn/danger.ts) at the decision
 // Per candidate:
 //   cf_off.u32 / cf_idx.u8 / cf_val.f16  nonzero candidate features
 //   ptr.i8                               N_PTR token slots (−1 = none)
@@ -22,7 +25,7 @@ import type { EncodedCandidates } from '@/ai/nn/candidates'
 import type { Encoded } from '@/ai/nn/encode'
 import { CAND, N_PTR, N_TOKENS, TOKENS } from '@/ai/nn/schema'
 
-type Typed = Uint8Array | Int8Array | Uint16Array | Uint32Array
+type Typed = Uint8Array | Int8Array | Uint16Array | Uint32Array | Float32Array
 
 class Grow<T extends Typed> {
   buf: T
@@ -66,6 +69,7 @@ const u8 = (n: number) => new Uint8Array(n)
 const i8 = (n: number) => new Int8Array(n)
 const u16 = (n: number) => new Uint16Array(n)
 const u32a = (n: number) => new Uint32Array(n)
+const f32a = (n: number) => new Float32Array(n)
 
 export class ShardWriter {
   samples = 0
@@ -85,6 +89,8 @@ export class ShardWriter {
     target: new Grow(u16),
     game: new Grow(u32a),
     kind: new Grow(u8),
+    blogp: new Grow(f32a),
+    phi: new Grow(f32a),
   }
   readonly games: unknown[] = []
 
@@ -96,7 +102,8 @@ export class ShardWriter {
     c.cf_off.push(0)
   }
 
-  add(enc: Encoded, cands: EncodedCandidates, target: number, game: number, kind: number): void {
+  /** `logp`: log-probability the acting policy gave the chosen action (0 for a teacher's choice). */
+  add(enc: Encoded, cands: EncodedCandidates, target: number, game: number, kind: number, logp = 0, phi = 0): void {
     const c = this.cols
     for (const t of TOKENS) {
       const x = enc.x[t.type]
@@ -133,13 +140,15 @@ export class ShardWriter {
     c.target.push(target)
     c.game.push(game)
     c.kind.push(kind)
+    c.blogp.push(logp)
+    c.phi.push(phi)
     this.samples++
   }
 
   write(meta: Record<string, unknown>): void {
     fs.mkdirSync(this.dir, { recursive: true })
     for (const [name, col] of Object.entries(this.cols)) {
-      const ext = name === 's_val' || name === 'cf_val' ? 'f16' : col.buf instanceof Uint32Array ? 'u32' : col.buf instanceof Uint16Array ? 'u16' : col.buf instanceof Int8Array ? 'i8' : 'u8'
+      const ext = name === 's_val' || name === 'cf_val' ? 'f16' : col.buf instanceof Float32Array ? 'f32' : col.buf instanceof Uint32Array ? 'u32' : col.buf instanceof Uint16Array ? 'u16' : col.buf instanceof Int8Array ? 'i8' : 'u8'
       fs.writeFileSync(path.join(this.dir, `${name}.${ext}`), col.bytes())
     }
     fs.writeFileSync(path.join(this.dir, 'games.json'), JSON.stringify(this.games))

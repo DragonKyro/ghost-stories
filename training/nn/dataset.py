@@ -20,13 +20,18 @@ COLS = {
     'cf_idx': np.uint8, 'cf_val': np.float16, 'ptr': np.int8, 'target': np.uint16,
     'game': np.uint32, 'kind': np.uint8,
 }
-EXT = {np.uint32: 'u32', np.uint16: 'u16', np.float16: 'f16', np.uint8: 'u8', np.int8: 'i8'}
+EXT = {np.uint32: 'u32', np.uint16: 'u16', np.float16: 'f16', np.uint8: 'u8', np.int8: 'i8', np.float32: 'f32'}
+# Optional columns (older shards don't have them).
+OPTIONAL = {'blogp': np.float32, 'phi': np.float32}
 OFFSETS = {'s_off': 's_idx', 'rel_off': 'rel', 'c_off': None, 'cf_off': 'cf_idx'}
 
 
-def _read(d: Path, name: str) -> np.ndarray:
-    t = COLS[name]
-    return np.fromfile(d / f'{name}.{EXT[t]}', dtype=t)
+def _read(d: Path, name: str, n: int = 0) -> np.ndarray:
+    t = COLS.get(name) or OPTIONAL[name]
+    f = d / f'{name}.{EXT[t]}'
+    if name in OPTIONAL and not f.exists():
+        return np.zeros(n, dtype=t)
+    return np.fromfile(f, dtype=t)
 
 
 def ranges(starts: torch.Tensor, lengths: torch.Tensor):
@@ -51,7 +56,7 @@ class Dataset:
         self.A = schema['candFeatures']
         self.K = schema['nPtr']
         self.F = sum(t['slots'] * t['features'] for t in schema['tokens'])
-        parts: dict[str, list[np.ndarray]] = {k: [] for k in COLS}
+        parts: dict[str, list[np.ndarray]] = {k: [] for k in [*COLS, *OPTIONAL]}
         base = {'s_off': 0, 'rel_off': 0, 'c_off': 0, 'cf_off': 0}
         games: dict[int, dict] = {}
         for d in shards:
@@ -59,7 +64,9 @@ class Dataset:
             if meta['schema'] != schema['hash']:
                 raise ValueError(f'{d} was encoded with schema {meta["schema"]}, not {schema["hash"]}')
             cols = {k: _read(d, k) for k in COLS}
-            for k in COLS:
+            for k in OPTIONAL:
+                cols[k] = _read(d, k, len(cols['target']))
+            for k in [*COLS, *OPTIONAL]:
                 a = cols[k]
                 if k in OFFSETS:
                     a = a.astype(np.int64) + base[k]
@@ -89,6 +96,8 @@ class Dataset:
         self.ptr = torch.from_numpy(cat['ptr'].reshape(self.Nc, self.K)).to(dev)
         self.target = torch.from_numpy(cat['target'].astype(np.int64)).to(dev)
         self.kind = torch.from_numpy(cat['kind'].astype(np.int64)).to(dev)
+        self.blogp = torch.from_numpy(cat['blogp']).to(dev)
+        self.phi = torch.from_numpy(cat['phi']).to(dev)
         seeds = cat['game'].astype(np.int64)
         self.seed = torch.from_numpy(seeds).to(dev)
         win = np.array([games[s]['win'] for s in seeds], dtype=np.float32)

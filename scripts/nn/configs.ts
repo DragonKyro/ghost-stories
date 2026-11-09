@@ -19,3 +19,25 @@ export function evalConfig(seed: number, difficulty: Difficulty): GameConfig {
   seats[COLORS[seed % 4]!] = 'ai'
   return { difficulty, seats, seed }
 }
+
+/**
+ * Named evaluation setups, e.g. `norm1`, `init4`, `night3`, `norm4-wm`, `norm3-bs`, `norm4-both`:
+ * difficulty (init / norm / night / hell), number of Taoists (1-4: the others are neutral boards),
+ * optional expansions. Solo: the seat is seed % 4; 2: red + green or blue + yellow; 3: one neutral.
+ */
+export function setupConfig(name: string, seed: number): GameConfig {
+  const m = /^(init|norm|night|hell)([1-4])(?:-(wm|bs|both))?$/.exec(name)
+  if (!m) throw new Error(`unknown setup ${name}`)
+  const difficulty = ({ init: 'initiation', norm: 'normal', night: 'nightmare', hell: 'hell' } as const)[m[1] as 'init']
+  const n = Number(m[2])
+  const all = (k: SeatKind) => ({ red: k, blue: k, green: k, yellow: k }) as Record<Color, SeatKind>
+  let seats: Record<Color, SeatKind>
+  if (n === 4) seats = all('ai')
+  else if (n === 3) seats = { ...all('ai'), [COLORS[seed % 4]!]: 'neutral' }
+  else if (n === 2) seats = seed % 2 === 0 ? { red: 'ai', blue: 'neutral', green: 'ai', yellow: 'neutral' } : { red: 'neutral', blue: 'ai', green: 'neutral', yellow: 'ai' }
+  else seats = { ...all('neutral'), [COLORS[seed % 4]!]: 'ai' }
+  const cfg: GameConfig = { difficulty, seats, seed }
+  if (m[3] === 'wm' || m[3] === 'both') cfg.whiteMoon = { portal: 'center', randomTiles: false }
+  if (m[3] === 'bs' || m[3] === 'both') cfg.blackSecret = { wuFeng: 'ai', side: 'a' }
+  return cfg
+}

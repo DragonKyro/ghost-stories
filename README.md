@@ -24,13 +24,13 @@ The Esoteric Order of Gamers rules summary in [`ghost stories rules.pdf`](./ghos
 ## Roadmap
 
 - [x] Rules engine following the summary: base game, White Moon, Black Secret (deterministic, seeded dice, step-by-step prompts)
-- [x] AI for Taoists (search through the real engine, playing only on what the players can see) and for Wu-Feng
+- [x] AI: a neural network trained by self-play plays solo games (about 28% wins on Normal); a rules-based search AI plays everything else and Wu-Feng
 - [x] Game screen and hand-drawn ink-painting art set
 - [x] Online multiplayer on Firebase Realtime Database
 - [x] Rulebook with search
 - [x] End-of-game stats (Qi over the game, ghosts and hauntings, who exorcised what, dice luck)
 - [x] Phone and tablet layouts
-- [ ] Stronger AI still: 4 AI seats win about 1 game in 10 on Initiation, solo about 1 in 5; teach it the White Moon villagers and the Black Secret catacombs
+- [ ] Stronger AI: train the network for 2–4 players, Nightmare / Hell and the expansions (the rules-based AI still plays those)
 
 ## Ideas for later
 

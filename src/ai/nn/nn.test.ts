@@ -10,6 +10,7 @@ import { chooseAction } from '../index'
 import { sanitize } from '../sim'
 import { SEARCH } from '../tuning'
 import { encodeCandidates } from './candidates'
+import { danger } from './danger'
 import { encodeState } from './encode'
 import { frameFor } from './frame'
 import { nnDecide, samplePositions } from './index'
@@ -197,6 +198,24 @@ describe('nn legal actions', () => {
     const yang = by.get('yang')!
     expect(Math.max(...yang)).toBeGreaterThan(15)
     expect(by.get('placeGhost')?.length ?? 0).toBeGreaterThan(5)
+  })
+})
+
+describe('nn danger hint', () => {
+  it('rises as the game gets closer to being lost', () => {
+    const { s } = POSITIONS.find((p) => !p.config.whiteMoon && !p.config.blackSecret && p.s.phase !== 'gameOver')!
+    const seat = (COLORS.find((c) => s.taoists[c].alive && !s.boards[c].neutral) ?? 'red') as Color
+    const base = danger(s, seat)
+    expect(base).toBeGreaterThanOrEqual(0)
+    const haunted = JSON.parse(JSON.stringify(s)) as GameState
+    haunted.village.filter((t) => !t.haunted).slice(0, 1).forEach((t) => (t.haunted = true))
+    expect(danger(haunted, seat)).toBeGreaterThan(base)
+    const weak = JSON.parse(JSON.stringify(s)) as GameState
+    weak.taoists[seat].qi = 1
+    const strong = JSON.parse(JSON.stringify(s)) as GameState
+    strong.taoists[seat].qi = 4
+    expect(danger(weak, seat)).toBeGreaterThan(danger(strong, seat))
+    for (const { s: x, seat: who } of POSITIONS) if (x.phase !== 'gameOver' && who !== 'wufeng') expect(danger(x, who)).toBeLessThan(4)
   })
 })
 
