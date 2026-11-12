@@ -2,7 +2,7 @@
 
 A web version of the cooperative board game *Ghost Stories* (Antoine Bauza, Repos Production, 2008), built for private play with friends. The physical game is out of print and there is no official digital version.
 
-**Play:** https://dragonkyro.github.io/ghost-stories/
+**▶ Play it here: [dragonkyro.github.io/ghost-stories](https://dragonkyro.github.io/ghost-stories/)** (runs in the browser on desktop, tablet or phone; nothing to install)
 
 ## What you can play
 
@@ -15,6 +15,13 @@ It works on phones (portrait and landscape) and tablets as well as desktops, and
 
 The turn follows the rulebook step by step: the Yin phase resolves on its own (and stops for every choice the rules give the players: where an arriving ghost goes, who takes a possessed board's Qi loss, the Gods' Favorite reroll, …); the Yang phase panel shows the three steps in order with only the moves the rules allow at that moment. A searchable rulebook is one click away.
 
+## The AI
+
+- **Solo games of the base game (Initiation or Normal):** a neural network for each of the seven monks (each colour's two powers), trained by self-play and run in the browser. On games it never trained on it wins about **45% on Normal** (from 33% for Red / Dance of the Spires to 61% for Yellow / Bottomless Pockets) and **53% on Initiation**. For comparison, the earlier single shared network won about 30% on Normal and the rules-based AI about 15%. Ghost Stories is hard, and the networks play fair: they see only what a player at the table sees (never the deck order).
+- **Everything else** (2–4 players, Nightmare / Hell, White Moon, Black Secret) **and Wu-Feng:** a rules-based AI that searches ahead through the real rules; it still plays those setups better than the networks, which haven't been trained for them yet.
+
+How the networks are built and trained, and every result so far: [`training/README.md`](./training/README.md).
+
 ## What is Ghost Stories?
 
 1–4 Taoist monks defend a Chinese village from the ghosts of Wu-Feng. Every turn a ghost arrives on one of the 4 player boards around the 3×3 village; the active Taoist moves, then either asks a villager for help or exorcises a ghost with the Tao dice. Hold out until the incarnation of Wu-Feng hidden near the bottom of the deck appears, exorcise it, and the monks win. It is famously hard.
@@ -24,13 +31,13 @@ The Esoteric Order of Gamers rules summary in [`ghost stories rules.pdf`](./ghos
 ## Roadmap
 
 - [x] Rules engine following the summary: base game, White Moon, Black Secret (deterministic, seeded dice, step-by-step prompts)
-- [x] AI: a neural network trained by self-play plays solo games (about 28% wins on Normal); a rules-based search AI plays everything else and Wu-Feng
+- [x] AI: a neural network per monk, trained by self-play, plays solo games (about 45% wins on Normal, 53% on Initiation); a rules-based search AI plays everything else and Wu-Feng
 - [x] Game screen and hand-drawn ink-painting art set
 - [x] Online multiplayer on Firebase Realtime Database
 - [x] Rulebook with search
 - [x] End-of-game stats (Qi over the game, ghosts and hauntings, who exorcised what, dice luck)
 - [x] Phone and tablet layouts
-- [ ] Stronger AI: train the network for 2–4 players, Nightmare / Hell and the expansions (the rules-based AI still plays those)
+- [ ] Stronger AI: a lookahead on top of the networks when they're unsure; networks for 2–4 players, Nightmare / Hell and the expansions (the rules-based AI still plays those)
 
 ## Ideas for later
 
@@ -41,6 +48,7 @@ The Esoteric Order of Gamers rules summary in [`ghost stories rules.pdf`](./ghos
 - **TypeScript** + **Vite** + **React 19**, **Zustand**, **Vitest**
 - Inline **SVG** art, drawn for this project
 - **Firebase Realtime Database** (anonymous auth) for online rooms — shared project, this app's data under `ghost-stories`
+- **PyTorch** (off the site, in `training/`) to train the AI networks; the game runs them in TypeScript, so the site stays static
 
 Same layering as the [`catan/`](../catan/) project: `game` (pure rules engine) / `ai` / `net` / `store` / `ui` / `rulebook`. See [CLAUDE.md](./CLAUDE.md).
 
@@ -55,6 +63,8 @@ npm run deploy:rules   # deploy the database rules (merged with the other apps' 
 ```
 
 Testing online with two windows on one computer: add `?fresh` to each window's address so they count as different players.
+
+Training the AI (a CUDA GPU and the conda env `train` with PyTorch): see [`training/README.md`](./training/README.md). Nothing in the site depends on it; the trained networks ship as files in `src/ai/nn/weights/`.
 
 ## Deployment
 
