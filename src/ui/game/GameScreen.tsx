@@ -1,0 +1,390 @@
+// The game screen: header, the table, the action bar (what to do now) and
+// the side column (log / chat / expansion boards). Also hosts the AI driver,
+// the hot-seat hand-off and the end-of-game screen.
+//
+// Three layouts: wide (board with the action bar under it, the log column
+// on the right — like catan), short (phones in landscape, low windows: no
+// room under the board, so a tabbed Play / Log / Chat column on the right)
+// and stacked (phones in portrait, narrow windows: board on top, tabbed
+// panel below).
+
+import { useEffect, useState } from 'react'
+import { waitingFor } from '@/game/engine'
+import { hauntedCount, incarnationsInDeck, COLOR_NAME, seatName as seatLabel } from '@/game/rules'
+import type { GameState } from '@/game/types'
+import { useGameStore } from '@/store/gameStore'
+import { useUiStore } from '@/store/uiStore'
+import { useNetworkStore } from '@/store/networkStore'
+import { ChatPanel } from '@/ui/online/ChatPanel'
+import { ConnectionBadge } from '@/ui/online/ConnectionBadge'
+import { RulebookOverlay } from '@/rulebook'
+import { StatsView } from '@/ui/stats/StatsView'
+import { Board } from './Board'
+import { useInteraction } from './interaction'
+import { TurnPanel } from './TurnPanel'
+import { PromptPanel } from './PromptPanel'
+import { LogPanel, RecentEvents } from './LogPanel'
+import { Inspector } from './Inspector'
+import { AIDriver } from './AIDriver'
+import { HandoffOverlay, GameOverOverlay } from './Overlays'
+import { ExpansionPanel } from './ExpansionPanel'
+import { useCanAct, isAiSeat } from './seats'
+import { InBar } from './placement'
+import { colorVars } from './Board'
+import { TaoistFigure } from '@/ui/art'
+import './game.css'
+
+export interface Layout {
+  /** Village tile size in px. */
+  t: number
+  /** Board on top, panel below (phones, narrow windows). */
+  stacked: boolean
+  /** Small tiles: plates and tiles drop text. */
+  compact: boolean
+  /** Side panel width (wide layout). */
+  side: number
+  /** Short screen (phone in landscape): tabs instead of a fixed log, a slimmer header. */
+  short: boolean
+  /** Height of the action bar under the board (wide layout); 0 when the controls sit in a tabbed panel. */
+  bar: number
+}
+
+/** The board is 5.45 tiles across and down (3 tiles + 2 boards + gaps). */
+const BOARD_TILES = 5.45 // 3 + 2 × 1.18, plus a little air
+
+export function computeLayout(w: number, h: number): Layout {
+  const stacked = w < 760 || (w < 1000 && h > w * 1.1)
+  const clamp = (x: number) => Math.max(48, Math.min(200, Math.floor(x)))
+  if (stacked) {
+    const t = clamp(Math.min((w - 8) / BOARD_TILES, (h * 0.6 - 40) / BOARD_TILES))
+    return { t, stacked, compact: t < 112, side: 0, short: false, bar: 0 }
+  }
+  // Too low for a bar under the board: the controls share the side column.
+  const short = h < 620
+  if (short) {
+    const side = w < 1150 ? 320 : 380
+    const t = clamp(Math.min((w - side - 24) / BOARD_TILES, (h - 42) / BOARD_TILES))
+    return { t, stacked, compact: t < 112, side, short, bar: 0 }
+  }
+  // The side column only holds the log, so it can be slimmer.
+  const side = w < 1150 ? 290 : 330
+  const bar = h >= 940 ? 168 : h >= 760 ? 150 : 136
+  const t = clamp(Math.min((w - side - 24) / BOARD_TILES, (h - 44 - bar - 18) / BOARD_TILES))
+  return { t, stacked, compact: t < 112, side, short, bar }
+}
+
+/** The usable viewport (the layout viewport can briefly differ from the window on phones). */
+function viewport(): { w: number; h: number } {
+  const de = document.documentElement
+  return { w: Math.min(window.innerWidth, de.clientWidth || Infinity), h: Math.min(window.innerHeight, de.clientHeight || Infinity) }
+}
+
+function useLayout(): Layout {
+  const [layout, setLayout] = useState(() => {
+    const v = viewport()
+    return computeLayout(v.w, v.h)
+  })
+  useEffect(() => {
+    const fit = () => {
+      const v = viewport()
+      setLayout((old) => {
+        const next = computeLayout(v.w, v.h)
+        return next.t === old.t && next.stacked === old.stacked && next.side === old.side && next.short === old.short && next.bar === old.bar ? old : next
+      })
+    }
+    const ro = new ResizeObserver(fit)
+    ro.observe(document.documentElement)
+    window.addEventListener('resize', fit)
+    window.addEventListener('orientationchange', fit)
+    window.visualViewport?.addEventListener('resize', fit)
+    fit()
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', fit)
+      window.removeEventListener('orientationchange', fit)
+      window.visualViewport?.removeEventListener('resize', fit)
+    }
+  }, [])
+  return layout
+}
+
+export function GameScreen() {
+  const game = useGameStore((g) => g.game)
+  const error = useGameStore((g) => g.error)
+  const clearError = useGameStore((g) => g.clearError)
+  const layout = useLayout()
+  const [rules, setRules] = useState(false)
+  const showStats = useUiStore((u) => u.showStats)
+  const setShowStats = useUiStore((u) => u.setShowStats)
+
+  useEffect(() => {
+    if (!error) return
+    const id = setTimeout(clearError, 4500)
+    return () => clearTimeout(id)
+  }, [error, clearError])
+
+  if (!game) return null
+  return (
+    <div
+      className={`gs-screen ${layout.stacked ? 'stacked' : ''} ${layout.short ? 'short' : ''} ${layout.compact ? 'compact' : ''}`}
+      style={{ ['--t' as string]: `${layout.t}px`, ['--side' as string]: `${layout.side}px`, ['--bar' as string]: `${layout.bar}px` }}
+    >
+      <Header game={game} onRules={() => setRules(true)} stacked={layout.stacked || layout.short} />
+      <BoardArea game={game} layout={layout} />
+      {layout.bar > 0 ? (
+        <>
+          <ActionBar game={game} height={layout.bar} />
+          <Side game={game} />
+        </>
+      ) : (
+        <BottomPanel game={game} />
+      )}
+      <AIDriver />
+      <HandoffOverlay game={game} />
+      {game.phase === 'gameOver' && <GameOverOverlay game={game} />}
+      {rules && <RulebookOverlay onClose={() => setRules(false)} />}
+      {showStats && <StatsView game={game} onClose={() => setShowStats(false)} />}
+      {error && (
+        <div className="gs-toast" onClick={clearError}>
+          {error}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Header({ game, onRules, stacked }: { game: GameState; onRules: () => void; stacked: boolean }) {
+  const quit = useGameStore((g) => g.quitGame)
+  const startedAt = useGameStore((g) => g.startedAt)
+  const online = useNetworkStore((n) => n.connection === 'in-game' || n.connection === 'lobby')
+  const leave = useNetworkStore((n) => n.leaveRoom)
+  const haunted = hauntedCount(game)
+  const dead = game.whiteMoon?.dead.length ?? 0
+  return (
+    <div className="gs-header">
+      {!stacked && <span className="gs-title">Ghost Stories</span>}
+      <span className="gs-stat">
+        {stacked ? 'T' : 'Turn '}
+        <strong>{game.turn}</strong> · <strong>{COLOR_NAME[game.active]}</strong>
+      </span>
+      <span className="gs-stat" title="Ghost cards left in the deck">
+        Deck <strong>{game.deck.length}</strong>
+      </span>
+      {!stacked && (
+        <span className="gs-stat" title="Incarnations of Wu-Feng still hidden in the deck">
+          Wu-Feng hidden <strong>{incarnationsInDeck(game)}</strong>
+        </span>
+      )}
+      <span className={`gs-stat ${haunted >= 2 ? 'gs-danger' : ''}`} title="A third haunted tile loses the game">
+        {stacked ? 'Haunt' : 'Haunted'} <strong>{haunted}/3</strong>
+      </span>
+      {game.whiteMoon && (
+        <span className={`gs-stat ${dead >= 9 ? 'gs-danger' : ''}`} title="The twelfth dead villager loses the game">
+          {stacked ? 'Dead' : 'Villagers dead'} <strong>{dead}/12</strong>
+        </span>
+      )}
+      {!stacked && (
+        <span className="gs-stat">
+          <Clock since={startedAt} />
+        </span>
+      )}
+      <span className="gs-spacer" />
+      <ConnectionBadge />
+      <button className="gs-btn small" onClick={() => useUiStore.getState().setShowStats(true)}>
+        Stats
+      </button>
+      <button className="gs-btn small" onClick={onRules}>
+        Rules
+      </button>
+      <button
+        className="gs-btn small"
+        onClick={() => {
+          if (game.phase !== 'gameOver' && !window.confirm('Leave this game?')) return
+          if (online) leave()
+          else quit()
+        }}
+      >
+        Leave
+      </button>
+    </div>
+  )
+}
+
+function Clock({ since }: { since: number }) {
+  const [, tick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => tick((x) => x + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+  const s = Math.max(0, Math.floor((Date.now() - since) / 1000))
+  return <span>{`${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`}</span>
+}
+
+function BoardArea({ game, layout }: { game: GameState; layout: Layout }) {
+  const ia = useInteraction(game)
+  return (
+    <div className="gs-boardwrap">
+      <div style={{ position: 'relative' }}>
+        <Board game={game} ia={ia} tile={layout.t} compact={layout.compact} />
+        <Inspector game={game} tile={layout.t} stacked={layout.stacked} />
+      </div>
+      {ia.hint && <div className="gs-hint gs-boardhint">{touchWording(ia.hint)}</div>}
+    </div>
+  )
+}
+
+const COARSE = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
+/** "Click" → "Tap" on touch screens. */
+function touchWording(text: string): string {
+  return COARSE ? text.replace(/Click/g, 'Tap').replace(/click/g, 'tap') : text
+}
+
+/** What the player can do now (or who we're waiting on). */
+function ActionArea({ game }: { game: GameState }) {
+  const canAct = useCanAct()
+  const seat = waitingFor(game)
+  if (game.prompt) return <PromptPanel game={game} prompt={game.prompt} />
+  if (game.phase === 'yang' && seat && canAct(seat)) return <TurnPanel game={game} />
+  if (game.phase === 'gameOver')
+    return (
+      <div className="gs-card">
+        <h3>{game.outcome?.result === 'win' ? 'Victory — the village is saved' : 'The village has fallen'}</h3>
+        <div className="gs-btnrow">
+          <button className="gs-btn primary" onClick={() => useUiStore.getState().setShowStats(true)}>
+            See the stats
+          </button>
+        </div>
+      </div>
+    )
+  return (
+    <div className="gs-card">
+      <h3>{seat ? `${seatLabel(seat)}'s move` : 'The ghosts move…'}</h3>
+      <p className="gs-mini">
+        {seat && isAiSeat(game, seat) ? 'The AI is thinking.' : seat ? `Waiting for ${useNetworkStore.getState().connection === 'in-game' ? 'them' : seatLabel(seat)}.` : ''}
+      </p>
+    </div>
+  )
+}
+
+/** Clear the board selection whenever the turn changes. */
+function useResetOnTurn(game: GameState): void {
+  const reset = useUiStore((u) => u.reset)
+  const [turn, setTurn] = useState(game.turn)
+  useEffect(() => {
+    if (game.turn !== turn) {
+      setTurn(game.turn)
+      reset()
+    }
+  }, [game.turn, turn, reset])
+}
+
+/**
+ * Wide layout: the controls in a strip under the board (like catan's action
+ * bar), with a portrait of whose turn it is on the left.
+ */
+function ActionBar({ game, height }: { game: GameState; height: number }) {
+  return (
+    <div className="gs-bar">
+      <TurnBadge game={game} size={Math.round(Math.min(92, height * 0.58))} />
+      <div className="gs-bar-body">
+        <InBar.Provider value={true}>
+          <ActionArea game={game} />
+        </InBar.Provider>
+      </div>
+    </div>
+  )
+}
+
+/** The active Taoist and the phase. */
+function TurnBadge({ game, size }: { game: GameState; size: number }) {
+  const c = game.active
+  const phase =
+    game.phase === 'gameOver' ? 'Game over' : game.prompt?.owner === 'wufeng' ? 'Wu-Feng acts' : game.phase === 'yang' ? 'Yang phase' : 'Yin phase'
+  return (
+    <div className="gs-badge" style={colorVars(c)}>
+      <TaoistFigure color={c} size={size} active={game.phase === 'yang'} />
+      <strong>{COLOR_NAME[c]}</strong>
+      <span>{phase}</span>
+    </div>
+  )
+}
+
+/** Wide layout: the one log (current turn highlighted), or the chat / expansion boards. */
+function Side({ game }: { game: GameState }) {
+  const panel = useUiStore((u) => u.sidePanel)
+  const setPanel = useUiStore((u) => u.setSidePanel)
+  const online = useNetworkStore((n) => n.connection === 'in-game')
+  useResetOnTurn(game)
+  const hasExpansion = !!(game.whiteMoon || game.blackSecret)
+  return (
+    <div className="gs-side">
+      <div className="gs-tabs">
+        <button className={panel === 'log' ? 'on' : ''} onClick={() => setPanel('log')}>
+          Log
+        </button>
+        {online && (
+          <button className={panel === 'chat' ? 'on' : ''} onClick={() => setPanel('chat')}>
+            Chat
+          </button>
+        )}
+        {hasExpansion && (
+          <button className={panel === 'expansion' ? 'on' : ''} onClick={() => setPanel('expansion')}>
+            {game.blackSecret ? 'Wu-Feng & catacombs' : 'White Moon'}
+          </button>
+        )}
+      </div>
+      <div className="gs-tabbody">
+        {panel === 'chat' && online ? <ChatPanel title={null} height="100%" /> : panel === 'expansion' && hasExpansion ? <ExpansionPanel game={game} /> : <LogPanel />}
+      </div>
+    </div>
+  )
+}
+
+/** Stacked layout: the latest events, then tabs (Play / Log / Chat / expansion). */
+function BottomPanel({ game }: { game: GameState }) {
+  const [tab, setTab] = useState<'play' | 'log' | 'chat' | 'expansion'>('play')
+  const online = useNetworkStore((n) => n.connection === 'in-game')
+  const canAct = useCanAct()
+  useResetOnTurn(game)
+  const hasExpansion = !!(game.whiteMoon || game.blackSecret)
+  const myMove = (game.prompt && canAct(game.prompt.owner)) || (!game.prompt && game.phase === 'yang' && canAct(game.active))
+  // A question for this device brings the Play tab forward.
+  useEffect(() => {
+    if (myMove) setTab('play')
+  }, [myMove, game.prompt?.kind])
+  return (
+    <div className="gs-bottom">
+      <div className="gs-tabs gs-bottom-tabs">
+        <button className={tab === 'play' ? 'on' : ''} onClick={() => setTab('play')}>
+          Play{myMove && tab !== 'play' ? ' •' : ''}
+        </button>
+        <button className={tab === 'log' ? 'on' : ''} onClick={() => setTab('log')}>
+          Log
+        </button>
+        {online && (
+          <button className={tab === 'chat' ? 'on' : ''} onClick={() => setTab('chat')}>
+            Chat
+          </button>
+        )}
+        {hasExpansion && (
+          <button className={tab === 'expansion' ? 'on' : ''} onClick={() => setTab('expansion')}>
+            {game.blackSecret ? 'Wu-Feng' : 'White Moon'}
+          </button>
+        )}
+      </div>
+      <div className="gs-bottom-body">
+        {tab === 'play' && (
+          <>
+            <div className="gs-card gs-bottom-recent">
+              <RecentEvents />
+            </div>
+            <ActionArea game={game} />
+          </>
+        )}
+        {tab === 'log' && <LogPanel />}
+        {tab === 'chat' && online && <ChatPanel title={null} height="100%" />}
+        {tab === 'expansion' && hasExpansion && <ExpansionPanel game={game} />}
+      </div>
+    </div>
+  )
+}

@@ -10,6 +10,7 @@
   --taoist-blue: #2c69b8;
   --taoist-green: #2f8f5d;
   --taoist-yellow: #d4a857;
+  --serif: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
 
   font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color-scheme: dark;
@@ -31,3 +32,13 @@ button {
 }
 button:hover { border-color: var(--accent); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Art scales down on small screens. */
+.gs-logo { max-width: 100%; }
+.gs-logo svg { max-width: 100%; height: auto; }
+
+/* Rulebook on phones: topics above the text. */
+@media (max-width: 700px) {
+  .rb-body { grid-template-columns: 1fr !important; grid-template-rows: auto 1fr; }
+  .rb-side { max-height: 34vh; overflow-y: auto; border-right: none !important; border-bottom: 1px solid var(--rule); }
+}

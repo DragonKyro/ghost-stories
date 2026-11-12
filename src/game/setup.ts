@@ -1,422 +1,202 @@
-// Initial state factory. Translates a GameConfig into a fully populated
-// GameState ready for the first Yin phase.
-//
-// Determinism: everything random (village shuffle, deck shuffle, incarnation
-// selection, board/side assignment) routes through the seeded RNG so two peers
-// with the same config + seed reduce identically.
+// createGame: the rules summary's Setup, with the 1–3 player and difficulty
+// adjustments. Everything random comes from the seed.
 
-import { allBaseGhostIds, allWhiteMoonGhostIds, incarnationCardId, allIncarnationIds } from './ghostCatalogue'
-import { buildCatacombDeck } from './blackSecretData'
-import { nextInt, seedRng, shuffle, type RngState } from './rng'
+import { baseGhostIds, blackSecretGhostIds, incarnationIds, whiteMoonGhostIds } from './catalogue'
+import { OPPOSITE } from './geometry'
+import { nextInt, seedRng, shuffle } from './rng'
+import { COLOR_NAME, POWER_NAME, TILE_NAME } from './rules'
 import {
-  ALL_VILLAGE_TILE_KINDS,
-  TAOIST_POWERS_BY_COLOR,
-  VILLAGER_FAMILIES_BY_SIZE,
-  WHITE_MOON_BASIC_TILE_SET,
-  type BlackSecretState,
-  type BoardColor,
-  type BoardSide,
-  type Difficulty,
+  BASE_TILES,
+  CENTER_TILE,
+  COLORS,
+  POWERS_BY_COLOR,
+  type Color,
   type GameConfig,
   type GameState,
   type PlayerBoard,
+  type PowerId,
   type TaoColor,
-  type TaoistColor,
-  type TaoistState,
+  type Taoist,
+  type TileKind,
   type VillageTile,
-  type VillageTileId,
-  type VillagerToken,
-  type WhiteMoonState,
-  type WuFengIncarnationId,
 } from './types'
+import { wmSetup } from './whiteMoon'
+import { bsSetup } from './blackSecret'
+import { run } from './flow'
 
-// Each color's board sits on a fixed side of the village in our layout.
-// Matches the physical game's canonical arrangement.
-export const BOARD_SIDE: Record<BoardColor, BoardSide> = {
-  red: 'north',
-  blue: 'east',
-  green: 'south',
-  yellow: 'west',
-}
+/** Tao tokens in the box, per colour. */
+export const TAO_PER_COLOR = 10
 
-export const ALL_TAOIST_COLORS: TaoistColor[] = ['red', 'blue', 'green', 'yellow']
-
-const TURN_ORDER: TaoistColor[] = ['red', 'blue', 'green', 'yellow']
-
-const STARTING_QI_BY_DIFFICULTY: Record<Difficulty, number> = {
-  initiation: 4,
-  normal: 3,
-  nightmare: 3,
-  hell: 3,
-}
-
-const STARTING_YIN_YANG: Record<Difficulty, boolean> = {
-  initiation: true,
-  normal: true,
-  nightmare: true,
-  hell: false,
-}
-
-// Tao supply per color (the game ships ~25 tokens per color; tighten if needed).
-const TAO_SUPPLY_INITIAL: Record<TaoColor, number> = {
-  red: 25,
-  green: 25,
-  blue: 25,
-  yellow: 25,
-  black: 25,
-}
-
-const tileId = (col: number, row: number): VillageTileId => `tile-${col}-${row}` as VillageTileId
-
-function buildVillage(
-  rng: RngState,
-  tilePool: typeof ALL_VILLAGE_TILE_KINDS,
-): { rng: RngState; village: VillageTile[] } {
-  // Randomize the 9 tile kinds across the 3x3.
-  const [rng2, kinds] = shuffle(rng, tilePool)
-  const village: VillageTile[] = []
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 3; col++) {
-      const idx = row * 3 + col
-      village.push({
-        id: tileId(col, row),
-        coord: { col: col as 0 | 1 | 2, row: row as 0 | 1 | 2 },
-        kind: kinds[idx],
-        haunted: false,
-        circleToken: kinds[idx] === 'circleOfPrayer' ? null : undefined,
-      })
-    }
+export function setupProblem(config: GameConfig): string | null {
+  const players = COLORS.filter((c) => config.seats[c] !== 'neutral')
+  if (players.length === 0) return 'At least one board needs a player.'
+  if (players.length === 2 && OPPOSITE[players[0]!] !== players[1]) {
+    return 'In a 2 player game, the players must sit facing each other (red & green, or blue & yellow).'
   }
-  return { rng: rng2, village }
-}
-
-function buildBoards(rng: RngState, difficulty: Difficulty): { rng: RngState; boards: Record<BoardColor, PlayerBoard> } {
-  // Pick which side (which power) is active on each board, independently.
-  let s = rng
-  const boards = {} as Record<BoardColor, PlayerBoard>
-  for (const color of ALL_TAOIST_COLORS) {
-    const [ns, sideIdx] = nextInt(s, 2)
-    s = ns
-    const [powerA, powerB] = TAOIST_POWERS_BY_COLOR[color]
-    boards[color] = {
-      color,
-      side: BOARD_SIDE[color],
-      activePowerId: sideIdx === 0 ? powerA : powerB,
-      ghostSpaces: [null, null, null],
-      buddhaSpaces: [false, false, false],
-      powerActive: true,
-      possessed: false,
-      // Neutral-board Qi pool is set when a seat is detected as neutral
-      // downstream. Default to player Qi here; createGame overwrites for
-      // possessed/neutral seats.
-      qi: STARTING_QI_BY_DIFFICULTY[difficulty],
-    }
-  }
-  return { rng: s, boards }
-}
-
-function buildTaoists(
-  config: GameConfig,
-  centralTileId: VillageTileId,
-): Record<TaoistColor, TaoistState> {
-  const out = {} as Record<TaoistColor, TaoistState>
-  const startQi = STARTING_QI_BY_DIFFICULTY[config.difficulty]
-  const startYinYang = STARTING_YIN_YANG[config.difficulty]
-  const playerCount = Object.values(config.seats).filter(Boolean).length
-  const isSolo = playerCount === 1
-
-  for (const color of ALL_TAOIST_COLORS) {
-    const seat = config.seats[color]
-    const isNeutral = !seat
-    const isAi = seat === 'ai'
-    const isHuman = seat === 'human'
-
-    // Starting Tao bag.
-    //  Standard: 1 Tao of own color (+ 1 black on Initiation).
-    //  Solo (rulebook): 1 Tao of EACH color (+ black on Initiation) and 3 power tokens.
-    const tao: Record<TaoColor, number> = { red: 0, green: 0, blue: 0, yellow: 0, black: 0 }
-    if (!isNeutral) {
-      if (isSolo) {
-        // Solo rulebook bonus: 1 Tao of each color, plus black on Initiation.
-        tao.red = 1
-        tao.green = 1
-        tao.blue = 1
-        tao.yellow = 1
-        if (config.difficulty === 'initiation') tao.black = 1
-      } else {
-        const ownTao: TaoColor = color // TaoistColor is a subset of TaoColor
-        tao[ownTao] = 1
-        if (config.difficulty === 'initiation') tao.black = 1
-      }
-    }
-
-    out[color] = {
-      id: `taoist-${color}`,
-      color,
-      isHuman,
-      isAi,
-      isNeutral,
-      alive: !isNeutral, // neutral seats have no live taoist
-      qi: isNeutral
-        ? 3 // neutral board's Qi pool (the rulebook says 3)
-        : startQi,
-      tao,
-      yinYang: !isNeutral && startYinYang,
-      buddhasInHand: 0,
-      // Solo: 3 power tokens up front. Multiplayer: 1 power token (rulebook §
-      // "1, 2 or 3 Players": "give each player … a power token"). For 4
-      // players the base rules don't grant power tokens — preserve 0 for 4p
-      // and grant 1 to non-solo seats only when there's at least one neutral
-      // board (i.e. <4 players).
-      powerTokens: isNeutral ? 0 : isSolo ? 3 : (playerCount < 4 ? 1 : 0),
-      tile: isNeutral ? null : centralTileId,
-    }
-  }
-  return out
-}
-
-function findCentralTile(village: VillageTile[]): VillageTileId {
-  const t = village.find((v) => v.coord.col === 1 && v.coord.row === 1)
-  if (!t) throw new Error('village layout missing center tile')
-  return t.id
-}
-
-// Build the ghost deck. Rules:
-//  - Shuffle all base ghosts (subset of the catalogue's 45).
-//  - White Moon: add the 10 expansion ghost cards, then remove 10 random cards
-//    (1-3p: remove additional 5/10/15 per missing player as in the rulebook).
-//  - 1-3 player mode (base only): remove 5 cards per missing player (unseen).
-//  - Insert N incarnations (chosen by difficulty) into the bottom region:
-//      - Normal/Initiation: 1 incarnation, exactly 10 cards from the bottom.
-//      - Nightmare/Hell: 4 incarnations (3 if 1-2 players), spaced every 10
-//        cards from the bottom.
-function buildDeck(
-  rng: RngState,
-  config: GameConfig,
-): { rng: RngState; deck: string[] } {
-  const playerCount = Object.values(config.seats).filter(Boolean).length
-  const missing = 4 - playerCount
-  const whiteMoon = config.expansions?.includes('whiteMoon') ?? false
-
-  // Pick incarnations (shuffle, then take N).
-  const [r1, allIncs] = shuffle(rng, allIncarnationIds())
-  const wantIncs = incarnationCount(config.difficulty, playerCount)
-  const chosen: WuFengIncarnationId[] = allIncs.slice(0, wantIncs)
-
-  // Shuffle base ghosts, plus White Moon ghosts if active.
-  const pool = whiteMoon ? [...allBaseGhostIds(), ...allWhiteMoonGhostIds()] : allBaseGhostIds()
-  const [r2, shuffled] = shuffle(r1, pool)
-
-  // White Moon trims:
-  //   - Remove 10 random cards (per rulebook setup).
-  //   - Then 1/2/3p: remove an extra 5 per missing player just like base.
-  // Base mode keeps the 5-per-missing-player trim.
-  let trimAmount: number
-  if (whiteMoon) {
-    trimAmount = 10 + 5 * missing
-  } else {
-    trimAmount = 5 * missing
-  }
-  const trimmed = shuffled.slice(0, shuffled.length - trimAmount)
-
-  // Insert incarnations at positions 10, 20, 30, ... from the bottom.
-  // Top of deck = index 0 (we draw from index 0).
-  // "10 cards from bottom" = total - 10 from top. With multiple incarnations the
-  // rule says every 10 cards: positions bottom-10, bottom-20, bottom-30, etc.
-  const deck = trimmed.slice()
-  for (let i = 0; i < chosen.length; i++) {
-    const fromBottom = 10 * (i + 1)
-    const insertAt = Math.max(0, deck.length - fromBottom + 1)
-    deck.splice(insertAt, 0, incarnationCardId(chosen[i]))
-  }
-
-  return { rng: r2, deck }
-}
-
-function incarnationCount(difficulty: Difficulty, playerCount: number): number {
-  if (difficulty === 'initiation' || difficulty === 'normal') return 1
-  // Nightmare / Hell: 4 normally, 3 only for 1-2 player games per rulebook.
-  return playerCount <= 2 ? 3 : 4
+  return null
 }
 
 export function createGame(config: GameConfig): GameState {
-  if (Object.values(config.seats).filter(Boolean).length < 1) {
-    throw new Error('createGame: at least one seat must be human or ai')
+  const problem = setupProblem(config)
+  if (problem) throw new Error(problem)
+  let rng = seedRng(config.seed)
+  const players = COLORS.filter((c) => config.seats[c] !== 'neutral')
+  const solo = players.length === 1
+  const missing = 4 - players.length
+
+  // --- Village: 9 tiles at random, all face up. ---
+  let pool: TileKind[] = [...BASE_TILES]
+  if (config.whiteMoon) {
+    if (config.whiteMoon.randomTiles) pool.push('kungFuSchool')
+    else pool = pool.map((k) => (k === 'nightWatchman' ? 'kungFuSchool' : k))
   }
+  if (config.blackSecret) pool.push('calligrapher')
+  let kinds: TileKind[]
+  ;[rng, kinds] = shuffle(rng, pool)
+  kinds = kinds.slice(0, 9)
+  const village: VillageTile[] = kinds.map((kind, idx) => ({
+    idx,
+    kind,
+    haunted: false,
+    circleToken: null,
+    villagers: [],
+    portal: false,
+    ladder: !!config.blackSecret,
+  }))
 
-  const whiteMoon = config.expansions?.includes('whiteMoon') ?? false
-  const blackSecret = config.expansions?.includes('blackSecret') ?? false
-  const seed = config.rngSeed ?? Math.floor(Math.random() * 0x7fffffff)
-  let rng = seedRng(seed)
-
-  // White Moon basic game replaces Night Watchman with Kung-Fu School.
-  // Black Secret adds the Calligrapher tile to the random pool (rulebook says
-  // shuffle from all available tiles and pick 9). We keep the simpler base
-  // shape: with Black Secret only, Calligrapher *replaces* Night Watchman so
-  // the player still gets 9 distinct tile kinds.
-  let tilePool = ALL_VILLAGE_TILE_KINDS
-  if (whiteMoon) tilePool = WHITE_MOON_BASIC_TILE_SET
-  if (blackSecret) {
-    // Replace Night Watchman with Calligrapher if Night Watchman is in the pool.
-    tilePool = tilePool.map((k) => (k === 'nightWatchmanBeat' ? 'calligrapher' : k))
-  }
-  const v = buildVillage(rng, tilePool)
-  rng = v.rng
-
-  const central = findCentralTile(v.village)
-
-  // White Moon: portal sits on the central tile (rulebook default), and 8
-  // stacks of 3 villagers fill the 8 non-central tiles. Only the top villager
-  // is visible.
-  let village = v.village
-  let whiteMoonState: WhiteMoonState | undefined
-  if (whiteMoon) {
-    // Pick the portal tile based on the variant.
-    const placement = config.portalPlacement ?? 'center'
-    const candidates = village.filter((t) => {
-      if (placement === 'center') return t.coord.col === 1 && t.coord.row === 1
-      if (placement === 'corner') {
-        const c = t.coord
-        return (c.col === 0 || c.col === 2) && (c.row === 0 || c.row === 2)
-      }
-      // 'edge' — the 4 cardinal-edge tiles.
-      const c = t.coord
-      return (c.col === 1 && (c.row === 0 || c.row === 2))
-        || (c.row === 1 && (c.col === 0 || c.col === 2))
-    })
-    let portalIdx: number
-    {
-      const [rngNew, idx] = nextInt(rng, candidates.length)
-      portalIdx = idx
-      rng = rngNew
+  // --- Boards: random side each (solo: red shows the Dance of the Spires). ---
+  const boards = {} as Record<Color, PlayerBoard>
+  for (const c of COLORS) {
+    let power: PowerId
+    const forced = config.powers?.[c]
+    if (solo && c === 'red') power = 'danceOfTheSpires'
+    else if (forced && POWERS_BY_COLOR[c].includes(forced)) power = forced
+    else {
+      let side: number
+      ;[rng, side] = nextInt(rng, 2)
+      power = POWERS_BY_COLOR[c][side]!
     }
-    const portalTileId = candidates[portalIdx].id
-
-    const stackResult = buildVillagerStacks(rng)
-    rng = stackResult.rng
-    // Assign villager stacks to the 8 non-portal tiles in order.
-    let stackCursor = 0
-    village = village.map((t) => {
-      if (t.id === portalTileId) {
-        return { ...t, hasPortal: true }
-      }
-      const stack = stackResult.stacks[stackCursor++]
-      if (!stack) return t
-      return { ...t, villagerStack: stack }
-    })
-    whiteMoonState = {
-      saved: [],
-      dead: [],
-      moonCrystalReserve: 12,
-      moonCrystalsByTaoist: { red: 0, blue: 0, green: 0, yellow: 0 },
-      receptacles: { ne: false, nw: false, se: false, sw: false },
-      suLingPos: null,
+    const neutral = config.seats[c] === 'neutral'
+    boards[c] = {
+      color: c,
+      power,
+      spaces: [null, null, null],
+      buddhas: [false, false, false],
+      neutral,
+      qi: neutral ? 3 : 0,
+      possessed: false,
     }
   }
 
-  const b = buildBoards(rng, config.difficulty)
-  rng = b.rng
-
-  const d = buildDeck(rng, config)
-  rng = d.rng
-
-  const taoists = buildTaoists(config, central)
-
-  // Neutral boards start with 3 Qi each in their pool; they don't "have" a
-  // Taoist, but the board's own qi is used when the rules say "the board loses
-  // 1 Qi".
-  for (const color of ALL_TAOIST_COLORS) {
-    if (taoists[color].isNeutral) {
-      b.boards[color].qi = 3
+  // --- Taoists. ---
+  const difficulty = config.difficulty
+  const startQi = difficulty === 'initiation' ? 4 : 3
+  const taoSupply: Record<TaoColor, number> = { red: TAO_PER_COLOR, blue: TAO_PER_COLOR, green: TAO_PER_COLOR, yellow: TAO_PER_COLOR, black: TAO_PER_COLOR }
+  const taoists = {} as Record<Color, Taoist>
+  for (const c of COLORS) {
+    const kind = config.seats[c]
+    const player = kind !== 'neutral'
+    const tao: Record<TaoColor, number> = { red: 0, blue: 0, green: 0, yellow: 0, black: 0 }
+    if (player) {
+      // A Tao token in their colour (solo: one of each colour), plus black on Initiation.
+      if (solo) for (const x of COLORS) tao[x] = 1
+      else tao[c] = 1
+      if (difficulty === 'initiation') tao.black = 1
+      for (const x of Object.keys(tao) as TaoColor[]) taoSupply[x] -= tao[x]
+    }
+    taoists[c] = {
+      color: c,
+      kind,
+      alive: player,
+      qi: player ? startQi : 0,
+      tao,
+      yinYang: player && difficulty !== 'hell',
+      buddhas: 0,
+      // 1–3 players: one power token each; solo: three.
+      powerTokens: !player ? 0 : solo ? 3 : missing > 0 ? 1 : 0,
+      tile: player ? CENTER_TILE : null,
+      underground: false,
+      crystals: 0,
+      artifacts: [],
     }
   }
 
-  // Active board = first seat in clockwise order that isn't neutral.
-  // We still rotate turns in canonical order including neutral seats (their
-  // turns run a Yin-only mini-phase).
-  const firstColor = TURN_ORDER.find((c) => !taoists[c].isNeutral) ?? TURN_ORDER[0]
+  // --- Ghost deck. ---
+  const incCount = difficulty === 'initiation' || difficulty === 'normal' ? 1 : players.length <= 2 ? 3 : 4
+  let ghosts: string[]
+  if (config.blackSecret) {
+    // Black Secret keeps a fixed number of cards by Taoist count.
+    const keep = [35, 40, 45, 50][players.length - 1]!
+    ;[rng, ghosts] = shuffle(rng, [...baseGhostIds(), ...blackSecretGhostIds(), ...(config.whiteMoon ? whiteMoonGhostIds() : [])])
+    ghosts = ghosts.slice(0, keep)
+  } else {
+    ;[rng, ghosts] = shuffle(rng, [...baseGhostIds(), ...(config.whiteMoon ? whiteMoonGhostIds() : [])])
+    // White Moon: remove 10 at random; then 5 per missing player, unseen.
+    const remove = (config.whiteMoon ? 10 : 0) + 5 * missing
+    ghosts = ghosts.slice(0, ghosts.length - remove)
+  }
+  let incarnations: string[]
+  ;[rng, incarnations] = shuffle(rng, incarnationIds())
+  const wuFengCards = config.blackSecret
+    ? Array.from({ length: incCount }, (_, i) => `summon-${i + 1}`)
+    : incarnations.slice(0, incCount)
+  // From the bottom: 10 cards, an incarnation (repeated), then the rest on top.
+  const bottomUp: string[] = []
+  const fromBottom = ghosts.slice().reverse()
+  for (const w of wuFengCards) {
+    bottomUp.push(...fromBottom.splice(0, 10), w)
+  }
+  bottomUp.push(...fromBottom)
+  const deck = bottomUp.reverse()
 
-  let blackSecretState: BlackSecretState | undefined
-  if (blackSecret) {
-    const result = buildBlackSecret(config, rng)
-    rng = result.rng
-    blackSecretState = result.state
+  // --- First player. ---
+  let first = config.firstPlayer && players.includes(config.firstPlayer) ? config.firstPlayer : null
+  if (!first) {
+    let i: number
+    ;[rng, i] = nextInt(rng, players.length)
+    first = players[i]!
   }
 
-  return {
+  const s: GameState = {
     config,
-    phase: 'yin', // first turn starts at Yin
-    turnIndex: TURN_ORDER.indexOf(firstColor),
-    turnOrder: [...TURN_ORDER],
+    rng,
+    phase: 'yin',
+    turn: 1,
+    active: first,
     village,
-    boards: b.boards,
+    boards,
     taoists,
-    ghostDeck: d.deck,
-    discardPile: [],
-    buddhaSupply: 2,
-    taoSupply: { ...TAO_SUPPLY_INITIAL },
-    hauntedCount: 0,
-    villagersDead: 0,
-    inactiveTaoMarker: false,
-    activeBoard: firstColor,
-    rngState: rng,
-    whiteMoon: whiteMoonState,
-    blackSecret: blackSecretState,
+    deck,
+    discard: [],
+    templeBuddhas: 2,
+    taoSupply,
+    centerPowerTokens: 0,
+    mantra: 'ready',
+    nextUid: 1,
+    queue: [],
+    prompt: null,
+    yang: null,
+    outcome: null,
+    events: [],
+    whiteMoon: null,
+    blackSecret: null,
   }
-}
+  if (config.whiteMoon) wmSetup(s)
+  if (config.blackSecret) bsSetup(s, incarnations)
 
-function buildBlackSecret(config: GameConfig, rng: RngState): { state: BlackSecretState; rng: RngState } {
-  const playerCount = Object.values(config.seats).filter(Boolean).length
-  const deck = buildCatacombDeck(playerCount)
-  const [rngOut, shuffled] = shuffle(rng, deck)
-  return {
-    rng: rngOut,
-    state: {
-      wuFengTag: config.wuFengPlayer?.tag ?? 'Wu-Feng',
-      curses: { 1: 0, 2: 0, 3: 0, 4: 0 },
-      catacombsDemons: [],
-      reserveDemons: ['cost2', 'cost3', 'cost4'],
-      skeletonsAvailable: 3,
-      // 3× lvl 2, 2× lvl 3, 1× lvl 4 per rulebook setup.
-      bloodyMantras: [
-        { level: 2, qiOnCard: 0 },
-        { level: 2, qiOnCard: 0 },
-        { level: 2, qiOnCard: 0 },
-        { level: 3, qiOnCard: 0 },
-        { level: 3, qiOnCard: 0 },
-        { level: 4, qiOnCard: 0 },
-      ],
-      catacombDeck: shuffled,
-      urnsFound: 0,
-      shadowPos: null,
-    },
-  }
-}
+  s.events.push({
+    kind: 'setup',
+    text:
+      `New game — ${difficulty[0]!.toUpperCase()}${difficulty.slice(1)}, ${players.length} player${players.length > 1 ? 's' : ''}. ` +
+      `${wuFengCards.length} incarnation${wuFengCards.length > 1 ? 's' : ''} of Wu-Feng hide in a ${deck.length}-card deck.`,
+  })
+  s.events.push({
+    kind: 'setup',
+    text: `Powers: ${COLORS.map((c) => `${COLOR_NAME[c]} — ${POWER_NAME[boards[c].power]}${boards[c].neutral ? ' (neutral)' : ''}`).join('; ')}.`,
+  })
+  s.events.push({ kind: 'setup', text: `Village: ${village.map((t) => TILE_NAME[t.kind]).join(', ')}.` })
 
-/**
- * Build 8 stacks of villagers, randomized.
- *
- * Villager pool: 12 families × (3/2/1 members) = 24 tokens.
- * 8 stacks × 3 = 24 slots.
- */
-function buildVillagerStacks(rng: RngState): { rng: RngState; stacks: VillagerToken[][] } {
-  const all: VillagerToken[] = []
-  for (const family of VILLAGER_FAMILIES_BY_SIZE[3]) {
-    for (let i = 0; i < 3; i++) all.push({ family, index: i })
-  }
-  for (const family of VILLAGER_FAMILIES_BY_SIZE[2]) {
-    for (let i = 0; i < 2; i++) all.push({ family, index: i })
-  }
-  for (const family of VILLAGER_FAMILIES_BY_SIZE[1]) {
-    all.push({ family, index: 0 })
-  }
-  const [rng2, shuffled] = shuffle(rng, all)
-  const stacks: VillagerToken[][] = []
-  for (let s = 0; s < 8; s++) {
-    stacks.push(shuffled.slice(s * 3, s * 3 + 3))
-  }
-  return { rng: rng2, stacks }
+  s.queue.push({ k: 'beginTurn' })
+  run(s)
+  return s
 }
-
-// Re-exported so engine.ts doesn't have to know about setup.ts internals.
-export { TURN_ORDER }

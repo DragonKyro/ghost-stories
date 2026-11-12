@@ -1,0 +1,438 @@
+/* Online screen, lobby, chat and connection badge. Uses the theme variables in src/index.css. */
+
+.ol-wrap {
+  min-height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 32px 16px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.ol-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 20px;
+  width: 100%;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ol-card-wide {
+  max-width: 720px;
+}
+
+.ol-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ol-title {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 1px;
+}
+
+.ol-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+.ol-input,
+.ol-select {
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+.ol-input:focus,
+.ol-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.ol-code-input {
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+}
+
+.ol-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ol-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ol-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+  padding: 10px 16px;
+}
+.ol-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.ol-btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink-muted);
+}
+.ol-btn-ghost:hover:not(:disabled) {
+  color: var(--ink);
+}
+.ol-btn-sm {
+  font-size: 12px;
+  padding: 3px 8px;
+}
+.ol-full {
+  width: 100%;
+}
+
+.ol-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.ol-divider::before,
+.ol-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--rule);
+}
+
+.ol-muted {
+  color: var(--ink-muted);
+  font-size: 12px;
+  margin: 0;
+}
+.ol-status {
+  color: var(--ink);
+  margin: 0;
+  white-space: pre-wrap;
+}
+.ol-error-title {
+  margin: 0;
+  font-size: 16px;
+  color: var(--taoist-red);
+}
+.ol-problem {
+  margin: 0;
+  font-size: 13px;
+  color: var(--accent);
+}
+.ol-notice {
+  margin: 0;
+  font-size: 13px;
+  color: var(--taoist-red);
+}
+
+/* Room code + invite link */
+.ol-roomcode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.ol-roomcode-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--ink-muted);
+}
+.ol-roomcode-value {
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+  font-size: 26px;
+  letter-spacing: 0.3em;
+  padding: 2px 8px 2px 14px;
+  background: var(--bg);
+}
+.ol-roomcode-hint {
+  font-size: 10px;
+  color: var(--ink-muted);
+}
+.ol-invite {
+  display: flex;
+  gap: 6px;
+}
+.ol-invite .ol-input {
+  flex: 1;
+  font-size: 12px;
+  min-width: 0;
+}
+
+/* The table: four boards around the village */
+.ol-table {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 170px) minmax(0, 1fr);
+  grid-template-areas:
+    '. red .'
+    'yellow village blue'
+    '. green .';
+  gap: 10px;
+  align-items: center;
+}
+.ol-area-red {
+  grid-area: red;
+}
+.ol-area-blue {
+  grid-area: blue;
+}
+.ol-area-green {
+  grid-area: green;
+}
+.ol-area-yellow {
+  grid-area: yellow;
+}
+.ol-village {
+  grid-area: village;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  aspect-ratio: 1;
+  padding: 6px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+}
+.ol-village-tile {
+  border-radius: 3px;
+  background: var(--rule);
+  opacity: 0.8;
+}
+.ol-village-tile-center {
+  background: var(--ink-muted);
+  opacity: 0.5;
+}
+
+.ol-seat {
+  border: 2px solid var(--seat-color);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: color-mix(in srgb, var(--seat-color) 10%, var(--bg-elevated));
+  min-width: 0;
+}
+.ol-seat-mine {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--seat-color) 45%, transparent);
+}
+.ol-seat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--seat-color);
+  font-weight: 700;
+}
+.ol-seat-who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  min-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ol-seat-empty {
+  color: var(--ink-muted);
+  font-style: italic;
+}
+.ol-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--rule);
+  color: var(--ink-muted);
+}
+.ol-seat-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.ol-seat-actions .ol-select {
+  font-size: 12px;
+  padding: 2px 4px;
+}
+.ol-wufeng {
+  --seat-color: var(--wufeng, #9a7bc4);
+}
+
+.ol-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--ink-muted);
+}
+.ol-dot-online {
+  background: #4caf6a;
+  box-shadow: 0 0 4px #4caf6a;
+}
+
+/* Settings */
+.ol-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid var(--rule);
+  padding-top: 12px;
+}
+.ol-settings h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.ol-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+.ol-setting-sub {
+  padding-left: 22px;
+}
+.ol-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+/* Lobby side column */
+.ol-side {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Chat */
+.ol-chat {
+  background: var(--bg-elevated);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+.ol-chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ol-chat-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 6px;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.ol-chat-msg {
+  padding: 1px 0;
+  overflow-wrap: anywhere;
+}
+.ol-chat-name {
+  font-weight: 600;
+  margin-right: 6px;
+}
+.ol-chat-system {
+  color: var(--ink-muted);
+  font-style: italic;
+  font-size: 12px;
+}
+.ol-chat-form {
+  display: flex;
+  gap: 4px;
+}
+.ol-chat-form .ol-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  padding: 5px 8px;
+}
+
+/* Connection badge */
+.ol-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.ol-badge-code {
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+  letter-spacing: 0.15em;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+}
+.ol-badge-seats {
+  display: inline-flex;
+  gap: 4px;
+}
+.ol-badge-seat {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--seat-color);
+  opacity: 0.35;
+  border: 1px solid transparent;
+}
+.ol-badge-seat-online {
+  opacity: 1;
+  border-color: #4caf6a;
+}
+.ol-badge-warn {
+  color: var(--accent);
+}
+
+@media (max-width: 560px) {
+  .ol-table {
+    grid-template-columns: minmax(0, 1fr) 90px minmax(0, 1fr);
+    gap: 6px;
+  }
+  .ol-seat {
+    padding: 6px;
+  }
+  .ol-wrap {
+    padding: 16px 8px;
+  }
+}

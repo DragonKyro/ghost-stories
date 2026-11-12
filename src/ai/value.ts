@@ -1,314 +1,177 @@
-// Pure heuristics — no React, no store, no engine mutation. Functions take a
-// snapshot and return numbers / booleans / picks.
-//
-// Stateless across turns; any per-turn memory lives on `GameState`.
+// The position score used at the end of every rollout, and the ghost-cost
+// model shared with the quick policy. Higher is better for the Taoists.
+// Uses only public information.
 
-import { getGhostCard } from '@/game/ghostCatalogue'
+import { isSkeleton, totalResistance } from '@/game/catalogue'
+import { facingTile, lineOf } from '@/game/geometry'
 import {
-  capturedDiceCount,
-  ghostInstanceAt,
-  isPowerBlocked,
-  isTaoSpendingBlocked,
-  validateExorcism,
-} from '@/game/helpers'
-import type {
-  BoardColor,
-  GameState,
-  GhostInstance,
-  GhostRef,
-  TaoColor,
-  TaoDieFace,
-  TaoistColor,
-} from '@/game/types'
-import { getGhostCard as _g } from '@/game/ghostCatalogue'
-void _g
+  exorcismBlocker,
+  exorcismDice,
+  ghostsInPlay,
+  hasPower,
+  hauntedCount,
+  incarnationInPlay,
+  incarnationsInDeck,
+  suLingAt,
+  taoBlocked,
+  whiteIsWild,
+  type PlacedGhost,
+} from '@/game/rules'
+import { coverChance, reqsOf } from './prob'
+import type { Color, GameState, TaoColor, Taoist } from '@/game/types'
+import { COLORS, TAO_COLORS } from '@/game/types'
+import { W } from './tuning'
 
-// -------- Exorcism math --------------------------------------------------
-
-/**
- * Expected colored faces from N Tao dice. Each die has 6 faces:
- * red / green / blue / yellow / wild / black. The colored + wild faces are
- * useful for exorcism; black isn't.
- *
- * `colorBreakdown[c]` = expected count of dice showing color c (excluding wild).
- * `expectedWilds` = expected dice showing wild.
- */
-export function expectedDice(nDice: number): {
-  expectedByColor: Record<TaoColor, number>
-  expectedWilds: number
-} {
-  // Die distribution: 1/6 per side. Black faces are useless.
-  return {
-    expectedByColor: {
-      red: nDice * (1 / 6),
-      green: nDice * (1 / 6),
-      blue: nDice * (1 / 6),
-      yellow: nDice * (1 / 6),
-      black: 0, // we don't account for black-as-color for exorcism (only useful when ghost needs black resistance, where a black die *would* match — kept at 0 for the planner; rare in practice)
-    },
-    expectedWilds: nDice * (1 / 6),
-  }
+/** The cost of one more haunted tile, given `h` already haunted. */
+export function hauntCost(h: number): number {
+  if (h >= 2) return W.thirdHaunt
+  return h === 1 ? W.h2 - W.h1 : W.h1
 }
 
-/**
- * Estimate the probability that N dice + optional Tao spend reach a target
- * resistance. We approximate by:
- *   1. Computing the *deficit* per color after Tao tokens fill it
- *   2. Comparing that deficit to expected dice yield
- *
- * Returns a value in [0, 1]. Heuristic — close enough to drive priorities.
- */
-export function exorcismSuccessProbability(
-  state: GameState,
-  actor: TaoistColor,
-  targets: GhostRef[],
-  taoBudget: Partial<Record<TaoColor, number>> = {},
-): number {
-  if (targets.length === 0) return 0
-  const cards = targets.map((r) => {
-    const g = ghostInstanceAt(state, r)
-    return g ? { ghost: g, card: getGhostCard(g.cardId), ref: r } : null
-  }).filter((x): x is { ghost: GhostInstance; card: ReturnType<typeof getGhostCard>; ref: GhostRef } => !!x)
-  if (cards.length === 0) return 0
-  // Dice-immune ghost? Probability 0 via dice. (Sorcerer/Buddha is the answer.)
-  if (cards.some((c) => c.card.abilities.center.some((a) => a.kind === 'diceImmune'))) return 0
+/** Total penalty for `h` haunted tiles. */
+export function hauntedPenalty(h: number): number {
+  return h <= 0 ? 0 : h === 1 ? W.h1 : W.h2
+}
 
-  // Aggregate effective resistance (with Circle-of-Prayer / Mantra discounts).
-  const circle = state.village.find((v) => v.kind === 'circleOfPrayer')
-  const circleColor = circle?.circleToken
-  const req: Record<TaoColor, number> = { red: 0, green: 0, blue: 0, yellow: 0, black: 0 }
-  for (const { card, ghost } of cards) {
-    for (const c of ['red', 'green', 'blue', 'yellow', 'black'] as TaoColor[]) req[c] += card.resistance[c]
-    if (circleColor && card.color === circleColor) {
-      req[card.color] = Math.max(0, req[card.color] - 1)
-    }
-    if (ghost.hasMantra) {
-      for (const c of ['red', 'green', 'blue', 'yellow', 'black'] as TaoColor[]) {
-        if (req[c] > 0) { req[c] -= 1; break }
+/** How much this ghost hurts the Taoists while it stays in play. */
+export function ghostCost(s: GameState, g: PlacedGhost, h = hauntedCount(s)): number {
+  if (isSkeleton(g.ghost.card)) return W.skeleton
+  const c = g.card
+  let v = W.ghostBase + W.ghostRes * totalResistance(c)
+  if (c.incarnation) v += W.incarnation
+  const held = suLingAt(s, g.ref)
+  for (const a of c.center) {
+    if (held && (a.kind === 'haunter' || a.kind === 'tormentor' || a.kind === 'devourer')) continue
+    switch (a.kind) {
+      case 'haunter': {
+        // Nothing left to haunt in front of it: harmless as a haunter.
+        if (!lineOf(g.ref).some((t) => !s.village[t]!.haunted)) break
+        v += (g.ghost.figure === 'stone' ? W.haunterStone : W.haunterCard) * hauntCost(h)
+        break
       }
+      case 'tormentor':
+        v += W.tormentor + hauntCost(h) / 6
+        break
+      case 'devourer':
+        v += W.devourer
+        break
+      case 'powerBlocker':
+        v += W.powerBlocker * (a.group ? 2.5 : 1)
+        break
+      case 'taoBlocker':
+        v += W.taoBlocker
+        break
+      case 'dieCaptor':
+        v += W.dieCaptor
+        break
+      case 'diceImmune':
+        v += W.diceImmune
+        break
+      default:
+        break
     }
   }
-
-  // Subtract Tao budget the AI plans to spend.
-  for (const c of ['red', 'green', 'blue', 'yellow', 'black'] as TaoColor[]) {
-    const spend = Math.min(req[c], taoBudget[c] ?? 0)
-    req[c] -= spend
-  }
-
-  // Dice count gating.
-  const nDice = Math.max(0, 3 - capturedDiceCount(state)) + extraDiceFromPowers(state, actor)
-  if (nDice === 0) return 0
-
-  // Compute expected colored shortfall (after wilds patch up flexibly).
-  const totalShortColored = (req.red + req.green + req.blue + req.yellow) // wild can cover these
-  const blackShort = req.black
-  if (blackShort > 0) {
-    // Wilds don't cover black resistance; only black dice or black Tao do. We
-    // currently don't model black die contribution (rare). If the AI hasn't
-    // budgeted enough black Tao, treat as failure.
-    return 0
-  }
-
-  // Expected total useful (colored + wild) faces.
-  const expected = nDice * (4 / 6) + nDice * (1 / 6) // colored + wild
-  // Rough success probability via Chebyshev-like comparison.
-  if (expected >= totalShortColored + 1.5) return 0.9
-  if (expected >= totalShortColored + 0.5) return 0.65
-  if (expected >= totalShortColored) return 0.45
-  if (expected >= totalShortColored - 0.5) return 0.25
-  return 0.1
-}
-
-function extraDiceFromPowers(state: GameState, color: TaoistColor): number {
-  const board = state.boards[color]
-  if (board.activePowerId !== 'strengthOfMountain') return 0
-  if (isPowerBlocked(state, color)) return 0
-  return 1
-}
-
-/**
- * Pick a minimal Tao token budget (across the actor + same-tile Taoists) that
- * makes the exorcism viable. Returns:
- *   - `budget` — total tokens by color the AI plans to spend
- *   - `assignments` — concrete `(from, color)` list to put in the action payload
- *   - `verdict` — whether the plan is enough, given an *average* roll
- *
- * Note: we don't roll the dice here. The AI commits to a plan, the engine
- * actually rolls (via `rollTaoDice`), and the engine validates against the
- * realized roll. If the roll undershoots, the spent Tao might not cover and
- * the engine rejects — which is fine: the AI just tried and "failed".
- *
- * To make the AI useful we plan against the *worst-likely* roll: ~floor of
- * expected colored faces. That means the AI tends to spend Tao to bridge the
- * deficit when it has any to spend.
- */
-export function planTaoSpend(
-  state: GameState,
-  actor: TaoistColor,
-  targets: GhostRef[],
-): {
-  budget: Record<TaoColor, number>
-  assignments: Array<{ from: `taoist-${TaoistColor}`; color: TaoColor }>
-} {
-  const empty: Record<TaoColor, number> = { red: 0, green: 0, blue: 0, yellow: 0, black: 0 }
-  const me = state.taoists[actor]
-  if (!me.tile) return { budget: empty, assignments: [] }
-  if (isTaoSpendingBlocked(state)) return { budget: empty, assignments: [] }
-
-  // Effective resistance.
-  const circle = state.village.find((v) => v.kind === 'circleOfPrayer')
-  const circleColor = circle?.circleToken
-  const req: Record<TaoColor, number> = { red: 0, green: 0, blue: 0, yellow: 0, black: 0 }
-  for (const ref of targets) {
-    const ghost = ghostInstanceAt(state, ref)
-    if (!ghost) continue
-    const card = getGhostCard(ghost.cardId)
-    for (const c of ['red', 'green', 'blue', 'yellow', 'black'] as TaoColor[]) req[c] += card.resistance[c]
-    if (circleColor && card.color === circleColor) req[card.color] = Math.max(0, req[card.color] - 1)
-    if (ghost.hasMantra) {
-      for (const c of ['red', 'green', 'blue', 'yellow', 'black'] as TaoColor[]) {
-        if (req[c] > 0) { req[c] -= 1; break }
-      }
-    }
-  }
-
-  // Pool of available tokens across same-tile Taoists.
-  const pool: Record<TaoColor, Array<`taoist-${TaoistColor}`>> = { red: [], green: [], blue: [], yellow: [], black: [] }
-  for (const c of ['red', 'blue', 'green', 'yellow'] as TaoistColor[]) {
-    const t = state.taoists[c]
-    if (!t.alive || t.tile !== me.tile) continue
-    for (const color of ['red', 'green', 'blue', 'yellow', 'black'] as TaoColor[]) {
-      for (let i = 0; i < t.tao[color]; i++) pool[color].push(t.id)
-    }
-  }
-
-  // Expected die yield per color (excluding wilds, distributed evenly).
-  const nDice = Math.max(0, 3 - capturedDiceCount(state)) + extraDiceFromPowers(state, actor)
-  const expectedColored = Math.floor(nDice * (1 / 6)) // ~floor per color in a single die roll — pessimistic
-  const expectedWilds = Math.floor(nDice * (1 / 6))
-
-  // Greedy: spend Tao to bridge each color's deficit beyond the expected colored yield.
-  // Black needs exact spending — no wild substitution.
-  const budget: Record<TaoColor, number> = { red: 0, green: 0, blue: 0, yellow: 0, black: 0 }
-  const assignments: Array<{ from: `taoist-${TaoistColor}`; color: TaoColor }> = []
-
-  // Step 1: black first (no wild help available).
-  if (req.black > 0) {
-    const need = req.black
-    const have = pool.black.length
-    const spend = Math.min(need, have)
-    for (let i = 0; i < spend; i++) {
-      const from = pool.black.pop()!
-      budget.black++
-      assignments.push({ from, color: 'black' })
-    }
-    if (spend < need) {
-      // Can't satisfy black resistance — abandon the plan.
-      return { budget: empty, assignments: [] }
-    }
-  }
-
-  // Step 2: each color, spend tokens beyond the pessimistic-expected colored yield.
-  // We rely on wilds to top off a small remaining shortfall.
-  let remainingWilds = expectedWilds
-  for (const c of ['red', 'green', 'blue', 'yellow'] as TaoColor[]) {
-    const need = Math.max(0, req[c] - expectedColored)
-    // Spend tokens of this color first.
-    let still = need
-    while (still > 0 && pool[c].length > 0) {
-      const from = pool[c].pop()!
-      budget[c]++
-      assignments.push({ from, color: c })
-      still--
-    }
-    // Whatever's left, hope wilds cover.
-    if (still > remainingWilds) {
-      // Not enough wilds expected. Plan is shaky; still return what we have —
-      // success probability will reflect this and the priority tree will skip
-      // if it's not worth it.
-      remainingWilds = 0
-    } else {
-      remainingWilds -= still
-    }
-  }
-
-  return { budget, assignments }
-}
-
-// -------- Ghost threat scoring -----------------------------------------
-
-/**
- * Per-ghost threat score: higher means "more urgent to deal with".
- * Factors:
- *   - Haunting figure position (stone1 = 2pts, stone2 = 4pts about to haunt)
- *   - Tormentor presence (1.5)
- *   - On the active board (1.0 — it acts THIS turn)
- *   - Dice immune (2.0 — must Sorcerer/Buddha, time-critical)
- *   - Power blocker / Tao blocker (1.5 — disables critical actions)
- *   - Incarnation (3.0 — winning the game requires killing it)
- */
-export function ghostThreat(state: GameState, ref: GhostRef): number {
-  const ghost = ghostInstanceAt(state, ref)
-  if (!ghost) return 0
-  const card = getGhostCard(ghost.cardId)
-  let s = 1
-
-  if (ghost.hauntingFigurePos === 'stone1') s += 2
-  if (ghost.hauntingFigurePos === 'stone2') s += 4
-
-  for (const ab of card.abilities.center) {
-    if (ab.kind === 'tormentor') s += 1.5
-    if (ab.kind === 'haunter') s += 1
-    if (ab.kind === 'diceImmune') s += 2
-    if (ab.kind === 'powerBlocker') s += 1.5
-    if (ab.kind === 'taoBlocker') s += 1.5
-    if (ab.kind === 'dieCaptor') s += 1.5
-  }
-  if (card.isIncarnation) s += 3
-
-  // Multiply by inverse resistance — easier kills are higher priority for the
-  // same-turn-impact reasoning (we don't want to leave easy ones on the board).
-  const totalRes = Object.values(card.resistance).reduce((a, b) => a + b, 0)
-  s += Math.max(0, 4 - totalRes) * 0.4
-
-  // Ghost on the active board acts THIS turn.
-  if (ref.board === state.activeBoard) s += 1.5
-
-  return s
-}
-
-/** Hand value — soft score for "this Taoist needs Tao". */
-export function taoistHandValue(state: GameState, color: TaoistColor): number {
-  const t = state.taoists[color]
-  if (!t.alive || t.isNeutral) return 0
-  let v = t.qi * 2
-  for (const c of ['red', 'green', 'blue', 'yellow', 'black'] as TaoColor[]) v += t.tao[c]
-  if (t.yinYang) v += 3
-  v += t.buddhasInHand * 2
-  v += t.powerTokens
+  if (c.incarnation === 'deathArmy') v += W.tormentor * 3
   return v
 }
 
-// -------- Pressure --------------------------------------------------------
-
-/** "Pressure" = a board needs help. Higher = more dangerous. */
-export function boardPressure(state: GameState, color: BoardColor): number {
-  const b = state.boards[color]
-  let p = 0
-  for (const g of b.ghostSpaces) {
-    if (!g) continue
-    const card = getGhostCard(g.cardId)
-    p += 1
-    if (g.hauntingFigurePos === 'stone1') p += 1
-    if (g.hauntingFigurePos === 'stone2') p += 2
-    if (card.isIncarnation) p += 2
-    if (card.abilities.center.some((a) => a.kind === 'tormentor')) p += 0.7
-  }
-  if (b.possessed) p += 2
-  return p
+/** Score of a board's crowding (negative). */
+export function crowdCost(n: number): number {
+  return n >= 3 ? W.full : n === 2 ? W.two : 0
 }
 
-// Provide an alias used by the priority tree — keeping the validateExorcism
-// import live in the module graph.
-export const _ = validateExorcism
-export type _NoiseDieFace = TaoDieFace
+/** Tao each colour of the ghosts in play needs (for valuing tokens). */
+export function colourNeeds(s: GameState): Record<TaoColor, number> {
+  const need: Record<TaoColor, number> = { red: 0, blue: 0, green: 0, yellow: 0, black: 0 }
+  for (const g of ghostsInPlay(s)) for (const c of TAO_COLORS) need[c] += g.card.resistance[c] ?? 0
+  return need
+}
+
+export function taoValue(t: Taoist, need: Record<TaoColor, number>): number {
+  let n = 0
+  let match = 0
+  for (const c of TAO_COLORS) {
+    n += t.tao[c]
+    match += Math.min(t.tao[c], Math.max(0, need[c] - 1))
+  }
+  return Math.min(n, W.taoCap) * W.tao + Math.max(0, n - W.taoCap) * W.taoExtra + match * W.taoMatch
+}
+
+export function qiValue(qi: number): number {
+  if (qi <= 1) return 0
+  let v = W.qi2
+  if (qi >= 3) v += W.qi3
+  if (qi >= 4) v += W.qi4
+  if (qi >= 5) v += W.qiMore * Math.min(3, qi - 4)
+  return v
+}
+
+/**
+ * How ready the Taoists are to exorcise this incarnation: the best chance any
+ * one of them would have from the tile facing it, with their own Tao plus
+ * that of the Taoists already standing there.
+ */
+export function readiness(s: GameState, g: PlacedGhost): number {
+  if (exorcismBlocker(s, g.ref)) return 0
+  const tile = facingTile(g.ref)
+  const reqs = reqsOf(s, s.active, [g.ref])
+  const wild = whiteIsWild(s)
+  const blocked = taoBlocked(s)
+  const there = COLORS.filter((c) => s.taoists[c].alive && s.taoists[c].tile === tile && !s.taoists[c].underground)
+  let best = 0
+  for (const c of COLORS) {
+    const t = s.taoists[c]
+    if (!t.alive || t.underground) continue
+    const tokens: Record<TaoColor, number> = { red: 0, blue: 0, green: 0, yellow: 0, black: 0 }
+    let crystals = 0
+    for (const o of new Set([c, ...there])) {
+      crystals += s.taoists[o].crystals
+      if (!blocked) for (const x of TAO_COLORS) tokens[x] += s.taoists[o].tao[x]
+    }
+    best = Math.max(best, coverChance(reqs, exorcismDice(s, c), wild, tokens, crystals, hasPower(s, c, 'godsFavorite')))
+  }
+  return best
+}
+
+/** How good the position is for the Taoists. */
+export function evaluate(s: GameState): number {
+  if (s.phase === 'gameOver') {
+    // Losing later is a little better than losing sooner (a tie-break in lost causes).
+    return s.outcome?.result === 'win' ? W.winValue : -W.lossValue + (60 - s.deck.length) * 0.5
+  }
+  let v = 0
+  const h = hauntedCount(s)
+  v -= hauntedPenalty(h)
+  for (const t of s.village) if (t.haunted) v -= W.tileHaunted[t.kind] ?? 0
+  const need = colourNeeds(s)
+  for (const c of COLORS) {
+    const t = s.taoists[c]
+    const b = s.boards[c]
+    if (b.neutral) {
+      v += b.possessed ? -W.possessed : b.qi * W.neutralQi
+      continue
+    }
+    if (!t.alive) {
+      v -= W.dead
+      continue
+    }
+    v += qiValue(t.qi) + taoValue(t, need)
+    v += t.buddhas * W.buddhaHeld + (t.yinYang ? W.yinYang : 0) + t.powerTokens * W.powerToken + t.crystals * W.crystal
+  }
+  for (const g of ghostsInPlay(s)) v -= ghostCost(s, g, h)
+  for (const c of COLORS) {
+    const b = s.boards[c]
+    v -= crowdCost(b.spaces.filter(Boolean).length)
+    for (let i = 0; i < 3; i++) if (b.buddhas[i] && !b.spaces[i]) v += W.buddhaOnBoard
+  }
+  const circle = s.village.find((t) => t.kind === 'circleOfPrayer')
+  if (circle?.circleToken && !circle.haunted) v += need[circle.circleToken] > 0 ? W.circle * (1 + Math.min(4, need[circle.circleToken]) * 0.5) : W.circle * 0.5
+  if (W.incReady > 0) for (const g of ghostsInPlay(s)) if (g.card.incarnation) v += W.incReady * readiness(s, g)
+  // Drawing through the deck brings Wu-Feng closer; once he is out, the cards left are the time left.
+  if (incarnationInPlay(s) && incarnationsInDeck(s) === 0) v += s.deck.length * W.clock
+  else v -= s.deck.length * W.progress
+  if (s.whiteMoon) v += s.whiteMoon.saved.length * W.villagerSaved - s.whiteMoon.dead.length * W.villagerDead
+  return v
+}
+
+export type { Color }

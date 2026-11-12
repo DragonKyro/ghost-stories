@@ -1,71 +1,46 @@
-// Engine entry point.
+// Engine entry points.
 //
-// Contract:
-//   createGame(config) => GameState        — initial state from config
-//   applyAction(state, action) => GameState — pure, deterministic reduction
+//   createGame(config)        → the starting GameState (first Yin phase already resolved)
+//   applyAction(state, action) → the next GameState; throws on an illegal action
+//   actionSeat(state, action)  → the seat allowed to send that action
 //
-// Every random outcome arrives in the action payload as data, so all peers
-// reduce identically. The setup-time RNG (deck shuffle, layout) is seeded from
-// `config.rngSeed` and lives on `GameState.rngState`.
+// Pure and deterministic: dice come from the seeded RNG on the state, so every
+// device applying the same actions to the same start reaches the same state.
+// The reducer works on a deep copy, so a throw leaves the caller's state untouched.
 
-import type { GameState } from './types'
 import type { Action } from './actions'
-import { applyStartTurn } from './actions/yin'
-import { applyYangAction } from './actions/yang'
-import { createGame } from './setup'
-import { resolveArrival } from './actions/yin'
-import { checkLossConditions, checkWin } from './actions/winLose'
-import { applyWuFengIntervene, applyWuFengDemonActions, applyShadowAction } from './actions/blackSecret'
+import { run } from './flow'
+import { applyResponse } from './respond'
+import type { GameState, Seat } from './types'
+import { applyYang } from './yang'
 
-export { createGame } from './setup'
+export { createGame, setupProblem } from './setup'
 export type { Action } from './actions'
 
-export function applyAction(state: GameState, action: Action): GameState {
-  if (state.phase === 'gameOver') return state
-
-  switch (action.type) {
-    case 'startTurn':
-      return applyStartTurn(state, action.payload)
-
-    case 'spawnIncarnation': {
-      // Manual incarnation placement (tests / scripted setups). The card must
-      // be at the top of the deck for the engine to honour it; in production
-      // the deck is the source of truth.
-      const arr = {
-        cardId: state.ghostDeck[0],
-        targetBoard: action.targetBoard,
-        targetSpace: action.targetSpace,
-      }
-      let s = resolveArrival(state, arr)
-      s = checkLossConditions(checkWin(s))
-      return s
-    }
-
-    case 'wuFengIntervene':
-      return applyWuFengIntervene(state, action.choice)
-
-    case 'wuFengDemonActions':
-      return applyWuFengDemonActions(state, action.moves)
-
-    case 'wuFengShadowAction':
-      return applyShadowAction(state, action.action)
-
-    case 'moveTaoist':
-    case 'requestHelp':
-    case 'exorcise':
-    case 'placeBuddha':
-    case 'useYinYang':
-    case 'usePower':
-    case 'spendPowerToken':
-    case 'saveVillager':
-    case 'placeMoonCrystal':
-    case 'moveSuLing':
-    case 'mysticBarrierChoice':
-    case 'endYangPhase':
-      return applyYangAction(state, action)
-  }
+function clone<T>(x: T): T {
+  return JSON.parse(JSON.stringify(x)) as T
 }
 
-// Silence unused-export linter; createGame is the canonical entry point but
-// useGame/uiStore may import the type directly.
-void createGame
+export function applyAction(state: GameState, action: Action): GameState {
+  if (state.phase === 'gameOver') throw new Error('The game is over.')
+  const s = clone(state)
+  s.events = []
+  if (action.type === 'respond') applyResponse(s, action.by, action.r)
+  else applyYang(s, action)
+  run(s)
+  return s
+}
+
+/** The seat that must send this action: the prompt's owner for answers, the actor otherwise. */
+export function actionSeat(state: GameState, action: Action): Seat {
+  if (action.type === 'respond') return state.prompt?.owner ?? action.by
+  return action.by
+}
+
+/** Whose input the game is waiting for right now. */
+export function waitingFor(state: GameState): Seat | null {
+  if (state.phase === 'gameOver') return null
+  if (state.prompt) return state.prompt.owner
+  if (state.phase === 'yang') return state.active
+  return null
+}

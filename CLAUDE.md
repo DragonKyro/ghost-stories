@@ -4,409 +4,101 @@ Context for Claude working in this repo.
 
 ## What this is
 
-A web-based clone of the cooperative board game *Ghost Stories* (Antoine Bauza, Repos Production, 2008), hosted on GitHub Pages, played privately with friends. 1–4 players cooperate as Taoist monks defending a village from the ghosts of Wu-Feng. Out-of-print physical copies are scarce and there is no official digital version — this fills that gap.
+A web version of the cooperative board game *Ghost Stories* (Antoine Bauza, Repos Production, 2008), hosted on GitHub Pages, played privately with friends: solo, hot-seat on one device (with AI seats), or online. Includes the **White Moon** and **Black Secret** expansions.
 
-Source rules: [`ghost stories rules.pdf`](./ghost%20stories%20rules.pdf) (v3.3 Esoteric Order of Gamers summary, Oct 2019). When in doubt, that PDF is canonical for this implementation.
+Source rules: [`ghost stories rules.pdf`](./ghost%20stories%20rules.pdf) (Esoteric Order of Gamers summary v3.3, Oct 2019). **That PDF is canonical.** Where it is silent, the decisions are listed under "Rules decisions" below and in the in-game rulebook's "About this version" topic — keep the two in sync.
 
-## Tech stack (locked)
+## Tech stack
 
-TypeScript, Vite, React 19, hand-rolled SVG for the board and components, Trystero for WebRTC peer-to-peer multiplayer, Zustand for state, Vitest for tests. No backend — GitHub Pages is static-only.
+TypeScript (strict), Vite, React 19, Zustand, Vitest, hand-drawn inline SVG art, Firebase Realtime Database for online play (shared project `github-games-e7c7d`, this app's data under the `ghost-stories` key). No backend of our own — GitHub Pages is static.
 
-Mirrors the [`catan/`](../catan/) project on purpose: same layering, same store conventions, same multiplayer model, same deployment story. Read the Catan CLAUDE.md alongside this one — most architectural decisions there carry over.
+Same layering and multiplayer model as the sibling [`catan/`](../catan/) project.
 
 ## Architecture
 
-Five layers, separated by directory. Same shape as Catan:
-
-- **`src/game/`** — pure TypeScript game logic. No React, no DOM, no network imports. All state mutations go through `applyAction(state, action) => state`. Deterministic — randomness (dice rolls, ghost-card draws) is decided by the acting player and baked into the action payload so all peers reduce to the same state. Unit-tested.
-- **`src/ai/`** — pure heuristic AI for empty / AI Taoist seats. Exports `chooseAction(state, taoistId) => Action | null`. No React or store imports — same purity contract as `src/game/`. Returns null to signal "end turn".
-- **`src/net/`** — Trystero/torrent wrapper. Typed channels for hello / lobby / start / action / snapshot / chat. Persistent UUID via `localStorage`. Short 4-char room codes. Consumed only by `networkStore`.
-- **`src/ui/`** — React components + SVG board. Reads state from `src/store`, dispatches actions via the store, hosts the `AIDriver` component that runs AI moves.
-- **`src/rulebook/`** — self-contained rulebook (TSX topics + inline SVG diagrams), rendered either as a full screen from the main menu or inside an overlay via the in-game `?` button.
-
-Three Zustand stores under `src/store/`:
-
-- **`gameStore`** — `GameState` + UI mode + dialogs + `handoffPending` (hot-seat) + `lastActionSnapshot` (game + logStore pair captured for the last reversible action, so `undo()` works in solo/hot-seat). Exposes `dispatch(action)` (broadcasts) and `applyLocal(action)` (silent, used by network receivers). `undo()` restores both `game` and `logStore` from the snapshot; solo/hot-seat only.
-- **`networkStore`** — connection state, role (solo / host / guest / spectator), lobby, chat, online peer tracking. Registers with `gameStore` via `registerBroadcastHandler` to avoid circular imports.
-- **`logStore`** — game-event log + per-turn timeline snapshots (Qi totals, ghosts exorcised, villagers killed, tiles haunted, dice rolled). Populated as a side effect of every successful `dispatch` / `applyLocal`. Exposes `snapshot()` / `restore()` so `gameStore.undo()` can keep both stores in sync. Lives outside `GameState` so the engine stays deterministic.
-
-## Game model
-
-Ghost Stories is a **cooperative** game. 1–4 Taoist players vs. the deck of ghost cards + Wu-Feng incarnations. There is no "winner" among players — they either all win (last incarnation exorcised) or all lose (any of three loss conditions).
-
-### Core entities
-
-- **Village** — 3×3 grid of 9 location tiles in a fixed layout. Each tile has two sides: **active** (with its villager — provides an action) and **haunted** (face-down, no action available). Center tile (1,1) always holds the **Circle of Prayer** for our default layout (configurable). Corner tiles let a Taoist exorcise / Buddha-place across two adjacent ghost spaces in one action.
-- **Player boards** — 4 colored boards (red, blue, green, yellow), one per side of the village. Each board has:
-  - 3 **ghost spaces** (rectangles) where ghost cards sit
-  - 6 **haunting stones** (2 per ghost space — the 1st and 2nd "step" toward haunting the village)
-  - 3 **Buddha spaces** (one per ghost space) for placed Buddha figurines
-  - A **power stone** showing the Taoist's color-coded power (each board is double-sided with two different powers)
-- **Taoists** — one per player board, started on the central village tile. Identified by board color (red, blue, green, yellow). Each color has two possible powers, picked at setup by the board's facing side.
-- **Ghost cards** — deck of ~55. Each ghost has: color (red / green / blue / yellow / black), resistance (number of colored faces required for exorcism), 0–3 abilities split across left stone (on-arrival), center stone (each Yin phase), right stone (on-exorcism), and an optional reward.
-- **Wu-Feng incarnations** — 9 boss cards (Howling Nightmare, Uncatchable, Death Army, Forgotten Ones, Bonecracker, Dark Mistress, Creeping Horror, Vampire Lord, Hope Killer, Nameless). Shuffled randomly, then **one** is inserted facedown 10 cards before the bottom of the deck (Normal/Initiation). On Nightmare/Hell, 4 incarnations are spaced 10 cards apart.
-- **Tokens**: Qi (life), Yin-Yang (one-shot power), Tao (5 colored: red / green / blue / yellow / black), power tokens (let you use a neutral board's power), Buddha figurines (2 total, on the Buddhist Temple), Haunting figurines (4 — one per board, tracks how close a board is to having a tile haunted).
-- **Dice**: 3 colored **Tao dice** (each face: red / green / blue / yellow / white-wild / black-curse; for exorcism only the colored + wild faces count as wild) and a single **curse die** (faces: no-effect / haunt-tile / spawn-ghost / lose-all-tao / lose-Qi, with various weights depending on the actual physical die — we'll match the rulebook summary).
-
-### Turn structure
-
-Players take turns clockwise. Each player's turn is two phases: **Yin** (the ghosts act) then **Yang** (the Taoist acts).
-
-#### Yin Phase (Ghosts) — automatic, no choices except curse-die resolution
-
-1. **Ghost actions** — for each ghost on the active player's board, apply its center-stone ability in left-to-right order if it has multiple:
-
-   a. **Haunters** — advance the Haunting figure on that ghost's track. Card → first stone → second stone (flip the first active tile in front of the ghost to its haunted side; if already haunted, flip the next tile on the same line; Haunting figure returns to the card).
-
-   b. **Tormentors** — roll the curse die:
-   - **No effect** — nothing
-   - **Haunt** — first active village tile in front of the ghost becomes haunted (same flipping rules as above)
-   - **Spawn ghost** — bring a ghost card into play (Step 3 placement rules)
-   - **Lose all Tao** — active player discards all Tao tokens
-   - **Lose Qi** — active player loses 1 Qi
-
-   For multi-ability ghosts, abilities apply **right-to-left** in White Moon — keep base-game left-to-right unless the expansion is loaded.
-
-2. **Board overrun check** — if all 3 ghost spaces on the active board are occupied: lose 1 Qi and **end the Yin phase immediately** (skip step 3).
-
-3. **Arrival of a ghost** — draw the top ghost card and place it:
-   - **Color placement rule** — red/green/blue/yellow ghosts go on the matching color board; black ghosts go on the **active player's** board.
-   - If the targeted board is full (3 ghosts), the active player chooses any other board with an empty space.
-   - If all 12 spaces are occupied: lose 1 Qi instead of placing.
-   - Apply the ghost's **left-stone** ability immediately on arrival.
-   - **Wu-Feng incarnations** are not affected by the Sorcerer's Hut or Buddhas (Uncatchable excepted — it requires a Buddha). An incarnation placed on a Buddha space sends the Buddha back to the Temple but does not exorcise the incarnation.
-
-#### Yang Phase (Taoist) — the active player's choices
-
-The Yin-Yang power may be used **before or after** any step.
-
-1. **Move (optional)** — move the Taoist to an **adjacent** village tile. Diagonal movement is allowed. Movement is to one of the 4 cardinal-or-diagonal neighbors (King's move) — Ghost Stories uses 8-way adjacency on the 3×3 grid.
-
-2. **Request help OR attempt an exorcism** — choose exactly one:
-
-   **Request help** — perform the action of the village tile the Taoist is standing on. Each of the 9 tile types has its own action (see "Village tiles" below). Haunted tiles have no action.
-
-   **Exorcise** — pick a ghost on a space adjacent to the Taoist's tile (the ghost's board edge must touch the tile's edge). Roll 3 Tao dice. The exorcism succeeds if the colored faces match the ghost's resistance (e.g., a resistance "2 red + 1 green" needs two red faces and one green face among the three dice; white faces are wild; black faces never help). If dice don't match, the player may **spend Tao tokens** of the needed color to make up the difference (pooled from any Taoist standing on the same village tile). If insufficient: the exorcism **fails** — nothing happens (no penalty, but the action is spent).
-
-   **Corner exorcism** — if the Taoist is on one of the 4 corner village tiles, they may attempt to exorcise **two adjacent ghosts in one roll** (combined resistance is the sum). Same rule for Buddha placement (place 2 Buddhas at once).
-
-   On a successful exorcism: discard the ghost, apply its **right-stone** ability (curses always before rewards).
-
-3. **Place a Buddha (optional)** — if you obtained a Buddha figurine on a previous turn (via the Buddhist Temple tile), you may place it on a Buddha space facing the Taoist's tile *iff* the corresponding ghost space is empty. Corner-tile rule: 2 Buddhas. Buddhas auto-discard any ghost (or incarnation, with exceptions) that arrives on / moves to that space, then return to the Temple.
-
-### Yin-Yang power
-
-Once per game per Taoist (or as refreshed by ghost rewards), spend the Yin-Yang token to either (a) request the action of **any** village tile (regardless of current position) **or** (b) flip a haunted tile back to active. Then return the token to the supply.
-
-### Taoist powers (8 total — 2 per color)
-
-Each board is double-sided. At setup, randomly assign a color and pick a side.
-
-- **Red — Dance of the Spires** — fly to any village tile during your move (instead of adjacent-only).
-- **Red — Dance of the Twin Winds** — before your move, move 1 other Taoist 1 space.
-- **Blue — Heavenly Gust** — request help and attempt an exorcism in the same turn (in either order).
-- **Blue — Second Wind** — request help twice OR attempt 2 exorcisms (independent rolls — can't combine partial dice across the two).
-- **Green — The Gods' Favorite** — reroll any Tao dice during a support/exorcism action, and may reroll the curse die. Must keep the second result.
-- **Green — Strength of a Mountain** — exorcisms use a 4th gray die; never roll the curse die.
-- **Yellow — Bottomless Pockets** — before your move, take 1 Tao token of any color from the supply.
-- **Yellow — Enfeeblement Mantra** — before your move, place a Mantra token on any ghost in play; its resistance drops by 1 (any color). Recovered when that ghost leaves play.
-
-### Death of a Taoist
-
-A Taoist at 0 Qi dies. All their possessions (Tao tokens, Buddha figurines, Yin-Yang, power tokens) are lost. Figure is laid on the **Cemetery** tile. Ghosts on their board **remain in play**. The board becomes **possessed**: its power token is flipped inactive, and Yin phase still runs (steps 1+2 — no step 3, no Yang phase) — the **active player** absorbs any Qi loss caused by a ghost ability on that board (green Taoist's power is ineffective if the loss is due to a die roll). The player continues to participate (advise / discuss) and can come back via Cemetery action.
-
-### Winning and losing
-
-**Win**: the last Wu-Feng incarnation is exorcised. If a final curse from that incarnation kills a Taoist or triggers the 3rd haunting, the players still **lose**.
-
-**Lose** — any of:
-1. All Taoists are dead (0 Qi each)
-2. A **3rd** village tile is haunted
-3. The ghost deck is exhausted while a Wu-Feng incarnation is still in the deck or in play
-
-### Difficulty levels
-
-- **Initiation** — 4 Qi start, all 5 Tao token colors including black, 1 incarnation.
-- **Normal** — 3 Qi start, no starting black Tao, 1 incarnation.
-- **Nightmare** — Normal rules + 4 incarnations (or 3 for 1-2p) spaced every 10 cards from the deck bottom.
-- **Hell** — Nightmare + no starting Yin-Yang token.
-
-### 1, 2, 3 player rules (neutral boards)
-
-Empty Taoist colors become **neutral boards**. Neutral board's Yin phase has no Step 3 (no ghost-arrival on its turn), no Yang phase at all. They start with 3 Qi (not 4). Removing 5 ghost cards (unseen) from the deck per missing player.
-
-In solo: the red board must use **Dance of the Spires**; player starts with 1 Tao of each color (+ black on Initiation) and 3 power tokens; no Cemetery aid; the Pavilion of the Heavenly Wind action moves your own Taoist instead.
-
-**Power tokens** let the active player use a neutral board's power during their Yang phase (one per power, multiple tokens may be spent in one turn). After a Taoist dies, their power tokens land on the central village tile and can be reclaimed by any Taoist ending their turn there.
-
-### Village tiles — 9 actions (every base-game game uses all 9)
-
-The 9 tiles are arranged randomly in the 3×3 layout at setup, all face-up:
-
-| Tile | Action |
-|---|---|
-| **Circle of Prayer** | Place a Tao token from supply on the tile (or change the existing one). All ghosts of the token's color get -1 resistance for any exorcism, anywhere. The token stays after an exorcism. |
-| **Buddhist Temple** | Take a Buddha figurine. Place it on a Buddha space at the **end of your next Yang phase** (or this turn's Step 3). |
-| **Cemetery** | Bring a dead Taoist back: they return with 2 Qi, then roll the curse die. A "haunt" face haunts the Cemetery itself. |
-| **Taoist Altar** | Nullify the haunting of 1 village tile (flip it active again), then bring a ghost into play. |
-| **Herbalist's Shop** | Roll 2 Tao dice and take Tao tokens of those colors from supply. Each white face → free choice of color. |
-| **Sorcerer's Hut** | Discard any 1 ghost in play (no curse, no reward). Lose 1 Qi. |
-| **Night Watchman's Beat** | Move all Haunting figures on 1 chosen board backward 1 stone. |
-| **Pavilion of the Heavenly Wind** | Move any ghost in play to any free space (any board), then move another Taoist normally. (Solo: move your own Taoist.) Ghost properties travel with it (Haunting figure relative position, mantra, inactive-power marker). |
-| **Tea House** | Take a Tao token of any color + gain 1 Qi (max 4 Qi total, or 3 on Normal+). Then bring a ghost into play. |
-
-### Ghost ability icon legend
-
-| Icon family | Meaning |
-|---|---|
-| **Left stone** (on arrival) | Add a ghost · Haunt a tile · Lose 1 Qi · Haunter setup (place haunting figure) · Direct-haunting (place figure on board, skipping card) |
-| **Center stone** (each Yin) | Haunter (advance haunting figure) · Tormentor (roll curse die) · Power-blocker (inactive power token on this board) · Tao-blocker (Inactive Tao marker — no Tao spends allowed) · Die-captor (holds 1 Tao die — exorcisms roll N-1 dice) · Dice-immune (Tao dice don't work on this ghost; Tao tokens / Circle of Prayer / Buddha / Sorcerer still work) · Group-effect (applies to every player and every board) |
-| **Right stone** (on exorcism) | Roll curse die · Receive 1 Qi or regain Yin-Yang · Receive 1 Tao of choice · Receive 2 Tao of choice · Lose 1 Tao · Incarnation: return 1 Qi + 1 Yin-Yang to the group (players assign) |
-
-Buddha- or Sorcerer-discarded ghosts do **not** apply their curses or grant their rewards.
-
-### Incarnation special rules
-
-- **Howling Nightmare** — Taoists can exorcise this only if the haunting stone facing it on the opposite board is **not** occupied by a ghost.
-- **Uncatchable** — must be on a tile with a Buddha to be exorcised. Only incarnation affected by Buddhas (a Buddha doesn't auto-discard it — it just enables the exorcism).
-- **Death Army** — active player rolls the curse die each Yin phase, and again when this incarnation is destroyed.
-- **Forgotten Ones** — while in play, all Taoist powers (including power tokens) are disabled.
-- **Bonecracker** — every player discards a Tao token on its arrival; the player who hosts it discards another at the start of each of their Yin phases (even on a neutral board).
-- **Dark Mistress** — Tao tokens cannot be spent (the Inactive Tao marker comes out) while it lives.
-- **Creeping Horror** — captures one Tao die on arrival; exorcisms roll 2 dice instead of 3 until killed.
-- **Vampire Lord** — a Haunter with resistance 4.
-- **Hope Killer** — resistance 8 (2 of each color). Roll curse die on destruction.
-- **Nameless** — resistance 1 of each color (5 total). On arrival, discards the Tao token on the Circle of Prayer. White faces no longer wild while alive.
-
-## Engine action union (draft)
-
-```ts
-type Action =
-  | { type: 'startGame', config: GameConfig, deckSeed: number, layoutSeed: number }
-  | { type: 'rollCurseDie', taoistId: TaoistId, source: CurseSource, result: CurseFace }
-  | { type: 'haunterAdvance', boardColor: BoardColor, ghostSpaceIdx: 0|1|2 }
-  | { type: 'spawnGhost', card: GhostCardId, targetBoard: BoardColor, targetSpace: 0|1|2 }
-  | { type: 'requestHelp', taoistId: TaoistId, tileId: VillageTileId, params?: ActionParams }
-  | { type: 'rollExorcism', taoistId: TaoistId, ghostRefs: GhostRef[], dice: TaoDieResult[], reroll?: TaoDieResult[] }
-  | { type: 'commitExorcism', taoistId: TaoistId, ghostRefs: GhostRef[], spentTao: TaoColor[] }
-  | { type: 'moveTaoist', taoistId: TaoistId, tileId: VillageTileId }
-  | { type: 'placeBuddha', taoistId: TaoistId, ghostSpaceRef: GhostSpaceRef }
-  | { type: 'useYinYang', taoistId: TaoistId, effect: YinYangEffect }
-  | { type: 'spendPowerToken', taoistId: TaoistId, neutralBoard: BoardColor }
-  | { type: 'usePower', taoistId: TaoistId, powerEffect: PowerEffectParams }
-  | { type: 'reviveTaoist', deadTaoistId: TaoistId, byTaoistId: TaoistId, curseResult: CurseFace }
-  | { type: 'endTurn', taoistId: TaoistId }
-  // Yin-phase resolution sub-actions
-  | { type: 'resolveYinStep1', taoistId: TaoistId, curseRolls: CurseFace[] }
-  | { type: 'overrunCheck', boardColor: BoardColor }
-```
-
-**Determinism**: every random outcome (dice, curse die, ghost draws) is the **result**, not the seed. The acting peer rolls locally and sends the result in the action payload. All peers reduce identically. This is the same model as Catan.
-
-The engine drives the Yin phase as a sequence of sub-actions (one per ghost ability) so each peer can stream the resolution; alternatively a single `runYinPhase` action carrying all sub-results works too. We'll prototype with sub-actions for log clarity, then consolidate if it's noisy.
-
-## Multiplayer model
-
-- **Trystero `/torrent`** for WebRTC signaling (BitTorrent trackers). No backend. App ID `ghost-stories-v1`; room code doubles as the password for E2E encryption.
-- Trystero `peerId` is volatile. Stable identity is a `localStorage` UUID (`ghoststories.uuid`), exchanged via the `hello` channel.
-  - **Local testing escape hatch**: appending `?fresh` to the URL switches identity storage to `sessionStorage` so two windows in the same incognito session don't collide on the same UUID.
-- Full state replication: every peer holds the full `GameState`.
-- Actions broadcast as `{ action, byUuid }` envelopes; receivers verify the UUID owns the action's Taoist seat.
-- Randomness baked into actions (see Determinism above).
-- **Lobby** is host-authoritative. Host owns `LobbyState`, broadcasts on change. Host clicks Start → broadcasts initial `GameState`.
-- **Rejoin / spectator**: late peer joining mid-game gets a `snap` (full state + chat + seat-UUID mapping). UUID matches a seat → guest. Else spectator.
-- **Disconnect**: pause indefinitely. UI shows offline dot + `ConnectionStatusOverlay`.
-- **AI in online**: only the host runs `AIDriver`. If host drops, AIs freeze.
-- **Chat**: in-memory in `networkStore.chat`, not part of `GameState`.
-- No anti-cheat — friends-only.
-
-## Hot-seat model
-
-- Single-device play. After each turn, a **handoff screen** (`HandoffOverlay`) covers the board until the next player taps to reveal — keeps the next player from seeing the previous player's Yin-Yang state, hidden Tao tokens, etc.
-- In Ghost Stories most info is open (Tao tokens are placed in front of the player but visible to all). The handoff is more about pacing — letting the next player center on their own board — than information hiding. Still worth the screen.
-- Hot-seat supports AI seats: AI takes its turn automatically with a `~700ms` delay between sub-actions for visibility, no handoff needed for AI→AI or AI→human transitions (just brief animation).
-
-## AI model
-
-Pure heuristic, stateless across turns. Defined in `src/ai/`.
-
-- `chooseAction(state, taoistId)` returns the next action or null (meaning "end Yang phase"). The React `AIDriver` schedules these with ~700 ms delays for visibility (~3 s for high-impact moves like exorcism rolls).
-- **Priority tree** (rough; tune with playtests):
-  1. **Critical exorcism** — a ghost about to advance to "haunt a tile" AND we'd hit the 3rd haunting → must try.
-  2. **Lethal-prevention exorcism** — a ghost about to kill a Taoist at 1 Qi → must try.
-  3. **High-success exorcism** — ghost adjacent, expected success ≥ 80% given hand + dice + Circle-of-Prayer / Mantra.
-  4. **Critical request help** — Cemetery to revive (if a Taoist is dead and we're on it), Taoist Altar (if a tile is haunted), Night Watchman's (if a haunting figure is on stone 2 of any board).
-  5. **Buddha placement** — if a Buddha is in hand and a ghost is on the matching space.
-  6. **Tao accumulation** — Herbalist / Tea House / Circle of Prayer to set up future exorcisms.
-  7. **Move to threat** — reposition adjacent to the highest-resistance ghost we have the colors for.
-  8. **End turn**.
-- **Threat model** (`src/ai/threats.ts`): per-board "pressure" score = (ghosts on board × 1) + (haunting figures × 1.5) + (Tormentors × 0.7) + (board possessed × 2). Drives target selection.
-- **Exorcism expected value**: simulate dice roll given current Tao tokens + Circle of Prayer discount + Mantra + power adjustments. Threshold ~70% for non-critical attempts.
-- **Resource value**: Tao token weights tuned to board state (a red token is worth more when there are 2 red ghosts in play). Yin-Yang weighted 5+ (saved for emergencies). Buddha weighted ~4.
-- One competent difficulty level. No state in the AI between turns.
-
-## UI conventions
-
-- **Layout**: a CSS grid centered on the 3×3 village. The 4 player boards live on the outer sides: red on top, blue on right, green on bottom, yellow on left (matching the physical game). Bottom strip holds `HandPanel` (active player's Tao tokens / Yin-Yang / Buddha figurines) + `ActionBar`. Right side panel: `SidePanelTabs` (Log / Chat / Help).
-- **Board rendering**: `VillageSVG` is a pure presentational component that takes `game: GameState` as a prop. Sub-components (`VillageTile`, `Taoist`, `GhostCard`, `HauntingFigure`, `BuddhaFigure`, `PowerStone`, `TaoToken`) take their state via prop.
-- **Tile orientation**: village tiles render with their action graphic in a fixed orientation; the Taoist figure overlays the tile they occupy. Each tile has an "edge" facing each of the 4 player boards (top/right/bottom/left). When a Taoist exorcises, the highlight shows which ghost spaces are reachable.
-- **Active-board indicator**: the active player's board gets a glowing border + their Taoist's color halo. There is no "phase banner" — phase is implicit from the action prompts in `ActionBar`.
-- **Docked dialogs**: exorcism roll dialog, curse-die roll dialog, place-Buddha selection, request-help parameters (e.g., Pavilion ghost-move target). Same `DialogShell` pattern as Catan with `variant="docked"` / `"modal"`.
-- **Player colors** come from `src/ui/shared/playerColors.ts` — `TAOIST_COLORS`, `TAOIST_COLOR_HEX`, `taoistColorVar(c)`. Red, blue, green, yellow are canonical. Don't add more colors — only 4 boards exist in the base game.
-- **Clocks**: `GameClock` shows total wall-clock time. No per-turn timer in v1 (the game is short; the value isn't proven).
-- **Game log**: `LogPanel` reads from `logStore.entries`. Curse die rolls, exorcism rolls (dice + spent Tao), Yin-Yang spends, deaths, hauntings, ghost arrivals all log. Auto-scroll only when at bottom.
-
-## SVG art
-
-The game is visually distinct — pen-and-ink Chinese ink-painting style in the original. We render:
-
-- **Village tiles** (9 tile types × 2 sides) as inline SVG modules under `src/ui/svg/tiles/`. Each tile is roughly a 240×240 square with a stylized illustration of the location (Circle of Prayer, Buddhist Temple, etc.) and an icon strip for the action.
-- **Ghost cards** (`src/ui/svg/GhostCard.tsx`) as a parametric component that reads `(color, resistance, leftAbility, centerAbility, rightAbility, reward)` and composes the card from primitives — colored border, resistance pips at top, 3 ability stones, optional reward stone.
-- **Taoist figures** (`src/ui/svg/Taoist.tsx`) — 4 colored standing-monk silhouettes. Lay on Cemetery when dead.
-- **Tokens** — Qi (red dot), Yin-Yang (yin-yang symbol), Tao tokens (5 colored coins), power tokens (small circle with the color of the board), Buddha figurine, Haunting figurine (a stylized wisp).
-- **Dice** — 3 Tao dice (cube face SVG, with colored / wild / curse faces), curse die (5 faces).
-- **Player boards** (`src/ui/svg/PlayerBoard.tsx`) — 1 per color, parametric on which side (which power) is active. 3 ghost-card slots + Haunting track + 3 Buddha spots + power stone.
-
-Where the original art is copyrighted, we use **silhouette / pictographic** equivalents (e.g., a torii gate icon for the Buddhist Temple; a calligraphy brush for the Sorcerer's Hut). No copyrighted art in the repo.
-
-Inline SVG (not external `.svg` files) so the components animate cleanly and don't add network requests on Pages.
-
-## Non-goals (do not implement)
-
-- Persistent game saves between sessions
-- User accounts, matchmaking, lobby browser
-- Anti-cheat / verifiable randomness
-- Monetization, ads, telemetry
-- Server-side anything
-- Asset extraction from the physical game (we redraw our own SVG)
+- **`src/game/`** — the rules engine. Pure TypeScript, no React / DOM / network / store imports.
+  - `createGame(config)` and `applyAction(state, action)` in `engine.ts`; `actionSeat(state, action)` (who may send it) and `waitingFor(state)` (whose input the game needs).
+  - **Deterministic**: every die roll comes from the seeded RNG on the state (`state.rng`), inside the reducer. Actions carry intents and choices only, so every device that applies the same actions to the same start reaches the same state. `applyAction` works on a JSON deep copy and throws on an illegal action (the caller's state is untouched).
+  - **Effect queue + prompts**: the turn is a queue of effects (`state.queue`) resolved front-first by `flow.ts#run` until the game needs a decision (`state.prompt`) or the active Taoist's Yang phase begins. Prompts (placement of an arriving ghost, curse rerolls, which Tao to discard, Qi payer for possessed boards, rewards, the exorcism roll, Wu-Feng's choices, …) are answered with `{ type: 'respond', by: seat, r }`. Only the prompt's owner may answer.
+  - **Yang phase bookkeeping** (`state.yang`) enforces step order: before-move powers → step 1 move → step 2 help / exorcise (Heavenly Gust, Second Wind) → step 3 Buddha / crystal; Yin-Yang between steps.
+  - `state.events` lists what the last action did (for the log and UI).
+  - Files: `types.ts` (vocabulary), `actions.ts` (Action / Response unions), `setup.ts`, `flow.ts` (turn + Yin phase + effect handlers), `yang.ts`, `tiles.ts` (village tile actions), `exorcism.ts` (coverage maths, commit, cheapest-spend suggestions), `respond.ts`, `ops.ts` (shared mutations: haunting, Qi, death, placing/removing ghosts, win/loss), `rules.ts` (read-only queries used by engine, UI and AI), `geometry.ts`, `catalogue.ts` (ghost deck), `whiteMoon.ts`, `blackSecret.ts`, `rng.ts`.
+- **`src/ai/`** — the AI, pure and deterministic (no `Math.random`, no clock). `chooseAction(state, seat) → Action | null` returns one step at a time (powers, move, action, Buddha, end turn; or a prompt answer); `fallbackAction` for when a choice turns out illegal.
+  - **Search** (`taoist.ts`, `sim.ts`): at each Yang step it lists candidate plans (moves × every step-2 option, corner double exorcisms, Yin-Yang, Twin Winds, power-token flights, Buddha spots, end turn), keeps the best `SEARCH.maxPlans` by a quick pre-score, and plays each forward through the real engine to the start of the next Taoist's Yang phase (so the next Yin phase is included), narrowing by successive halving (12 → 24 → 48 rollouts, shared samples). `SEARCH.on = false` uses the quick policy alone.
+  - **Fair play** (`sanitize` in `sim.ts`): every rollout re-seeds the dice and re-deals what the players can't see (unseen ghost cards, keeping incarnation positions but not identities; hidden villagers; Black Secret's face-down curses, Wu-Feng's hand, catacomb tokens, Mantra deck).
+  - `policy.ts` — the fast greedy policy that plays every Taoist inside rollouts (and is the fallback); `prob.ts` — exact exorcism odds; `value.ts` — the position score; `tuning.ts` — every weight (`W`) and search setting (`SEARCH`), tuned by self-play; `prompts.ts` — answers to every prompt; `fast.ts` — in-place apply for rollouts (same handlers as `applyAction`, tested identical); `wufeng.ts` plays Wu-Feng.
+  - Benchmark / tuning harness: `node scripts/aibench/bench.mjs --setups init4,norm4,solo1 --seeds 1-40` (also `tune.mjs` coordinate search, `diag.mjs` loss causes); bundles go to `node_modules/.cache/aibench`.
+  - **`src/ai/nn/`** — the neural-network Taoist. **It is the AI in solo games of the base game on Initiation / Normal** (`networkPlays`, `nn/index.ts`); every other AI seat (2–4 players, Nightmare / Hell, White Moon, Black Secret) and Wu-Feng stay on the rules-based AI above, which is better there (measured, see `training/README.md` → Results). It samples its moves from its policy (`nnSampleAction`, temperature `SAMPLE_TEMPERATURE` 0.75; taking the single most likely move is clearly weaker). Weights: `weights/ghost-net-v1.json` (the shared network, 1.2 MB) plus a specialist per monk `weights/<seat>-<power>.json` (all seven shipped: round 3 of `training/specialists.py`; the shared network plays a monk without one); Vite assets, only the playing monk's file is fetched (`src/ui/game/aiNet.ts`); `AIDriver` falls back to the rules-based AI if it can't load. `encode.ts`: the state as up to 81 tokens (global, prompt, 4 seats, 9 tiles, 12 ghost spaces; White Moon families; Black Secret catacombs / demons / curse tokens / Bloody Mantras) in the deciding Taoist's frame (`frame.ts`: the table turned so they sit at seat 0; clockwise order kept), plus a token-pair relation matrix; public information only (sanitized copies encode identically — tested); plus the dice maths (`calc.ts`: exact exorcism odds and expected Tao spent, on ghost spaces, tiles and candidates — the network learns what a chance is worth, not the dice). `legal.ts`: every legal action with every parameter (generated from the domains, each checked by applying it; exorcism commits offer every cheapest way to pay). `candidates.ts`: action → features + pointers to tokens. `model.ts`: the forward pass (transformer trunk with relation-biased attention, value head, per-candidate policy head). `danger.ts`: the change-in-danger hint used in training. `schema.ts` holds every layout and `SCHEMA_HASH`; **changing the encoder invalidates the weights** (`play.test.ts` fails) — when only fields are *appended* to layouts, `training/migrate.py` carries weights over unchanged in play (zero columns for the new inputs; also the shipped `weights/*.json`), anything else needs retraining; then `npm run nn:parity` (regenerates the PyTorch parity fixture `model.test.ts` checks).
+- **`training/`** — PyTorch side (`nn/model.py` mirrors `model.ts`), run with the conda env `train` (`training/README.md`); nothing in the web app depends on it. `rl.py` continues self-play PPO from a checkpoint (only round 3's selected specialists are kept: `training/runs/r3/spec-*/step-N.pt`) with a curriculum (`nn/curriculum.py`: weak monks get more games, half the games start from the network's own positions in the phase it loses most, the danger hint's Qi / haunting parts weighted by how it loses); `scripts/nn/` holds the Node side (actors, evaluator, shards, diagnostics). A curriculum run (rl-v5) was tried and discarded (no net gain; findings in `training/README.md` → Results). `specialists.py --round N` trains one network per monk in rounds (round 1: from the 50k network; round 2: from each round-1 specialist, migrated to the dice-maths encoder, lr 1.5e-4; `rl.py --monk … --tether …`), picks each one's best checkpoint on held-out seeds and, with `--ship`, installs those that beat their start and the 50k network as `src/ai/nn/weights/<seat>-<power>.json`, which `src/ui/game/aiNet.ts` loads for that monk (else the shared `ghost-net-v1.json`). `scripts/nn/ts.mjs` bundles into `node_modules/.cache/nn/<checkout hash>/`, so a git worktree sharing node_modules can't run another checkout's code.
+- **`src/net/`** — Firebase room transport (see `src/net/README.md`): anonymous auth, rooms at `ghost-stories/rooms/{CODE}` with meta / lobby (transactional) / start (write-once) / actions (write-once `aNNNNNN` log slots) / chat / presence, stale-room sweep by day buckets. Lazy-loaded, so the SDK downloads only when someone goes online. `fakeTransport.ts` is the in-memory server for tests. No imports from `@/ui` or `@/store`.
+- **`src/store/`** — Zustand stores:
+  - `gameStore` — the live `GameState`, `uiMode`, error toast, hot-seat `handoff`, undo stack (offline, moves without dice only). `dispatch` (guarded online, applied at once, then handed to the network) / `applyLocal` (moves from the log) / `takeSnapshot` / `restoreSnapshot`. The network store registers through `registerBroadcastHandler` / `registerDispatchGuard` / `registerOnlinePredicate` (no circular import).
+  - `networkStore` + `actionSync` (optimistic moves, rollback when another device's move takes the slot) + `lobby.ts` (lobby rules, `lobbyStartProblem`, `lobbyToConfig`). Helpers `controlledSeats`, `canActFor`, `runsAi`, `isSeatOnline`, `seatName`, `resumeFromUrl`.
+  - `logStore` — the game log, fed from `state.events`, plus a per-turn `timeline` (Qi, Tao, ghosts, haunted tiles, deck) for the stats; both snapshot / restore with undo and network rollbacks, and every device (re)builds them by replaying the log. `uiStore` — the current board selection (move / exorcise / Buddha / tile-action drafts / Yin-Yang), the stats screen toggle.
+- **`src/ui/`** — React. `stats/` is the end-of-game stats screen (`computeStats` from the log + timeline; hand-rolled SVG charts with legends, hover readouts and table views; chart colours validated for the dark surface). `game/` is the game screen (`GameScreen`, `Board` (village + 4 boards + corner plates), `interaction.ts` (what's clickable now and what a click does), `TurnPanel` (Yang steps), `PromptPanel`, `ExorcismPanel`, `Inspector`, `AIDriver`, `Overlays`, `ExpansionPanel`). `online/` is the online screen, lobby, chat, connection badge. `art/` is the art set. `demo.ts` is a dev-only `?demo=N` hook.
+- **`src/rulebook/`** — the in-game rulebook, written from the PDF, with pictures from the art set.
+
+## Layout
+
+`GameScreen#computeLayout` sizes the village tile (`--t`) from the viewport: **wide** (like catan: the board with the action bar under it — a portrait of the active Taoist, then the Yang steps / prompt in columns — and one full-height Log / Chat / expansion column on the right), **stacked** (phones in portrait / narrow windows: board on top, tabbed Play / Log / Chat panel below) and **short** (height < 620, phones in landscape: no room for the bar, so tabs in the side column). Panels that live in both places (`TurnPanel`, `ExorcismPanel`) split into `.gs-col`s that sit side by side via a container query on the bar and stack in narrow panels; `InBar` (`placement.ts`) tells them to use smaller pictures. Below 112 px tiles the plates go compact and tile names hide. Touch: tap a non-target tile / ghost to inspect it (hover inspects with a mouse only); hints say "Tap". Check with `node scripts/render-app.mjs --demo 40 --players 2 --size 390,844 --mobile`.
+
+## Rules decisions (where the PDF is silent or ambiguous)
+
+- **Ghost deck**: the printed card list isn't in the summary, so `catalogue.ts` is an original deck with the real structure: 9 per colour, resistance in the ghost's own colour, every ability from the reference sheet; 10 incarnations per the summary's "Powers of the Incarnations" (their colours / resistances, except Vampire Lord, Hope Killer and Nameless, are ours).
+- No Qi maximum (none is given); neutral boards can't gain Qi.
+- The deck is "exhausted" the moment its last card is drawn while an incarnation is in play (immediate loss).
+- All 12 spaces full: the card stays on the deck and the active player loses 1 Qi.
+- A ghost placed on a Buddha is destroyed before its arrival ability applies.
+- Death Army: while in play, the active player rolls the curse die every board's turn ("each turn"; a haunt strikes in front of Death Army), plus its curse on destruction.
+- Bonecracker on a neutral / possessed board: the players choose which Taoist discards.
+- Howling Nightmare: the opposite board's space on the same line must be empty.
+- Circle of Prayer: −1 on the token's colour for any ghost needing that colour (so it helps multicolour incarnations on the matching colour). Mantra: −1 on a colour of the player's choice.
+- Corner double exorcism: partial success allowed, but any target the dice alone beat must be exorcised.
+- Group abilities hit all four boards; possessed / exhausted boards pass their Qi loss to a Taoist of the players' choice.
+- The Mantra comes back when its ghost leaves play (usable from the next turn); it is removed from the game when its board loses its power (possession, power blocker).
+- Tao supply: 10 tokens per colour.
+- White Moon: family death curses / rewards and artifacts are our own designs on the summary's hints (Sheng's death haunts a tile, Xiang's kills a villager, one-member families give artifacts — Chang's is Moon Dust). Artifacts are one-shot items used between Yang steps. Pre-saved villagers in 1–3 player games are picked at random.
+- Black Secret: an incarnation that finds no room stays in Wu-Feng's hand as an owed summon (`pendingSummons`) and comes in at the next arrival; it blocks the win meanwhile. The Restore-ladders Mantra picks the first eligible tiles; the pre-saved one-member-family artifact (White Moon, 1–3 players) goes to the first player seat. Curse token effects, Bloody Mantra effects, catacomb board colours / entrances and the token layer mix are our own designs on the summary's rules; the 5 new incarnations and 10 new ghosts aren't printed in the summary (the new ghosts are ours; Wu-Feng draws from the base 10 incarnations).
+
+When you change one of these, update the rulebook's "About this version" topic too.
+
+## Multiplayer
+
+- Every device holds the full `GameState`, built with `createGame(config)` from the room's start record (which carries the config + seed and a checksum), then replays the action log in slot order.
+- The dispatch guard allows an action when `seatUuids[actionSeat(state, action)]` is this device, or the seat has no owner (AI / neutral) and this device is the host. Only the host runs the AI.
+- Security rules: `database.rules.json` covers only `ghost-stories`. Deploy with `npm run deploy:rules` — the predeploy hook `scripts/merge-db-rules.mjs` merges this app's key into the live rules of the shared database and keeps the other apps' keys (catan, card-collecting, tractor, …). Never deploy a rules file that defines other apps' keys, and never open the root.
+- `?room=CODE` in the URL rejoins / invites; `?fresh` keeps identity per tab (two windows on one computer).
+- Live tests: `LIVE_FIREBASE=1 npx vitest run src/store/networkStore.live.test.ts`; two-browser check: `node scripts/e2e-online.mjs` (with `npx vite --port 5181` running).
+
+## npm / registry
+
+This machine's user-level npm registry is a corporate Artifactory; the repo's `.npmrc` pins `registry=https://registry.npmjs.org/` and `package-lock.json` must only contain `registry.npmjs.org` URLs (`grep -o '"resolved": "https://[^/]*' package-lock.json | sort | uniq -c`). This network may reset downloads from npmjs.org; installs can be completed from the npm cache / sibling projects, but keep the lockfile public.
 
 ## Conventions
 
-- Strict TypeScript. No `any` unless genuinely necessary.
-- Co-locate tests next to the code: `engine.ts` and `engine.test.ts` side by side.
-- The game logic layer must not import from `src/ui`, `src/net`, or `src/store`.
-- The net layer may import from `src/game` but not `src/ui`.
-- Path alias: `@/` → `src/`.
+- Strict TypeScript, no `any`. Co-locate tests (`x.ts` + `x.test.ts`). Path alias `@/` → `src/`.
+- `src/game` and `src/ai` import nothing from `src/ui`, `src/net` or `src/store`.
+- Engine tests use `src/game/testUtil.ts` (`yangFor`, `putGhost`, `rigDice`, `rigCurse` to force die results through the seeded RNG).
+- Screenshots: `node scripts/render-app.mjs --demo 40 --seed 3 [--wm] [--bs] [--players N]` (dev server on 5181), art gallery `?gallery` + `scripts/render-gallery.mjs`. Output in `art-renders/` (gitignored).
 
 ## Commands
 
-- `npm run dev` — local dev server at http://localhost:5173/ghost-stories/
-- `npm run build` — production build (`tsc` typecheck then `vite build`)
-- `npm run test` — Vitest watch
-- `npm run test:run` — Vitest single run
-- `npm run typecheck` — `tsc` (no emit)
+- `npm run dev` — dev server at http://localhost:5173/ghost-stories/
+- `npm run build` — typecheck + production build
+- `npm run test:run` — all tests once
+- `npm run typecheck`
+- `npm run deploy:rules` — deploy the database rules (merged)
+- `npm run nn:parity` — regenerate the TS ↔ PyTorch parity fixture (needs Python with PyTorch: the conda env `train`, or `TRAIN_PYTHON`)
 
 ## Deployment
 
-`.github/workflows/deploy.yml` builds and deploys to GitHub Pages on push to `main`. The Vite `base` is `/ghost-stories/` to match the repo name. If the repo is renamed, update `base` in `vite.config.ts`.
+`.github/workflows/deploy.yml` builds and deploys to GitHub Pages on push to `main`. Vite `base` is `/ghost-stories/`.
 
 ## Roadmap
 
-- [x] **Phase 0** — Project scaffold (Vite, React, TS, dirs, deploy workflow, placeholder UI)
-- [x] **Phase 1** — Game logic engine (18/18 tests passing)
-  - 1a. Types + initial state generator (`createGame` in [src/game/setup.ts](src/game/setup.ts))
-  - 1b. Yin phase resolution ([src/game/actions/yin.ts](src/game/actions/yin.ts))
-  - 1c. Yang phase actions ([src/game/actions/yang.ts](src/game/actions/yang.ts))
-  - 1d. Right-stone abilities (curses-before-rewards in `applyOnExorcism`)
-  - 1e. Win/lose detection ([src/game/actions/winLose.ts](src/game/actions/winLose.ts))
-  - 1f. Village tile actions ([src/game/actions/villageTiles.ts](src/game/actions/villageTiles.ts))
-  - 1g. Taoist powers (all 8 wired in [src/game/actions/yang.ts](src/game/actions/yang.ts))
-  - 1h. Death / revival / possessed-board ([src/game/actions/hauntingAndQi.ts](src/game/actions/hauntingAndQi.ts))
-  - 1i. Neutral boards (1-3 player mode)
-  - 1j. Ghost catalogue: 45 base ghosts + 9 incarnations ([src/game/ghostCatalogue.ts](src/game/ghostCatalogue.ts))
-- [x] **Phase 2** — Hot-seat UI
-  - MainMenu + NewGame (difficulty + per-seat config) under [src/ui/](src/ui/)
-  - GameView with 4 player boards (rotated to face the village), VillageBoardSVG with Taoist figures + Circle-of-Prayer token + Cemetery dead-figure overlay
-  - ActionBar with Move / Request help / Exorcise / Place Buddha / Yin-Yang / End turn
-  - ExorcismDialog (Tao-die roll, Tao token spend across same-tile Taoists, Gods' Favorite reroll, success/fail verdict)
-  - RequestHelpDialog with a sub-form for every tile that needs params (Circle / Cemetery / Altar / Herbalist / Sorcerer / Watchman / Pavilion / Tea House / Buddhist Temple)
-  - YinPhaseRunner auto-rolls curse dice + spawns ghosts deterministically (RNG outside the engine)
-  - HandoffOverlay between hot-seat turns
-  - LogPanel reading from `logStore.recordAction`
-  - GameOverOverlay on win/loss
-- [x] **Phase 3** — Heuristic AI
-  - [src/ai/value.ts](src/ai/value.ts) — `exorcismSuccessProbability`, `planTaoSpend` (greedy min-spend planner, black-first because wilds can't substitute, expected colored yield per die for pessimistic planning), `ghostThreat`, `boardPressure`, `taoistHandValue`.
-  - [src/ai/main.ts](src/ai/main.ts) — `chooseAction(state, taoistId)` returns `Action | null`; null = end Yang phase. 7-tier priority tree: (1) critical exorcism when `hauntedCount >= 2`, (2) lethal-prevention when `qi <= 1`, (3) high-success exorcism (threshold 0.55), (4) Buddha placement on highest-pressure reachable board, (5) critical tile actions (Cemetery revive, Altar unhaunt, Night Watchman on most-haunted board, Sorcerer's Hut against dice-immune ghosts), (6) Tao accumulation (Herbalist if hand < 4, Tea House if Qi/hand low, Buddhist Temple when hand empty, Circle of Prayer on most-prevalent ghost color), (7) reposition toward highest-threat ghost via 1-step Chebyshev-shortest move.
-  - [src/ui/game/AIDriver.tsx](src/ui/game/AIDriver.tsx) — React component watching the store. When the active seat is AI, dispatches one action per ~700ms tick (~1.5s for exorcism so the dice roll is visible). Suspended when a human dialog overlay is open. On exception ends turn rather than spinning.
-  - 4 AI smoke tests: returns null on quiet state, ignores non-active seat queries, places a Buddha when available, drives 16 rounds end-to-end without throwing.
-- [x] **Phase 4** — Online multiplayer + in-game chat
-  - [src/net/identity.ts](src/net/identity.ts) — persistent UUID via `localStorage` (or `sessionStorage` with `?fresh`), display name, 4-char room-code generator (32-char alphabet, no I/O/0/1).
-  - [src/net/protocol.ts](src/net/protocol.ts) — typed wire messages: `HelloMsg`, `LobbyMsg`, `StartMsg`, `ActionMsg`, `SnapMsg`, `ReqSnapMsg`, `ChatMsg`. 7 channel names in `CHANNELS`.
-  - [src/net/index.ts](src/net/index.ts) — Trystero `/torrent` wrapper. `connect(roomCode, handlers) → { send, leave, room }`. Room code doubles as the E2E password.
-  - [src/store/networkStore.ts](src/store/networkStore.ts) — Zustand store holding the live `Connection`, lobby state mirror, peer presence (uuid → peerId), chat history, seat-uuid commitments. Host-authoritative: lobby mutations on guests' machines are ignored. `broadcastAction` is registered with `gameStore` via `registerBroadcaster()` to avoid a circular import.
-  - **gameStore changes:** `dispatch` now calls the registered broadcaster after every successful local apply. `receiveSnapshot(state)` lets guests adopt the host's authoritative state on `start` or `snap`. `endTurnAndHandoff` checks `window.__ghostStoriesOnline` (set by networkStore) to suppress the hot-seat handoff when each peer has its own device.
-  - **Host-only drivers:** [src/ui/game/AIDriver.tsx](src/ui/game/AIDriver.tsx) and [src/ui/game/YinPhaseRunner.tsx](src/ui/game/YinPhaseRunner.tsx) both skip work when `netRole === 'guest' || 'spectator'`. Only the host generates Yin payloads and AI actions; guests receive them via the action channel.
-  - **Spectators:** any peer whose UUID isn't in the seat assignments at game-start (or rejoin) gets role `'spectator'` — full game view, no `dispatch` calls (the action broadcast still goes out but seat-uuid validation on receivers rejects).
-  - **UI:** [src/ui/MainMenu.tsx](src/ui/MainMenu.tsx) has an Online button. [src/ui/OnlineSetup.tsx](src/ui/OnlineSetup.tsx) handles name + host/join. [src/ui/OnlineLobby.tsx](src/ui/OnlineLobby.tsx) is the host-authoritative lobby with seat claim/release, seat-type toggle, difficulty picker, lobby chat. [src/ui/game/ChatPanel.tsx](src/ui/game/ChatPanel.tsx) is the in-game chat with auto-scroll-at-bottom.
-  - **Tests:** 8 new — 6 identity-layer tests + 2 protocol determinism tests proving two peers reduce identically from the same action sequence.
-- [ ] **Phase 5** — End-of-game match stats (Qi over time, ghosts exorcised per Taoist, dice luck, curse die history)
-- [x] **Phase 6** — Self-contained rulebook with search
-  - [src/rulebook/topics.tsx](src/rulebook/topics.tsx) — 11 topics across 5 categories (overview, turn, mechanics, reference, modes). Inline SVG diagrams for the haunting-figure track, 3×3 village layout with rotated boards, and the 5 Tao die faces. Each topic carries a `searchBlob` for free-text matching.
-  - [src/rulebook/index.tsx](src/rulebook/index.tsx) — `<Rulebook>` (full-page) + `<RulebookOverlay>` (modal). 260px sidebar with category headings, live search input, content pane.
-  - Main-menu entry routes to `uiMode: 'rulebook'`. In-game floating `?` button opens the overlay variant. NewGame screen has a Rulebook button next to Back.
-- [x] **Phase 8** — Black Secret expansion (complete)
-  - **Types**: `GameConfig.expansions: 'blackSecret'`, `GameConfig.wuFengPlayer: { tag }`, new `GamePhase: 'wuFengIntervention'`, `BlackSecretState` extended with `catacombDeck` + `urnsFound` + `shadowPos`, `DemonState`, `CurseLevel`, `BloodyMantraCard`, `pendingArrivalCardId` on GameState.
-  - **Data** ([src/game/blackSecretData.ts](src/game/blackSecretData.ts)): `buildCatacombDeck(playerCount)` builds a layered token deck (dirt/buddha/bloodOfTheJust/cursedTablet/bones/bloodOfSuLing/urn), `DEFAULT_CURSE_EFFECT_BY_LEVEL` and `MANTRA_RESOLUTION_BY_LEVEL` map levels to representative effects.
-  - **Setup** ([src/game/setup.ts](src/game/setup.ts)): tile pool swaps Night Watchman → Calligrapher (composes with White Moon's swap of Night Watchman → Kung-Fu School). `buildBlackSecret` seeds 3 reserve demons, 3 skeletons, 6 mantras (3× lvl 2, 2× lvl 3, 1× lvl 4), empty curse pyramid.
-  - **Yin step 3** ([src/game/actions/yin.ts](src/game/actions/yin.ts)): when Black Secret is active and the drawn card is NOT an incarnation, pops the card off the deck, sets `phase: 'wuFengIntervention'`, stores card in `pendingArrivalCardId`, and returns. Incarnations fall through to the deterministic auto-place path.
-  - **Wu-Feng handler** ([src/game/actions/blackSecret.ts](src/game/actions/blackSecret.ts)): `applyWuFengIntervene` dispatches on the choice:
-    - **place** — validates color placement, places via base `placeGhost`.
-    - **summon** — validates ghost-resistance-sum ≥ demon cost, moves demon to chosen entrance square.
-    - **curse** — validates color match, validates pyramid, applies the *per-level effect* from `DEFAULT_CURSE_EFFECT_BY_LEVEL` (lvl 1 Qi loss, lvl 2 Tao discard, lvl 3 tile haunt, lvl 4 mass Qi).
-    - **skeleton** — places a resistance-1 ghost (registered via `ensureSkeletonInRegistry`) on a chosen empty slot.
-    - Demon Yin actions via `applyWuFengDemonActions` (move/search, dispatched before each player's Yin). Search reveals a token, then `applyCatacombToken` resolves Buddha (return demon), Blood of the Just (place Qi on Mantra), Cursed Tablet (highest-legal curse), Bones (+1 skeleton, capped at 3), Blood of Su-Ling (force-resolve a Mantra), Urn (urns++, on 3rd `spawnShadow` enters play).
-    - **Bloody Mantras**: `placeQiOnMantra` is registered as a Qi-loss side-effect hook via `registerQiLossSideEffect`. Every Qi loss routes onto the lowest-level open Mantra. Filled Mantras `applyMantraResolution` (lvl 2 mass +1 Qi to all alive, lvl 3 `inactiveTaoMarker=false`, lvl 4 mass discard of strongest non-incarnation ghost on every board) then refresh as fresh cards of the same level.
-    - **Blood Brothers** ([src/game/actions/yang.ts](src/game/actions/yang.ts)): `useTaoistPower` accepts the invocation when own board's power matches OR when actor is at 1 Qi AND opposite board's power (red↔green, blue↔yellow) matches AND opposite board is not possessed/blocked.
-  - **Dispatcher** ([src/game/engine.ts](src/game/engine.ts)): `wuFengIntervene` case wired.
-  - **UI**: NewGame Black-Secret toggle with Wu-Feng tag input ([src/ui/NewGame.tsx](src/ui/NewGame.tsx)); [src/ui/game/WuFengInterventionDialog.tsx](src/ui/game/WuFengInterventionDialog.tsx) renders when `phase === 'wuFengIntervention'` with three sections (Place / Summon / Curse) and live legality gating (summon costs ≤ resistance, curse colors filtered, max curse level from the pyramid); [src/ui/game/CatacombsPanel.tsx](src/ui/game/CatacombsPanel.tsx) sits in the side panel showing reserve demons, in-catacombs demons, curse pyramid by level, skeletons + mantras counts; Calligrapher tile glyph added.
-  - **Rulebook**: dedicated topic listing the full mechanic + explicit deferred-features section.
-  - **Tests** ([src/game/blackSecret.test.ts](src/game/blackSecret.test.ts)): 10 covering setup, Calligrapher swap, Wu-Feng tag, Yin-step-3 → wuFengIntervention transition, place flow, summon (reserve depletion + cost gate), curse (level 1 + Qi tax), curse pyramid violation, color mismatch on non-black ghost, and tile-pool composition with White Moon.
+Done: engine rewrite to the rules summary (base game, White Moon, Black Secret), heuristic AI (Taoists + Wu-Feng), new UI and art set, Firebase multiplayer, rulebook, end-of-game stats, phone / tablet layouts.
 
-- [x] **Phase 7** — White Moon expansion (complete)
-  - **Types**: `GameConfig.expansions: 'whiteMoon'[]`, `WhiteMoonState` (now with `mysticBarrierPending` flag), `VillagerToken`, `VillagerFamilyId`, `GhostAbilityKind: 'devourer'`. `outcome.reason: 'villagerToll'` added.
-  - **Family data** ([src/game/whiteMoonFamilies.ts](src/game/whiteMoonFamilies.ts)): canonical per-family death curse + save reward for all 12 families. Death curses cover Qi loss / Tao discard / Tao to supply / tile haunt / no-effect. Save rewards cover Qi / Tao / Yin-Yang / moon crystal / power token / unhaunt.
-  - **Family death curses** ([src/game/actions/hauntingAndQi.ts](src/game/actions/hauntingAndQi.ts)): `killTopVillagerOnTile` now applies `applyFamilyDeathCurse` and triggers `triggerSuLingEvent` on each death. Su-Ling placement picks the highest-pressure board+slot if she's currently in reserve.
-  - **Family save rewards** ([src/game/actions/yang.ts](src/game/actions/yang.ts)): `saveVillager` calls `checkAndApplyFamilySaveReward` — when the family's saved count equals its size, the reward fires for the active player.
-  - **Su-Ling cancellation** ([src/game/actions/yin.ts](src/game/actions/yin.ts)): `suLingCancelsGhost(state, board, space)` returns true if Su-Ling sits on that slot; Yin-phase center abilities (Haunter, Tormentor, Devourer) all skip for that ghost while she's there. Curse-die rolls are still CONSUMED from the payload for index alignment but their effect is discarded.
-  - **Villager fleeing** ([src/game/actions/yin.ts](src/game/actions/yin.ts)): `applyHaunterFlee` runs on every card→stone1 advance. Top villager on the first line tile moves to the next tile in line. If destination is off-board, haunted, or full (3), the villager dies.
-  - **Villager move-with-Taoist** ([src/game/actions/yang.ts](src/game/actions/yang.ts)): `moveTaoist` accepts a `carryVillager: boolean` flag; pops the top villager from the actor's prior tile and pushes onto the destination's stack. Validates ≤ 2 prior villagers + non-haunted destination.
-  - **Receptacles + Mystic Barrier** ([src/game/actions/yang.ts](src/game/actions/yang.ts)): `placeMoonCrystal` requires the actor to stand on the corner village tile that matches the receptacle. Setting the 4th receptacle flips `mysticBarrierPending: true`. `endYangPhase` checks the flag and runs `applyMysticBarrier` — discards the highest-resistance non-incarnation ghost on every non-neutral board (no rewards/curses), returns the 4 crystals to reserve, clears the trigger.
-  - **Move Su-Ling** action ([src/game/actions/yang.ts](src/game/actions/yang.ts)): `moveSuLing` places her on any empty haunting icon. Required to be the active player.
-  - **Catalogue**: 10 new ghost cards in [src/game/ghostCatalogue.ts](src/game/ghostCatalogue.ts) — 5 dedicated Devourers + 5 mixed. Added via `allWhiteMoonGhostIds()`.
-  - **Setup**: 8 stacks of 3 villagers across the 8 non-central tiles, Portal on the central tile, 12 moon crystals in reserve. Kung-Fu School replaces Night Watchman's Beat (`WHITE_MOON_BASIC_TILE_SET`). Deck adds the 10 new cards, then trims 10 (+ 5 per missing player).
-  - **Engine** ([src/game/actions/hauntingAndQi.ts](src/game/actions/hauntingAndQi.ts), [src/game/actions/yin.ts](src/game/actions/yin.ts)): hauntings now kill all villagers on the target tile instead of flipping (tile stays active). Devourer Yin ability kills the top villager on the first non-empty front tile, falling back to any villager, falling back to active player Qi loss.
-  - **Exorcism**: `spentMoonCrystals` added to the `exorcise` and `kungFuSchool` actions. Validates the spender holds a crystal; deducts from per-Taoist pool and returns to reserve; counts as a wild Tao token in the resistance check (`asColor` chosen at spend time). Crystals bypass the Inactive Tao marker.
-  - **Herbalist's Shop**: White face captures a moon crystal instead of granting a free-choice Tao token when White Moon is active.
-  - **Yang actions**: `saveVillager` (legal only on the Portal tile with villagers there) and `placeMoonCrystal` (corner-receptacle slot).
-  - **Loss check**: dead.length ≥ 12 triggers `villagerToll` defeat.
-  - **UI**: NewGame checkbox toggle; villager badges + Portal marker on `VillageBoardSVG`; moon-crystal pill + saved/dead summary in `HandPanel`; "🌙 Save Villager" button in `ActionBar`; game-over reason strings.
-  - **Rulebook**: dedicated "White Moon expansion" topic with explicit list of what's simplified (per-family curses/rewards, Su-Ling, mystic barrier, villager movement, alternative Portal placement).
-  - **Tests**: [src/game/whiteMoon.test.ts](src/game/whiteMoon.test.ts) — 10 covering setup composition, villager counts, portal placement, moon-crystal reserve, Herbalist white-face crystal capture, saveVillager mechanics + legality, devourer Yin step, 12-dead loss condition.
-- [ ] **Phase 8** — Black Secret expansion (Wu-Feng player, catacombs board, bloody mantras, blood brothers, demons, Shadow of Wu-Feng) — note this changes the multiplayer shape from full-coop to one-vs-many; lobby UI needs a mode toggle
-- [ ] **Phase 9** — Difficulty tuning + Hell-mode polish
-
-## Where to start next
-
-Phases 0–4 and 6 complete; engine + UI + AI + online multiplayer + rulebook are wired and tested (34/34 tests). A 4-player online game runs end-to-end with host-authoritative randomness and snapshot rejoin, and a searchable rulebook is one click away from any screen.
-
-**Rulebook audit caught two bugs** (now fixed + regression-tested):
-- 3-player Nightmare / Hell had 3 incarnations instead of 4 (`incarnationCount` now reads `playerCount <= 2 ? 3 : 4`).
-- Solo missed the rulebook's solo bonuses (1 Tao of every color + 3 power tokens) and 1–3-player games missed the 1-power-token-each grant.
-
-**Phase 5 — End-of-game stats.** Per-Taoist Qi/Tao history, dice luck (rolls vs expected), curse-die distribution, ghosts exorcised per Taoist. Hook into `logStore.recordAction` to capture a per-turn snapshot stream, then build a charts panel on the game-over screen.
-
-**Phase 7 & 8 are complete.** All rulebook mechanics implemented. Polish that remains is purely cosmetic / fine-grained UX:
-- White Moon: a UI sub-action that lets the player pick the specific Tao color when a death-curse / save-reward says "discard 1 Tao of choice" (engine currently picks deterministically — defensible but not literal-rulebook).
-- White Moon: a richer Kung-Fu School form (currently exposed via a placeholder + the engine path).
-- Black Secret: an interactive Mantra-placement prompt on every Qi loss (Calligrapher tile + the auto-route to lowest-level-Mantra together cover this functionally; a true per-loss prompt would be the rulebook-literal version).
-- Both: a fully-modelled "moveSuLing" UI / Shadow-attack UI with per-die displays.
-
-**Phase 2 / 3 polish backlog (still worth doing):**
-- Power-token spending UI (engine supports `spendPowerToken` but no button surfaces it)
-- Corner-tile dual exorcism (engine supports `ghosts: [r1, r2]`; UI currently caps at 1)
-- AI: corner-tile dual exorcism, better Tao spend (currently planning is pessimistic — many viable exorcisms slip below threshold)
-- AI: Pavilion / Yin-Yang usage (no current heuristics for these)
-- Bonecracker / Nameless arrival animations (left-stone events fire silently)
-- Pavilion of Heavenly Wind: surface the forced second Taoist move (currently auto-skipped)
-- Tile-action `arrival` sub-step (Taoist Altar / Tea House should chain a ghost arrival — currently the UI omits the payload)
-- Wider screen sizes (the rotated boards consume horizontal space)
+Next:
+- **AI strength** — self-play win rates (seeds 7001–7300, 300 games each): 4 AI Initiation 8% (10–13% on other seed sets), Normal 2%; solo Initiation 19%, Normal 14%; 2 players Initiation 12%, Normal 4% (the old AI: 0–1%). Most 4-player losses come in the last ~10 cards, after the incarnation shows up. Next: re-tune `W` with the search on and more seeds; the AI ignores White Moon villagers (many expansion games are lost to the 12th dead villager) and never goes underground in Black Secret; Wu-Feng's AI is unchanged.
+- **Neural-network AI** (`src/ai/nn/`, `training/`) — in the game for solo Initiation / Normal: the shared network (50,000 updates of self-play PPO) wins 28% of solo Normal games (rules-based search AI 15%, 1,200 unseen seeds; 35% vs 19% on Initiation); the per-monk specialists shipped 2026-11-12 (three rounds, the last two with the dice-maths inputs) win 45% overall on fresh seeds where the shared network wins 30% (Bottomless Pockets 61%, Second Wind 58%, Strength of the Mountain 52%, Enfeeblement Mantra 46%, Heavenly Gust 43%, Gods' Favorite 39%, Dance of the Spires 33%; on Initiation 53% vs 38%; `training/README.md` → Specialists). Not yet better than the rules-based AI for multiplayer, Nightmare or the expansions (never trained there; 4 players 0–1% vs 2–8%, Black Secret solo 1% vs 19%). Next: train on those setups, then drop the rules-based Taoist AI (it still plays Wu-Feng); a play-time lookahead with the network (only on unsure decisions; `training/README.md` → Next).
+- Scoring (rulebook scoring isn't in the summary).

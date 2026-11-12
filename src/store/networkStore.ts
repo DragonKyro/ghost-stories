@@ -1,464 +1,702 @@
-// Zustand store for the WebRTC / Trystero session.
+// Online play: the room this device is in, its lobby, the people in it, chat,
+// and the bridge between the room's action log and gameStore.
 //
-// Responsibilities:
-//   - Own the live `Connection` (or null when offline).
-//   - Track role (solo / host / guest / spectator).
-//   - Mirror the host-authoritative `LobbyState` for the lobby screen.
-//   - Track per-uuid online status.
-//   - Hold chat history (in-memory; not part of GameState).
-//   - Bridge received `action` envelopes into `gameStore.applyLocal`.
-//   - Broadcast locally-dispatched actions via a registered handler.
+// - The transport (src/net/firebaseRoom.ts, Firebase Realtime Database) is
+//   loaded on first use, so the SDK only downloads when someone goes online.
+// - The lobby is a JSON string edited by transaction: every device seats
+//   itself; only the host's device offers the settings (src/store/lobby.ts
+//   has the rules and the edits).
+// - The host starts the game by writing a StartRecord (the GameConfig, seat →
+//   UUID, a checksum of createGame(config)). Every device builds the start
+//   with createGame(config) and replays the log (ActionSync, ./actionSync.ts).
+// - gameStore's dispatch guard (registered here) lets a device act only for
+//   its own seats; the host also acts for the seats nobody owns (the AI, and
+//   anything asked of a neutral board), and is the only device that runs the
+//   AI (`runsAi`).
 
 import { create } from 'zustand'
-import { useGameStore, registerBroadcaster } from './gameStore'
+import { actionSeat, createGame } from '@/game/engine'
+import type { Difficulty, GameState, Seat } from '@/game/types'
 import {
-  connect,
-  getDisplayName,
-  getOrCreateUuid,
-  APP_VERSION,
-  type ActionMsg,
-  type ChatMsg,
-  type Connection,
-  type HelloMsg,
+  type ChatMessage,
+  type ConnectionState,
+  type LobbyBlackSecret,
+  type LobbySeatKind,
   type LobbyState,
-  type ReqSnapMsg,
-  type SnapMsg,
-  type StartMsg,
+  type LobbyWhiteMoon,
+  type LocalRole,
+  type Presence,
+  type RoomConnection,
+  type RoomEvents,
+  type RoomTransport,
+  type StartRecord,
+  ServerUnreachableError,
+  cleanDisplayName,
+  generateRoomCode,
+  getOrCreateUuid,
+  getSavedDisplayName,
+  normalizeRoomCode,
+  roomCodeFromUrl,
+  saveDisplayName,
+  setRoomCodeInUrl,
 } from '@/net'
-import type { Action } from '@/game/actions'
-import type { Difficulty, GameConfig, TaoistColor } from '@/game/types'
+import {
+  registerBroadcastHandler,
+  registerDispatchGuard,
+  registerOnlinePredicate,
+  useGameStore,
+  type GameSnapshot,
+} from './gameStore'
+import { ActionSync } from './actionSync'
+import {
+  TAOIST_SEATS,
+  claimProblem,
+  claimSeatEdit,
+  defaultLobby,
+  hostSetSeatEdit,
+  leaveLobbyEdit,
+  lobbySeat,
+  lobbySeatUuids,
+  lobbyStartProblem,
+  lobbyToConfig,
+  normalizeLobby,
+  releaseSeatEdit,
+  renameEdit,
+  setBlackSecretEdit,
+  setDifficultyEdit,
+  setWhiteMoonEdit,
+} from './lobby'
 
-export type Role = 'solo' | 'host' | 'guest' | 'spectator'
+const SYSTEM_NAME = 'System'
+const MAX_CHAT_LENGTH = 500
+/** Every seat, in board order then Wu-Feng. */
+const ALL_SEATS: readonly Seat[] = [...TAOIST_SEATS, 'wufeng']
 
-const ALL_COLORS: TaoistColor[] = ['red', 'blue', 'green', 'yellow']
+/** The build this page runs (rooms record the build that made them). */
+export const APP_BUILD = typeof __APP_BUILD__ === 'string' ? __APP_BUILD__ : 'dev'
 
-function setOnlineFlag(online: boolean) {
-  if (typeof window !== 'undefined') {
-    ;(window as { __ghostStoriesOnline?: boolean }).__ghostStoriesOnline = online
-  }
+/** Why a join gave up, for the error screen. */
+export interface JoinFailure {
+  code: string
+  /** notFound: the server has no room with this code. unreachable: this device couldn't reach the server. */
+  reason: 'notFound' | 'unreachable'
+  detail?: string
 }
 
-function emptyLobby(hostUuid: string): LobbyState {
-  return {
-    hostUuid,
-    members: { [hostUuid]: { uuid: hostUuid, name: getDisplayName(), online: true } },
-    seatAssignments: {},
-    seatTypes: { red: 'human', blue: 'human', green: 'human', yellow: 'human' },
-    difficulty: 'initiation',
-    started: false,
+/** FNV-1a over the state's JSON: devices compare it to know they built the same starting game. */
+export function gameChecksum(state: GameState): string {
+  const json = JSON.stringify(state)
+  let h = 0x811c9dc5
+  for (let i = 0; i < json.length; i++) {
+    h ^= json.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
   }
+  return (h >>> 0).toString(16).padStart(8, '0')
 }
 
-type NetworkStore = {
-  role: Role
+const UNREACHABLE_TEXT = "Couldn't reach the game server. Check this device's internet connection, then try again."
+
+export interface NetStore {
+  connection: ConnectionState
+  errorMessage: string | null
+  role: LocalRole
   myUuid: string
-  myName: string
-  conn: Connection | null
+  myDisplayName: string
   roomCode: string | null
-  lobby: LobbyState | null
-  /** UUID → most recent peerId seen for that uuid. */
-  peerByUuid: Record<string, string>
-  /** seat color → uuid (committed when game starts; survives reconnects). */
-  seatUuids: Partial<Record<TaoistColor, string>>
-  chat: ChatMsg[]
-  /** Most recent error / status message for the UI. */
-  status: string | null
+  hostUuid: string | null
+  joinFailure: JoinFailure | null
+  /** This device's link to the server; false while it reconnects (moves wait, then go through). */
+  serverConnected: boolean
+  lobby: LobbyState
+  /** Seat → UUID from the start record (empty until the game starts). null: AI / neutral. */
+  seatUuids: Partial<Record<Seat, string | null>>
+  /** Everyone connected to the room (this device included). */
+  onlineUuids: Set<string>
+  /** The same people with their names, one entry per person. */
+  people: Presence[]
+  chat: ChatMessage[]
+  /** Why this device's last lobby request didn't go through (seat taken, …); cleared by the next one. */
+  lobbyNotice: string | null
 
-  // Setup
-  setMyName: (name: string) => void
+  setDisplayName: (name: string) => void
+  createRoom: (name: string) => Promise<void>
+  joinRoom: (code: string, name: string) => Promise<void>
+  /** Join the room of the last failed join again. */
+  retryJoin: () => void
+  /** Leave the room (a guest in the lobby gives up their seats); leaving a game also quits it. */
+  leaveRoom: () => void
+  clearError: () => void
 
-  // Lifecycle
-  host: (roomCode: string) => Promise<void>
-  join: (roomCode: string) => Promise<void>
-  leave: () => Promise<void>
+  /** Sit down in an open seat (any device). Resolves true when the lobby changed. */
+  claimSeat: (seat: Seat) => Promise<boolean>
+  /** Get up from one of your seats. */
+  releaseSeat: (seat: Seat) => Promise<boolean>
+  /** Host: open a seat (removing whoever sits there), give it to the AI, or leave a board neutral. */
+  hostSetSeat: (seat: Seat, kind: Exclude<LobbySeatKind, 'human'>) => Promise<boolean>
+  hostSetDifficulty: (difficulty: Difficulty) => Promise<boolean>
+  hostSetWhiteMoon: (patch: Partial<LobbyWhiteMoon>) => Promise<boolean>
+  hostSetBlackSecret: (patch: Partial<LobbyBlackSecret>) => Promise<boolean>
+  hostStartGame: () => Promise<void>
 
-  // Lobby (host-side mutators)
-  claimSeat: (color: TaoistColor) => void
-  releaseSeat: (color: TaoistColor) => void
-  setSeatType: (color: TaoistColor, type: 'human' | 'ai' | 'neutral') => void
-  setDifficulty: (d: Difficulty) => void
-  setBlackSecret: (on: boolean) => void
-  claimWuFeng: () => void
-  releaseWuFeng: () => void
-  setWhiteMoon: (on: boolean) => void
-  setPortalPlacement: (p: 'center' | 'edge' | 'corner') => void
-  startOnlineGame: () => void
-
-  // Chat
   sendChat: (text: string) => void
-
-  // Outbound game actions — gameStore calls this from `dispatch`.
-  broadcastAction: (action: Action) => void
 }
 
-export const useNetworkStore = create<NetworkStore>((set, get) => ({
-  role: 'solo',
-  myUuid: getOrCreateUuid(),
-  myName: getDisplayName(),
-  conn: null,
-  roomCode: null,
-  lobby: null,
-  peerByUuid: {},
-  seatUuids: {},
-  chat: [],
-  status: null,
-
-  setMyName: (name) => {
-    const cleaned = name.trim().slice(0, 24) || 'Player'
-    set({ myName: cleaned })
-    try {
-      // Persist via identity helper.
-      if (typeof window !== 'undefined') {
-        const isFresh = new URLSearchParams(window.location.search).has('fresh')
-        const s = isFresh ? window.sessionStorage : window.localStorage
-        s.setItem('ghoststories.name', cleaned)
-      }
-    } catch { /* ignore quota */ }
-    // Re-announce hello if connected.
-    const conn = get().conn
-    if (conn) conn.send.hello({ uuid: get().myUuid, name: cleaned, appVersion: APP_VERSION })
-  },
-
-  host: async (roomCode) => {
-    await get().leave()
-    const myUuid = get().myUuid
-    const conn = connect(roomCode, makeHandlers(get, set, 'host'))
-    const lobby = emptyLobby(myUuid)
-    set({ role: 'host', conn, roomCode: conn.roomCode, lobby, chat: [], status: `Hosting ${conn.roomCode}` })
-    setOnlineFlag(true)
-    registerBroadcaster((action) => get().broadcastAction(action))
-    conn.send.hello({ uuid: myUuid, name: get().myName, appVersion: APP_VERSION })
-  },
-
-  join: async (roomCode) => {
-    await get().leave()
-    const conn = connect(roomCode, makeHandlers(get, set, 'guest'))
-    set({ role: 'guest', conn, roomCode: conn.roomCode, lobby: null, chat: [], status: `Joining ${conn.roomCode}…` })
-    setOnlineFlag(true)
-    registerBroadcaster((action) => get().broadcastAction(action))
-    conn.send.hello({ uuid: get().myUuid, name: get().myName, appVersion: APP_VERSION })
-    conn.send.reqSnap({ uuid: get().myUuid })
-  },
-
-  leave: async () => {
-    const c = get().conn
-    if (c) {
-      try { await c.leave() } catch { /* trystero swallows */ }
-    }
-    setOnlineFlag(false)
-    registerBroadcaster(null)
-    set({
-      conn: null, role: 'solo', roomCode: null,
-      lobby: null, peerByUuid: {}, chat: [], seatUuids: {}, status: null,
+// Loaded on first use so the Firebase SDK isn't in the main bundle.
+// (Tests swap the module for src/net/fakeTransport.ts.)
+type LoadedTransport = RoomTransport & { warmUp: () => void }
+let transportPromise: Promise<LoadedTransport> | null = null
+function loadTransport(): Promise<LoadedTransport> {
+  transportPromise ??= import('@/net/firebaseRoom')
+    .then((m) => m.getTransport())
+    .catch((e: unknown) => {
+      transportPromise = null
+      throw new ServerUnreachableError(`Could not load the online code (${(e as Error).message}).`)
     })
-  },
+  return transportPromise
+}
 
-  claimSeat: (color) => {
-    const { role, conn, lobby, myUuid } = get()
-    if (role !== 'host' || !lobby) return
-    // Free any other seat I had.
-    const next: LobbyState = JSON.parse(JSON.stringify(lobby))
-    for (const c of ALL_COLORS) {
-      if (next.seatAssignments[c] === myUuid) delete next.seatAssignments[c]
+/** Load the online code and sign in ahead of time (call when the online screen opens). */
+export function warmUpNetwork(): void {
+  loadTransport().then(
+    (t) => t.warmUp(),
+    () => {},
+  )
+}
+
+// Internal (non-reactive) session state.
+let conn: RoomConnection | null = null
+let session = 0 // bumped on every create / join / leave; stale callbacks compare against it
+let sync: ActionSync<GameSnapshot> | null = null
+let gameStarted = false
+let lastPresence: Map<string, string> | null = null // uuid → name
+
+function emptyLobby(): LobbyState {
+  return normalizeLobby({} as LobbyState)
+}
+
+function randomSeed(): number {
+  return Math.floor(Math.random() * 0x7fffffff)
+}
+
+function messageId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function sysMessage(text: string, myUuid: string): ChatMessage {
+  return { id: messageId(), senderUuid: myUuid, senderName: SYSTEM_NAME, text, timestamp: Date.now(), kind: 'system' }
+}
+
+function userMessage(text: string, uuid: string, name: string): ChatMessage {
+  return { id: messageId(), senderUuid: uuid, senderName: name, text, timestamp: Date.now(), kind: 'user' }
+}
+
+/** In (or getting into) a room: the cases where this device isn't the whole table. */
+function inRoom(connection: ConnectionState): boolean {
+  return connection === 'connecting' || connection === 'lobby' || connection === 'in-game'
+}
+
+export const useNetworkStore = create<NetStore>((set, get) => {
+  registerOnlinePredicate(() => {
+    const c = get().connection
+    return c === 'lobby' || c === 'in-game'
+  })
+  registerBroadcastHandler((action, before, at) => sync?.local(action, before, at))
+  // Act only for your own seats (the host also for seats nobody owns), so
+  // nothing is ever written for a seat this device doesn't play.
+  registerDispatchGuard((action) => {
+    const s = get()
+    if (s.connection !== 'in-game') return null
+    if (s.role === 'spectator') return "You're watching this game, not playing in it."
+    const game = useGameStore.getState().game
+    if (!game) return null
+    let seat: Seat
+    try {
+      seat = actionSeat(game, action)
+    } catch (e) {
+      return (e as Error).message
     }
-    next.seatAssignments[color] = myUuid
-    next.seatTypes[color] = 'human'
-    set({ lobby: next })
-    if (conn) conn.send.lobby(next)
-  },
+    const owner = s.seatUuids[seat] ?? null
+    if (owner === s.myUuid) return null
+    if (owner === null) return s.role === 'host' ? null : "The host's device plays that seat."
+    return "That's another player's seat."
+  })
 
-  releaseSeat: (color) => {
-    const { role, conn, lobby, myUuid } = get()
-    if (role !== 'host' || !lobby) return
-    if (lobby.seatAssignments[color] !== myUuid) return
-    const next: LobbyState = JSON.parse(JSON.stringify(lobby))
-    delete next.seatAssignments[color]
-    set({ lobby: next })
-    if (conn) conn.send.lobby(next)
-  },
+  const myUuid = getOrCreateUuid()
 
-  setSeatType: (color, type) => {
-    const { role, conn, lobby } = get()
-    if (role !== 'host' || !lobby) return
-    const next: LobbyState = JSON.parse(JSON.stringify(lobby))
-    next.seatTypes[color] = type
-    if (type !== 'human') delete next.seatAssignments[color]
-    set({ lobby: next })
-    if (conn) conn.send.lobby(next)
-  },
+  /** End the current session (if any) and start a new one; returns its id. */
+  function beginSession(): number {
+    session++
+    sync?.close()
+    sync = null
+    conn?.leave()
+    conn = null
+    gameStarted = false
+    lastPresence = null
+    return session
+  }
 
-  setDifficulty: (d) => {
-    const { role, conn, lobby } = get()
-    if (role !== 'host' || !lobby) return
-    const next: LobbyState = { ...lobby, difficulty: d }
-    set({ lobby: next })
-    if (conn) conn.send.lobby(next)
-  },
+  function addSystem(text: string): void {
+    set({ chat: [...get().chat, sysMessage(text, get().myUuid)] })
+  }
 
-  setBlackSecret: (on) => {
-    const { role, conn, lobby } = get()
-    if (role !== 'host' || !lobby) return
-    const next: LobbyState = { ...lobby, blackSecret: on, wuFengUuid: on ? lobby.wuFengUuid : null }
-    set({ lobby: next })
-    if (conn) conn.send.lobby(next)
-  },
+  function makeSync(): ActionSync<GameSnapshot> {
+    return new ActionSync<GameSnapshot>({
+      apply: (entry) => {
+        useGameStore.getState().applyLocal(entry.action, entry.at)
+      },
+      reapply: (entry) => useGameStore.getState().applyLocal(entry.action, entry.at),
+      snapshot: () => {
+        const snap = useGameStore.getState().takeSnapshot()
+        if (!snap) throw new Error('No game to snapshot.')
+        return snap
+      },
+      restore: (snap) => useGameStore.getState().restoreSnapshot(snap),
+      write: (seq, entry) => (conn ? conn.appendAction(seq, entry) : Promise.resolve(false)),
+      dropped: (_action, why) => {
+        useGameStore.setState({
+          error:
+            why === 'overtaken'
+              ? "Another player's move went through first, so yours was taken back."
+              : 'The server refused that move.',
+        })
+      },
+    })
+  }
 
-  claimWuFeng: () => {
-    const { role, conn, lobby, myUuid } = get()
-    if (role !== 'host' || !lobby) return
-    const next: LobbyState = { ...lobby, wuFengUuid: myUuid }
-    set({ lobby: next })
-    if (conn) conn.send.lobby(next)
-  },
+  function onLobby(raw: LobbyState): void {
+    // A lobby written by another build may lack fields: fill them in first.
+    const lobby = normalizeLobby(raw)
+    const s = get()
+    // A started lobby means the game record is on its way: stay on the
+    // "joining" card rather than flash the lobby.
+    const toLobby = s.connection === 'connecting' && !gameStarted && !lobby.started
+    set({
+      lobby,
+      hostUuid: lobby.hostUuid,
+      role: gameStarted ? s.role : lobby.hostUuid === s.myUuid ? 'host' : 'guest',
+      connection: toLobby ? 'lobby' : s.connection,
+    })
+  }
 
-  releaseWuFeng: () => {
-    const { role, conn, lobby } = get()
-    if (role !== 'host' || !lobby) return
-    const next: LobbyState = { ...lobby, wuFengUuid: null }
-    set({ lobby: next })
-    if (conn) conn.send.lobby(next)
-  },
-
-  setWhiteMoon: (on) => {
-    const { role, conn, lobby } = get()
-    if (role !== 'host' || !lobby) return
-    const next: LobbyState = { ...lobby, whiteMoon: on }
-    set({ lobby: next })
-    if (conn) conn.send.lobby(next)
-  },
-
-  setPortalPlacement: (p) => {
-    const { role, conn, lobby } = get()
-    if (role !== 'host' || !lobby) return
-    const next: LobbyState = { ...lobby, portalPlacement: p }
-    set({ lobby: next })
-    if (conn) conn.send.lobby(next)
-  },
-
-  startOnlineGame: () => {
-    const { role, conn, lobby } = get()
-    if (role !== 'host' || !conn || !lobby) return
-    // Translate the lobby into a GameConfig.
-    const seats: GameConfig['seats'] = {}
-    const seatUuids: Partial<Record<TaoistColor, string>> = {}
-    for (const c of ALL_COLORS) {
-      const type = lobby.seatTypes[c]
-      if (type === 'human') {
-        if (lobby.seatAssignments[c]) {
-          seats[c] = 'human'
-          seatUuids[c] = lobby.seatAssignments[c]
-        }
-        // else: human slot but unclaimed → leave as neutral
-      } else if (type === 'ai') {
-        seats[c] = 'ai'
-      }
-      // 'neutral' → omitted
-    }
-    if (Object.keys(seats).length === 0) {
-      set({ status: 'At least one seat must be filled.' })
+  function onStart(rec: StartRecord): void {
+    if (gameStarted) return // written once; ignore repeats
+    gameStarted = true
+    const me = get().myUuid
+    const seatUuids = { ...rec.seatUuids }
+    const wasInLobby = get().connection === 'lobby'
+    const isPlayer = Object.values(seatUuids).includes(me)
+    const role: LocalRole = rec.hostUuid === me ? 'host' : isPlayer ? 'guest' : 'spectator'
+    set({
+      connection: 'in-game',
+      role,
+      hostUuid: rec.hostUuid,
+      seatUuids,
+      errorMessage: null,
+      joinFailure: null,
+      lobbyNotice: null,
+    })
+    addSystem(wasInLobby ? 'Game started' : isPlayer ? 'Rejoined the game' : 'Spectating')
+    // Every device builds the starting game from the same config.
+    let game: GameState
+    try {
+      game = createGame(rec.config)
+    } catch (e) {
+      addSystem(`This device couldn't set up the game (${(e as Error).message}). Reload the page.`)
       return
     }
-
-    // Lock the lobby and start.
-    const locked: LobbyState = { ...lobby, started: true }
-    set({ lobby: locked, seatUuids })
-    conn.send.lobby(locked)
-
-    // Host runs createGame locally to obtain the deterministic state, then
-    // broadcasts it.
-    const expansionsList: Array<'whiteMoon' | 'blackSecret'> = []
-    if (lobby.whiteMoon) expansionsList.push('whiteMoon')
-    if (lobby.blackSecret) expansionsList.push('blackSecret')
-    useGameStore.getState().startGame({
-      difficulty: lobby.difficulty,
-      seats,
-      expansions: expansionsList.length > 0 ? expansionsList : undefined,
-      portalPlacement: lobby.portalPlacement,
-      wuFengPlayer: lobby.blackSecret && lobby.wuFengUuid
-        ? { tag: lobby.members[lobby.wuFengUuid]?.name ?? 'Wu-Feng', uuid: lobby.wuFengUuid }
-        : undefined,
-    })
-    const game = useGameStore.getState().game
-    if (!game) return
-    const startMsg: StartMsg = { gameState: game, seatUuids }
-    conn.send.start(startMsg)
-  },
-
-  sendChat: (text) => {
-    const clean = text.trim().slice(0, 500)
-    if (!clean) return
-    const msg: ChatMsg = {
-      uuid: get().myUuid,
-      name: get().myName,
-      text: clean,
-      at: Date.now(),
-    }
-    set((s) => ({ chat: [...s.chat, msg] }))
-    const conn = get().conn
-    if (conn) conn.send.chat(msg)
-  },
-
-  broadcastAction: (action) => {
-    const conn = get().conn
-    if (!conn) return
-    conn.send.action({ action, byUuid: get().myUuid })
-  },
-}))
-
-// ---------------------------------------------------------------------------
-//   Channel handlers — these run when bytes arrive over Trystero.
-// ---------------------------------------------------------------------------
-
-function makeHandlers(
-  get: () => NetworkStore,
-  set: (partial: Partial<NetworkStore> | ((s: NetworkStore) => Partial<NetworkStore>)) => void,
-  role: Role,
-) {
-  return {
-    onHello(m: HelloMsg, peerId: string) {
-      // Track the uuid ↔ peerId mapping and surface the user in the lobby.
-      set((s) => {
-        const peerByUuid = { ...s.peerByUuid, [m.uuid]: peerId }
-        let lobby = s.lobby
-        // Host updates the lobby's members; guests just track presence.
-        if (s.role === 'host' && lobby) {
-          lobby = {
-            ...lobby,
-            members: {
-              ...lobby.members,
-              [m.uuid]: { uuid: m.uuid, name: m.name, online: true },
-            },
-          }
-          // Broadcast the updated lobby so the new peer sees the full state.
-          if (s.conn) s.conn.send.lobby(lobby)
-        }
-        return { peerByUuid, lobby }
-      })
-      // If we're a guest receiving the host's hello, re-request a snapshot —
-      // covers the case where reqSnap arrived before the host was listening.
-      if (get().role === 'guest' && get().conn) {
-        get().conn!.send.reqSnap({ uuid: get().myUuid })
-      }
-    },
-
-    onLobby(m: LobbyState) {
-      // Guests adopt whatever the host sends. Hosts ignore (they're the source).
-      if (get().role === 'host') return
-      set({ lobby: m, role: 'guest', status: m.started ? 'Game in progress…' : 'In lobby' })
-    },
-
-    onStart(m: StartMsg) {
-      // Guests adopt the initial GameState and switch into the in-game UI.
-      const myUuid = get().myUuid
-      const isInGame = ALL_COLORS.some((c) => m.seatUuids[c] === myUuid)
-      set({
-        seatUuids: m.seatUuids,
-        role: get().role === 'host' ? 'host' : isInGame ? 'guest' : 'spectator',
-        status: isInGame ? 'In game' : 'Spectating',
-      })
-      // Push the state into gameStore via the dedicated entry point.
-      useGameStore.getState().receiveSnapshot(m.gameState)
-    },
-
-    onAction(m: ActionMsg) {
-      // Authenticate seat ownership before applying.
-      const myUuid = get().myUuid
-      if (m.byUuid === myUuid) return // we already applied locally
-      // Cross-check seat ownership: an action with a `taoistId` must come
-      // from the UUID assigned to that seat.
-      const action = m.action
-      // System actions (startTurn / spawnIncarnation) have no taoistId.
-      if ('taoistId' in action && typeof action.taoistId === 'string') {
-        const color = action.taoistId.replace('taoist-', '') as TaoistColor
-        const seatUuid = get().seatUuids[color]
-        if (seatUuid && seatUuid !== m.byUuid) return
-      }
-      // Black Secret: Wu-Feng actions are restricted to the bound Wu-Feng UUID.
-      const game = useGameStore.getState().game
-      const wuFengUuid = game?.config.wuFengPlayer?.uuid
-      const isWuFengAction =
-        action.type === 'wuFengIntervene'
-        || action.type === 'wuFengDemonActions'
-        || action.type === 'wuFengShadowAction'
-      if (isWuFengAction && wuFengUuid && wuFengUuid !== m.byUuid) return
-      useGameStore.getState().applyLocal(m.action)
-    },
-
-    onSnap(m: SnapMsg) {
-      if (role === 'host') return // hosts don't accept snapshots
-      const myUuid = get().myUuid
-      const isInGame = ALL_COLORS.some((c) => m.seatUuids[c] === myUuid)
-      set({
-        seatUuids: m.seatUuids,
-        chat: m.chat ?? [],
-        role: isInGame ? 'guest' : 'spectator',
-        status: isInGame ? 'In game' : 'Spectating',
-      })
-      useGameStore.getState().receiveSnapshot(m.gameState)
-    },
-
-    onReqSnap(_m: ReqSnapMsg, peerId: string) {
-      // Only the host responds. Send the live state + chat history.
-      if (get().role !== 'host') return
-      const conn = get().conn
-      const game = useGameStore.getState().game
-      if (!conn || !game) return
-      conn.send.snap(
-        {
-          gameState: game,
-          seatUuids: get().seatUuids,
-          chat: get().chat,
-        },
-        peerId,
+    if (gameChecksum(game) !== rec.check) {
+      addSystem(
+        "This device set up a different game from the host's, so moves won't line up. " +
+          "Reload every device's page so they all run the same version.",
       )
-      // Also send the current lobby so the late joiner sees seat layout.
-      if (get().lobby) conn.send.lobby(get().lobby!, peerId)
+    }
+    useGameStore.getState().setGameState(game, rec.startedAt)
+    // Replay the log from the start: every device ends up with the same game
+    // and the full history.
+    sync?.begin()
+  }
+
+  function onChat(msg: ChatMessage): void {
+    if (get().chat.some((c) => c.id === msg.id)) return
+    set({ chat: [...get().chat, msg] })
+  }
+
+  function onPresence(list: Presence[]): void {
+    const me = get().myUuid
+    const now = new Map<string, string>()
+    for (const p of list) if (!now.has(p.uuid) || p.name) now.set(p.uuid, p.name)
+    const online = new Set(now.keys())
+    online.add(me)
+    const lines: string[] = []
+    if (lastPresence) {
+      for (const [uuid, name] of now) {
+        if (!lastPresence.has(uuid) && uuid !== me) lines.push(`${name || 'A player'} joined`)
+      }
+      for (const [uuid, name] of lastPresence) {
+        if (!now.has(uuid) && uuid !== me) lines.push(`${name || 'A player'} disconnected`)
+      }
+    }
+    lastPresence = now
+    const people = [...now].map(([uuid, name]) => ({ uuid, name }))
+    if (!now.has(me)) people.unshift({ uuid: me, name: get().myDisplayName })
+    set({
+      onlineUuids: online,
+      people,
+      chat: lines.length ? [...get().chat, ...lines.map((l) => sysMessage(l, me))] : get().chat,
+    })
+  }
+
+  function roomEvents(my: number): RoomEvents {
+    const live = () => my === session
+    return {
+      lobby: (lobby) => live() && onLobby(lobby),
+      start: (rec) => live() && onStart(rec),
+      action: (seq, entry) => live() && sync?.receive(seq, entry),
+      chat: (msg) => live() && onChat(msg),
+      presence: (people) => live() && onPresence(people),
+      connected: (up) => live() && set({ serverConnected: up }),
+    }
+  }
+
+  function editLobby(edit: (lobby: LobbyState) => LobbyState | null): Promise<LobbyState | null> {
+    if (!conn) return Promise.resolve(null)
+    return conn
+      .updateLobby((l) => edit(normalizeLobby(l)))
+      .catch((e: unknown) => {
+        console.warn('[net] lobby update failed:', (e as Error).message)
+        return null
+      })
+  }
+
+  /** A lobby edit this device's UI asked for; `refused` explains a no-op to the player. */
+  async function request(
+    edit: (lobby: LobbyState) => LobbyState | null,
+    refused: string | null = null,
+  ): Promise<boolean> {
+    if (get().connection !== 'lobby') return false
+    const done = (await editLobby(edit)) !== null
+    set({ lobbyNotice: done ? null : refused })
+    return done
+  }
+
+  const isHost = () => get().role === 'host' && get().connection === 'lobby'
+
+  function failJoin(code: string, reason: JoinFailure['reason'], detail?: string): void {
+    beginSession()
+    if (reason === 'notFound') setRoomCodeInUrl(null)
+    set({
+      connection: 'error',
+      joinFailure: { code, reason, detail },
+      errorMessage:
+        reason === 'notFound'
+          ? `There's no room with code ${code}. Check the code with the host (rooms are cleared a week after they're made).`
+          : UNREACHABLE_TEXT,
+    })
+  }
+
+  return {
+    connection: 'disconnected',
+    errorMessage: null,
+    role: 'solo',
+    myUuid,
+    myDisplayName: getSavedDisplayName() || 'Player',
+    roomCode: null,
+    hostUuid: null,
+    joinFailure: null,
+    serverConnected: true,
+    lobby: emptyLobby(),
+    seatUuids: {},
+    onlineUuids: new Set(),
+    people: [],
+    chat: [],
+    lobbyNotice: null,
+
+    setDisplayName: (raw) => {
+      const name = cleanDisplayName(raw)
+      if (!name) return
+      saveDisplayName(name)
+      set({ myDisplayName: name })
+      if (get().connection === 'lobby') void editLobby((l) => renameEdit(l, get().myUuid, name))
     },
 
-    onChat(m: ChatMsg) {
-      set((s) => ({ chat: [...s.chat, m] }))
-    },
-
-    onPeerJoin(peerId: string) {
-      set({ status: `Peer joined (${peerId.slice(0, 6)}…)` })
-      // Send our hello to the new peer so they know our UUID/name immediately.
-      const conn = get().conn
-      if (conn) conn.send.hello({ uuid: get().myUuid, name: get().myName, appVersion: APP_VERSION }, peerId)
-      // Host: also push lobby + (if game is running) game state so the new
-      // peer doesn't have to ask.
-      if (get().role === 'host') {
-        if (get().lobby) conn?.send.lobby(get().lobby!, peerId)
-        const game = useGameStore.getState().game
-        if (game) {
-          conn?.send.snap(
-            { gameState: game, seatUuids: get().seatUuids, chat: get().chat },
-            peerId,
+    createRoom: async (raw) => {
+      const name = cleanDisplayName(raw) || 'Player'
+      saveDisplayName(name)
+      const my = beginSession()
+      const me = get().myUuid
+      const lobby = defaultLobby(me, name, randomSeed())
+      sync = makeSync()
+      set({
+        connection: 'connecting',
+        role: 'host',
+        myDisplayName: name,
+        roomCode: null,
+        hostUuid: me,
+        joinFailure: null,
+        errorMessage: null,
+        serverConnected: true,
+        lobby,
+        seatUuids: {},
+        onlineUuids: new Set([me]),
+        people: [{ uuid: me, name }],
+        chat: [],
+        lobbyNotice: null,
+      })
+      try {
+        const transport = await loadTransport()
+        let c: RoomConnection | null = null
+        // A code still in use by a live room is refused; draw another.
+        for (let attempt = 0; attempt < 6 && !c && my === session; attempt++) {
+          c = await transport.createRoom(
+            generateRoomCode(),
+            { hostUuid: me, createdAt: Date.now(), build: APP_BUILD },
+            lobby,
+            { uuid: me, name },
+            roomEvents(my),
           )
         }
+        if (my !== session) {
+          c?.leave()
+          return
+        }
+        if (!c) throw new Error('Could not find a free room code. Try again.')
+        conn = c
+        setRoomCodeInUrl(c.code)
+        set({ roomCode: c.code, connection: get().connection === 'connecting' ? 'lobby' : get().connection })
+      } catch (e) {
+        if (my !== session) return
+        console.error('[net] failed to create room', e)
+        beginSession()
+        set({
+          connection: 'error',
+          joinFailure: null,
+          errorMessage: e instanceof ServerUnreachableError ? UNREACHABLE_TEXT : (e as Error).message,
+        })
       }
     },
 
-    onPeerLeave(peerId: string) {
-      // Flip any uuid mapped to this peerId offline.
-      set((s) => {
-        const peerByUuid = { ...s.peerByUuid }
-        let leavingUuid: string | null = null
-        for (const [uuid, pid] of Object.entries(peerByUuid)) {
-          if (pid === peerId) {
-            delete peerByUuid[uuid]
-            leavingUuid = uuid
-          }
-        }
-        let lobby = s.lobby
-        if (s.role === 'host' && lobby && leavingUuid && lobby.members[leavingUuid]) {
-          lobby = {
-            ...lobby,
-            members: { ...lobby.members, [leavingUuid]: { ...lobby.members[leavingUuid], online: false } },
-          }
-          if (s.conn) s.conn.send.lobby(lobby)
-        }
-        return { peerByUuid, lobby, status: `Peer left (${peerId.slice(0, 6)}…)` }
+    joinRoom: async (code, raw) => {
+      const name = cleanDisplayName(raw) || 'Player'
+      saveDisplayName(name)
+      const upper = normalizeRoomCode(code)
+      const my = beginSession()
+      const me = get().myUuid
+      sync = makeSync()
+      set({
+        connection: 'connecting',
+        role: 'guest',
+        myDisplayName: name,
+        roomCode: upper,
+        hostUuid: null,
+        lobby: emptyLobby(),
+        seatUuids: {},
+        chat: [],
+        errorMessage: null,
+        joinFailure: null,
+        serverConnected: true,
+        onlineUuids: new Set([me]),
+        people: [{ uuid: me, name }],
+        lobbyNotice: null,
       })
+      let c: RoomConnection | null
+      try {
+        const transport = await loadTransport()
+        c = await transport.joinRoom(upper, { uuid: me, name }, roomEvents(my))
+      } catch (e) {
+        if (my !== session) return
+        console.error('[net] failed to join room', e)
+        failJoin(upper, 'unreachable', (e as Error).message)
+        return
+      }
+      if (my !== session) {
+        c?.leave()
+        return
+      }
+      if (!c) {
+        failJoin(upper, 'notFound')
+        return
+      }
+      conn = c
+      setRoomCodeInUrl(upper)
+      if (c.meta.build !== APP_BUILD) {
+        addSystem(
+          `This room was made by another version of the game (${c.meta.build}; this device runs ${APP_BUILD}). ` +
+            "If moves stop lining up, reload every device's page.",
+        )
+      }
+      // Rejoining the lobby under a new name: the seats show it.
+      await editLobby((l) => renameEdit(l, me, name))
+    },
+
+    retryJoin: () => {
+      const code = get().joinFailure?.code ?? get().roomCode
+      if (code) void get().joinRoom(code, get().myDisplayName)
+    },
+
+    leaveRoom: () => {
+      const s = get()
+      const c = conn
+      conn = null
+      // A guest leaving the lobby gives up their seats.
+      if (c && s.connection === 'lobby' && s.role !== 'host') {
+        c.updateLobby((l) => leaveLobbyEdit(normalizeLobby(l), s.myUuid))
+          .catch(() => null)
+          .finally(() => c.leave())
+      } else {
+        c?.leave()
+      }
+      beginSession()
+      setRoomCodeInUrl(null)
+      set({
+        connection: 'disconnected',
+        errorMessage: null,
+        role: 'solo',
+        roomCode: null,
+        hostUuid: null,
+        joinFailure: null,
+        serverConnected: true,
+        lobby: emptyLobby(),
+        seatUuids: {},
+        onlineUuids: new Set(),
+        people: [],
+        chat: [],
+        lobbyNotice: null,
+      })
+      const g = useGameStore.getState()
+      if (g.game || g.uiMode === 'inGame') g.quitGame()
+    },
+
+    clearError: () => {
+      beginSession()
+      setRoomCodeInUrl(null)
+      set({ connection: 'disconnected', role: 'solo', errorMessage: null, joinFailure: null, roomCode: null })
+    },
+
+    claimSeat: (seat) => {
+      const { myUuid: me, myDisplayName: name, lobby } = get()
+      const why = claimProblem(lobby, seat, me)
+      if (why) {
+        set({ lobbyNotice: why })
+        return Promise.resolve(false)
+      }
+      return request((l) => claimSeatEdit(l, seat, me, name), 'Someone else just took that seat.')
+    },
+
+    releaseSeat: (seat) => request((l) => releaseSeatEdit(l, seat, get().myUuid)),
+
+    hostSetSeat: (seat, kind) => (isHost() ? request((l) => hostSetSeatEdit(l, seat, kind)) : Promise.resolve(false)),
+
+    hostSetDifficulty: (difficulty) =>
+      isHost() ? request((l) => setDifficultyEdit(l, difficulty)) : Promise.resolve(false),
+
+    hostSetWhiteMoon: (patch) => (isHost() ? request((l) => setWhiteMoonEdit(l, patch)) : Promise.resolve(false)),
+
+    hostSetBlackSecret: (patch) =>
+      isHost() ? request((l) => setBlackSecretEdit(l, patch)) : Promise.resolve(false),
+
+    hostStartGame: async () => {
+      const c = conn
+      const my = session
+      if (!isHost() || !c || get().lobby.started || lobbyStartProblem(get().lobby)) return
+      // Lock the seats and settings first, atomically: a guest taking a seat
+      // at the same moment either makes it in or finds the lobby closed.
+      const final = await editLobby((l) => (l.started || lobbyStartProblem(l) ? null : { ...l, started: true }))
+      if (!final || my !== session) return
+      const reopen = (why: string) => {
+        addSystem(`Couldn't start the game: ${why}`)
+        void editLobby((l) => (l.started ? { ...l, started: false } : null))
+      }
+      const config = lobbyToConfig(final)
+      let check: string
+      try {
+        check = gameChecksum(createGame(config))
+      } catch (e) {
+        reopen((e as Error).message)
+        return
+      }
+      try {
+        await c.start({
+          config,
+          seatUuids: lobbySeatUuids(final),
+          hostUuid: get().myUuid,
+          startedAt: Date.now(),
+          check,
+        })
+      } catch (e) {
+        if (my === session && !gameStarted) reopen((e as Error).message)
+      }
+    },
+
+    sendChat: (text) => {
+      const trimmed = text.trim().slice(0, MAX_CHAT_LENGTH)
+      if (!trimmed || !conn) return
+      const msg = userMessage(trimmed, get().myUuid, get().myDisplayName)
+      // Shown at once; the room's copy is de-duplicated by id.
+      set({ chat: [...get().chat, msg] })
+      conn.sendChat(msg).catch((e: unknown) => console.warn('[net] chat send failed:', (e as Error).message))
     },
   }
+})
+
+// === Helpers for the game UI ===
+// Each reads the store's current state, or the state it's given, so a React
+// component can call them inside a selector:
+//   const mine = useNetworkStore(useShallow((s) => controlledSeats(s)))
+
+/** Does this device run the AI? Always offline; online only the host's device. */
+export function runsAi(s: NetStore = useNetworkStore.getState()): boolean {
+  return !inRoom(s.connection) || s.role === 'host'
+}
+
+/**
+ * The seats this device plays: 'all' offline (solo / hot-seat), else the
+ * seats on its UUID (none for a spectator, or before the game starts).
+ */
+export function controlledSeats(s: NetStore = useNetworkStore.getState()): Seat[] | 'all' {
+  if (!inRoom(s.connection)) return 'all'
+  return ALL_SEATS.filter((seat) => s.seatUuids[seat] === s.myUuid)
+}
+
+/** May this device act for `seat`? (The dispatch guard's rule, for enabling controls.) */
+export function canActFor(seat: Seat, s: NetStore = useNetworkStore.getState()): boolean {
+  if (!inRoom(s.connection)) return true
+  if (s.connection !== 'in-game' || s.role === 'spectator') return false
+  const owner = s.seatUuids[seat] ?? null
+  return owner === s.myUuid || (owner === null && s.role === 'host')
+}
+
+/**
+ * Is whoever plays `seat` connected? Always true offline. A seat nobody owns
+ * (the AI, a neutral board) is played by the host's device, so it's online
+ * when the host is.
+ */
+export function isSeatOnline(seat: Seat, s: NetStore = useNetworkStore.getState()): boolean {
+  if (!inRoom(s.connection)) return true
+  const uuid = s.seatUuids[seat] ?? (s.connection === 'in-game' ? null : lobbySeat(s.lobby, seat).uuid)
+  if (uuid) return s.onlineUuids.has(uuid)
+  return s.hostUuid !== null && s.onlineUuids.has(s.hostUuid)
+}
+
+/** The name of the person (or 'AI') playing `seat` online; null offline and for neutral boards. */
+export function seatName(seat: Seat, s: NetStore = useNetworkStore.getState()): string | null {
+  if (!inRoom(s.connection)) return null
+  const ls = lobbySeat(s.lobby, seat)
+  if (ls.kind === 'human' || ls.kind === 'ai') return ls.name || null
+  return null
+}
+
+/**
+ * Call once when the app loads: a page opened (or reloaded) with ?room=CODE
+ * goes to the online screen and, when this device has a saved name, rejoins
+ * that room (else the join form opens with the code filled in). Returns true
+ * when it went to the online screen.
+ */
+export function resumeFromUrl(): boolean {
+  const code = roomCodeFromUrl()
+  const net = useNetworkStore.getState()
+  if (!code || net.connection !== 'disconnected' || useGameStore.getState().game) return false
+  useGameStore.getState().setUiMode('online')
+  const name = getSavedDisplayName()
+  if (name) void net.joinRoom(code, name)
+  return true
 }

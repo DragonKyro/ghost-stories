@@ -1,20 +1,43 @@
 import { useGameStore } from '@/store/gameStore'
+import { warmUpNetwork } from '@/store/networkStore'
+import { Logo, TaoistFigure } from '@/ui/art'
+import { COLORS } from '@/game/types'
+import './menu.css'
 
 export function MainMenu() {
   const setUiMode = useGameStore((s) => s.setUiMode)
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 24 }}>
-      <h1 style={{ margin: 0, fontSize: 48, letterSpacing: 4 }}>GHOST STORIES</h1>
-      <div style={{ display: 'flex', gap: 12, marginTop: 16, flexWrap: 'wrap', justifyContent: 'center' }}>
-        <button style={{ padding: '12px 24px', fontSize: 16 }} onClick={() => setUiMode('newGame')}>
-          New Game (local)
-        </button>
-        <button style={{ padding: '12px 24px', fontSize: 16 }} onClick={() => setUiMode('onlineSetup')}>
-          Online Multiplayer
-        </button>
-        <button style={{ padding: '12px 24px', fontSize: 16 }} onClick={() => setUiMode('rulebook')}>
-          Rulebook
-        </button>
+    <div className="gs-menu">
+      <div className="gs-menu-inner">
+        <div className="gs-logo">
+          <Logo width={460} />
+        </div>
+        <p className="gs-menu-sub">A cooperative game for 1–4 Taoist monks against the ghosts of Wu-Feng.</p>
+        <div className="gs-menu-monks">
+          {COLORS.map((c) => (
+            <TaoistFigure key={c} color={c} size={64} />
+          ))}
+        </div>
+        <div className="gs-menu-buttons">
+          <button className="gs-btn primary" onClick={() => setUiMode('newGame')}>
+            Play on this device
+          </button>
+          <button
+            className="gs-btn"
+            onClick={() => {
+              warmUpNetwork()
+              setUiMode('online')
+            }}
+          >
+            Play online
+          </button>
+          <button className="gs-btn" onClick={() => setUiMode('rulebook')}>
+            Rulebook
+          </button>
+        </div>
+        <p className="gs-mini" style={{ marginTop: 24 }}>
+          Based on Ghost Stories by Antoine Bauza (Repos Production). A fan-made version for playing with friends; all art drawn for this project.
+        </p>
       </div>
     </div>
   )

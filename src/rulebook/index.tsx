@@ -53,9 +53,9 @@ export function Rulebook({ onClose, initialTopicId }: Props) {
         <button onClick={handleClose}>← Close</button>
       </header>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', flex: 1, overflow: 'hidden' }}>
+      <div className="rb-body" style={{ display: 'grid', gridTemplateColumns: '260px 1fr', flex: 1, overflow: 'hidden' }}>
         {/* Sidebar */}
-        <aside style={{
+        <aside className="rb-side" style={{
           borderRight: '1px solid var(--rule)',
           padding: 12,
           overflowY: 'auto',
