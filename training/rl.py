@@ -1,7 +1,8 @@
 """Self-play reinforcement learning (PPO) from a checkpoint — one run, or one segment of a long run.
 
-    python rl.py --run training/runs/rl-v5 --init training/runs/rl-v4/step-50000.pt --total-updates 55000 \
-        --rl-lr 7e-5 --ent 0.003 --beta-start 0.3 --beta-end 0.3 --kappa-start 0.15 --kappa-end 0.15
+    python rl.py --run training/runs/r4/spec-red-danceOfTheSpires --init training/runs/r3/spec-red-danceOfTheSpires/step-75000.pt \
+        --monk red/danceOfTheSpires --total-updates 95000 --rl-lr 1e-4 --warmup 1000 --ent 0.003 \
+        --beta-start 0.3 --beta-end 0.3 --kappa-start 0.15 --kappa-end 0.15
 
 The network (architecture and encoder schema read from the checkpoint's weights
 file next to the .pt) plays solo Normal on its own (every monk, no search,
@@ -219,7 +220,10 @@ class Run:
         s1 = a.sched_end if a.sched_end >= 0 else a.total_updates
 
         def lr_at(step: int) -> float:
-            return a.rl_lr * (1 - 0.7 * min(1.0, max(0.0, (step - s0) / max(1, s1 - s0))))
+            # Linear warm-up over the first --warmup updates of the schedule span (a jump to a higher
+            # rate, or new input columns), then linear decay to 0.3x at its end.
+            warm = min(1.0, (step - s0 + 1) / a.warmup) if a.warmup > 0 else 1.0
+            return a.rl_lr * warm * (1 - 0.7 * min(1.0, max(0.0, (step - s0) / max(1, s1 - s0))))
 
         if self.opt_state is not None:
             try:
@@ -275,8 +279,9 @@ class Run:
             Vw = torch.empty(N, device=dev)
             Vp = torch.empty(N, device=dev)
             with torch.no_grad():
-                for i in range(0, N, 2048):
-                    j = torch.arange(i, min(N, i + 2048), device=dev)
+                # Chunks of 512 decisions keep the peak memory low: the GPU may be shared with other jobs.
+                for i in range(0, N, 512):
+                    j = torch.arange(i, min(N, i + 512), device=dev)
                     b = ds.batch(j)
                     v, lp, _, _ = policy_terms(model, b, j.numel())
                     old_logp[j] = lp
@@ -364,6 +369,8 @@ class Run:
                     if step % a.eval_every == 0 or step == a.total_updates:
                         self.play_test(step)
             del ds
+            if dev == 'cuda':
+                torch.cuda.empty_cache()  # hand the round's memory back to other jobs on the GPU
 
 
 def main() -> None:
@@ -398,6 +405,7 @@ def main() -> None:
     ap.add_argument('--phase-floor', type=float, default=0.15, help='every phase gets at least this share of the starts')
     ap.add_argument('--bank-size', type=int, default=400, help='captured positions kept per monk and phase')
     ap.add_argument('--captures', type=int, default=2, help='positions captured per self-play game for the bank')
+    ap.add_argument('--warmup', type=int, default=0, help='learning-rate warm-up, in updates from the start of the schedule span')
     ap.add_argument('--sched-start', type=int, default=-1, help='learning-rate schedule span (default: this run); for runs in segments')
     ap.add_argument('--sched-end', type=int, default=-1)
     ap.add_argument('--log-every', type=int, default=100)
@@ -418,7 +426,8 @@ def main() -> None:
     m.load_state_dict(ck['model'])
     run.opt_state = ck.get('opt')
     start = int(ck['step'])
-    run.say(f'self-play from {a.init} (update {start}){" as " + a.monk if a.monk else ""}; {a.total_updates - start} PPO updates, lr {a.rl_lr}, '
+    run.say(f'self-play from {a.init} (update {start}){" as " + a.monk if a.monk else ""}; {a.total_updates - start} PPO updates, lr {a.rl_lr}'
+            f'{f" (warm-up {a.warmup})" if a.warmup else ""}, '
             f'tether {a.tether}, danger split {a.danger_split}, starts {a.start_frac:.0%}, '
             f'entropy {a.ent}, beta {a.beta_start} -> {a.beta_end}, kappa {a.kappa_start} -> {a.kappa_end}'
             + (f', danger weights {a.danger}' if a.danger else ''))

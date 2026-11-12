@@ -20,6 +20,7 @@ import { useGameStore } from '@/store/gameStore'
 import { CurseDie, CurseTokenArt, GhostCardArt, TaoDie, TaoToken } from '@/ui/art'
 import { ExorcismPanel } from './ExorcismPanel'
 import { useCanAct } from './seats'
+import { useInBar } from './placement'
 
 export function PromptPanel({ game, prompt }: { game: GameState; prompt: Prompt }) {
   const canAct = useCanAct()
@@ -95,12 +96,13 @@ function titleOf(game: GameState, p: Prompt): string {
 function Answer({ game, p }: { game: GameState; p: Prompt }) {
   const dispatch = useGameStore((g) => g.dispatch)
   const r = (resp: Response) => dispatch({ type: 'respond', by: p.owner, r: resp })
+  const inBar = useInBar()
   switch (p.kind) {
     case 'placeGhost': {
       const card = getCard(p.card)
       return (
         <div style={{ display: 'flex', gap: 10 }}>
-          <GhostCardArt card={card} width={96} />
+          <GhostCardArt card={card} width={inBar ? 62 : 96} />
           <div className="gs-actions" style={{ flex: 1 }}>
             <p>
               {card.color === 'black' ? 'Black ghosts go on the active player’s board.' : `${card.color[0]!.toUpperCase() + card.color.slice(1)} ghosts go on the ${card.color} board.`}{' '}

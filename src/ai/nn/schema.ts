@@ -359,6 +359,13 @@ export const TILE = new Layout()
   .add('wmReceptacle')
   .add('bsLadder')
   .add('bsShadow')
+  // Dice maths (calc.ts), for the deciding Taoist from this tile: the best one-ghost exorcism
+  // (chance, by the dice alone, expected Tao spent ÷4) and both faced ghosts from a corner.
+  .add('oddsBest')
+  .add('oddsBestDice')
+  .add('spendBest')
+  .add('oddsPair')
+  .add('oddsPairAny')
 
 export const SPACE = addGhost(
   new Layout()
@@ -385,6 +392,11 @@ export const SPACE = addGhost(
     .add('hauntTarget', 9),
   'g.',
 )
+  // Dice maths (calc.ts): the deciding Taoist's chance to exorcise this ghost from the tile facing
+  // it, by the dice alone, and the expected Tao spent (÷4). Appended last so older weights migrate.
+  .add('oddsFace')
+  .add('oddsFaceDice')
+  .add('spendFace')
 
 export const FAMILY_T = new Layout()
   .add('bias')
@@ -549,12 +561,26 @@ export const CAND = new Layout()
   .add('nullB')
   .add('atCenter')
   .add('heuristic') // the only option offered: the heuristic's answer (prompts the encoder doesn't open up)
+  // Dice maths (calc.ts), appended last so older weights migrate (training/migrate.py):
+  // exorcisms – the chance of taking every target / at least one / by the dice alone, expected
+  // Tao spent (÷4); moves – the best one-ghost exorcism at the destination (cOddsPair: both from a
+  // corner), cOddsBase the same where the Taoist stands; the Gods' Favorite reroll – the chance
+  // after rerolling those dice, cOddsBase with the dice as they are; the Mantra – that ghost's
+  // chance with it (cOddsBase without); Bottomless Pockets – the best chance this turn with that
+  // token (cOddsBase without).
+  .add('calc')
+  .add('cOdds')
+  .add('cOddsAny')
+  .add('cOddsDice')
+  .add('cSpend')
+  .add('cOddsPair')
+  .add('cOddsBase')
 
 // ---------------------------------------------------------------------------
 // Schema identity
 // ---------------------------------------------------------------------------
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
 export interface SchemaJson {
   version: number
@@ -566,6 +592,8 @@ export interface SchemaJson {
   nPtr: number
   nOutcome: number
   cardSlots: number
+  /** Field names and column ranges per token type and for the candidates (training/migrate.py maps old weights by name). */
+  fields?: Record<string, Array<[string, number, number]>>
 }
 
 function fnv(s: string): string {
@@ -587,7 +615,9 @@ export function schemaJson(): SchemaJson {
   }
   const fields = TOKENS.map((t) => `${t.type}:${Object.entries(t.layout.fields).map(([k, f]) => `${k}/${f.n}`).join(',')}`).join(';')
   const cand = Object.entries(CAND.fields).map(([k, f]) => `${k}/${f.n}`).join(',')
-  return { ...body, hash: fnv(`${JSON.stringify(body)}|${fields}|${cand}`) }
+  const list = (L: Layout) => Object.entries(L.fields).map(([k, f]): [string, number, number] => [k, f.off, f.n])
+  const named = { ...Object.fromEntries(TOKENS.map((t) => [t.type, list(t.layout)])), cand: list(CAND) }
+  return { ...body, hash: fnv(`${JSON.stringify(body)}|${fields}|${cand}`), fields: named }
 }
 
 export const SCHEMA_HASH = schemaJson().hash

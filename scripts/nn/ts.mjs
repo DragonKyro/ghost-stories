@@ -1,13 +1,17 @@
 // Bundle a TypeScript entry that imports from src/ (with the @/ alias) and run it.
 //   node scripts/nn/ts.mjs scripts/nn/<entry>.ts [args…]
-// The bundle goes to node_modules/.cache/nn, so nothing lands in the repo.
+// The bundle goes to node_modules/.cache/nn/<checkout>, so nothing lands in the
+// repo, and two checkouts sharing one node_modules (a git worktree with a
+// linked node_modules) never run each other's bundles.
 import { build } from 'esbuild'
+import { createHash } from 'node:crypto'
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-const cache = path.join(root, 'node_modules/.cache/nn')
+const checkout = createHash('sha1').update(root.toLowerCase()).digest('hex').slice(0, 8)
+const cache = path.join(root, 'node_modules/.cache/nn', checkout)
 
 export async function bundle(entry) {
   fs.mkdirSync(cache, { recursive: true })

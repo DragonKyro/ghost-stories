@@ -8,8 +8,10 @@
 
 import type { Action, HelpParams, Response } from '@/game/actions'
 import { isAdjacent } from '@/game/geometry'
+import { taoistsWith } from '@/game/rules'
 import type { Color, GameState, TaoColor } from '@/game/types'
 import { CORNER_TILE } from '@/game/types'
+import { exorcismOdds, poolOf, poolOnTile, rerollOdds, spaceOdds, tileOdds, type Odds } from './calc'
 import type { Ctx, Encoded } from './encode'
 import { Ctx as EncodeCtx } from './encode'
 import {
@@ -85,6 +87,12 @@ function writeAction(ctx: Ctx, r: CandRow, a: Action): void {
         r.set('carry', 1)
         r.point('tile2', ctx.tileSlot(a.carry.from))
       }
+      if (t && !t.underground) {
+        const there = tileOdds(s, a.by, a.to)
+        writeOdds(r, there.best)
+        r.set('cOddsPair', there.pair.all)
+        if (from != null) r.set('cOddsBase', tileOdds(s, a.by, from).best.all)
+      }
       return
     }
     case 'climb':
@@ -105,9 +113,16 @@ function writeAction(ctx: Ctx, r: CandRow, a: Action): void {
         if (u.climb) r.set('climb', 1)
       } else if (u.power === 'bottomlessPockets') {
         r.set('color', 1, f.tao(u.color))
+        r.set('calc', 1)
+        r.set('cOdds', bestThisTurn(ctx, a.by, u.color))
+        r.set('cOddsBase', bestThisTurn(ctx, a.by))
       } else {
         if (u.ghost) r.point('ghost1', ctx.spaceSlot(u.ghost))
         if (u.demon) r.point('extra', ctx.demonSlot(u.demon))
+        if (u.power === 'enfeeblementMantra' && u.ghost) {
+          writeOdds(r, spaceOdds(s, a.by, u.ghost, true))
+          r.set('cOddsBase', spaceOdds(s, a.by, u.ghost).all)
+        }
       }
       return
     }
@@ -129,6 +144,7 @@ function writeAction(ctx: Ctx, r: CandRow, a: Action): void {
         if (a.demons[1]) r.point('extra2', ctx.demonSlot(a.demons[1]))
       }
       if (t?.tile != null) r.point('tile', t.underground ? ctx.catacombSlot(t.tile) : ctx.tileSlot(t.tile))
+      if (t?.tile != null) writeOdds(r, exorcismOdds(s, a.by, t.tile, a.targets, { demons: a.demons ?? [], pool: poolOf(s, taoistsWith(s, a.by)) }))
       return
     case 'saveVillager':
       if (t?.tile != null) r.point('tile', ctx.tileSlot(t.tile))
@@ -163,6 +179,25 @@ function writeAction(ctx: Ctx, r: CandRow, a: Action): void {
       writeResponse(ctx, r, a.r)
       return
   }
+}
+
+function writeOdds(r: CandRow, o: Odds): void {
+  r.set('calc', 1)
+  r.set('cOdds', o.all)
+  r.set('cOddsAny', o.any)
+  r.set('cOddsDice', o.dice)
+  r.set('cSpend', o.spend / 4)
+}
+
+/** The best one-ghost exorcism `c` could attempt this turn (from any tile in reach), optionally with one more Tao token. */
+function bestThisTurn(ctx: Ctx, c: Color, extra?: TaoColor): number {
+  let best = 0
+  for (const tile of ctx.reachable) {
+    const pool = poolOnTile(ctx.s, c, tile)
+    if (extra) pool.tokens[extra]++
+    best = Math.max(best, tileOdds(ctx.s, c, tile, pool).best.all)
+  }
+  return best
 }
 
 function writeHelp(ctx: Ctx, r: CandRow, p: HelpParams, by: Color): void {
@@ -275,6 +310,10 @@ function writeResponse(ctx: Ctx, r: CandRow, x: Response): void {
         if (d) r.add('rerollFaces', 1 / 4, d === 'white' ? 5 : f.tao(d))
       }
       r.set('nReroll', x.dice.length / 4)
+      if (p?.kind === 'exorcism') {
+        writeOdds(r, rerollOdds(s, p.roll, x.dice))
+        r.set('cOddsBase', rerollOdds(s, p.roll, []).all)
+      }
       return
     }
     case 'commit': {

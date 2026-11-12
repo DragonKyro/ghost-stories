@@ -36,6 +36,7 @@ import { CATACOMB_SIDES } from '@/game/blackSecret'
 import { FAMILIES } from '@/game/whiteMoon'
 import type { Color, Corner, GameState, GhostCard, GhostInstance, GhostRef, Seat, TaoColor, TileIdx } from '@/game/types'
 import { COLORS, TAO_COLORS } from '@/game/types'
+import { spaceOdds, tileOdds } from './calc'
 import { frameFor, type Frame } from './frame'
 import {
   ABILITY,
@@ -542,6 +543,12 @@ function encodeTile(ctx: Ctx, t: TileIdx, r: Row): void {
     if (tile.ladder) r.set('bsLadder', 1)
     if (shadowOnTile(s, t)) r.set('bsShadow', 1)
   }
+  const o = tileOdds(s, me, t)
+  r.set('oddsBest', o.best.all)
+  r.set('oddsBestDice', o.best.dice)
+  r.set('spendBest', o.best.spend / 4)
+  r.set('oddsPair', o.pair.all)
+  r.set('oddsPairAny', o.pair.any)
 }
 
 function encodeSpace(ctx: Ctx, ref: GhostRef, r: Row): void {
@@ -584,6 +591,10 @@ function encodeSpace(ctx: Ctx, ref: GhostRef, r: Row): void {
   r.set('needDiscounts', need.discounts / 2)
   const target = ctx.haunt.get(`${ref.board}:${ref.space}`)
   if (target != null) r.set('hauntTarget', 1, f.tile(target))
+  const o = spaceOdds(s, ctx.me, ref)
+  r.set('oddsFace', o.all)
+  r.set('oddsFaceDice', o.dice)
+  r.set('spendFace', o.spend / 4)
 }
 
 function encodeFamily(ctx: Ctx, id: keyof typeof FAMILY, r: Row): void {

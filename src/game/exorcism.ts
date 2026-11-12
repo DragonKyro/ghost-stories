@@ -132,6 +132,36 @@ export function covers(reqs: Requirement[], dice: DieFace[], wild: boolean, toke
   return false
 }
 
+/**
+ * The fewest Tao tokens + crystals needed to exorcise these targets with these
+ * dice (null: they can't be covered). Dice-immune needs are paid in full; for
+ * the rest the white faces go first, so what's left after the dice is
+ * max(0, shortfall − whites).
+ */
+export function minSpend(reqs: Requirement[], dice: DieFace[], wild: boolean, tokens: Vec, crystals: number): number | null {
+  if (reqs.length === 0) return 0
+  const { colored, whites } = diceVec(dice, wild)
+  let best: number | null = null
+  for (const need of needCombos(reqs)) {
+    let immuneNeed = 0
+    let immuneShort = 0
+    let short = 0
+    let normalShort = 0
+    for (const c of TAO_COLORS) {
+      const toImmune = Math.min(tokens[c], need.immune[c])
+      immuneNeed += need.immune[c]
+      immuneShort += need.immune[c] - toImmune
+      const rem = Math.max(0, need.normal[c] - colored[c])
+      short += rem
+      normalShort += rem - Math.min(rem, tokens[c] - toImmune)
+    }
+    if (immuneShort > crystals || normalShort > whites + (crystals - immuneShort)) continue
+    const spend = immuneNeed + Math.max(0, short - whites)
+    if (best === null || spend < best) best = spend
+  }
+  return best
+}
+
 export function spendVec(spend: TaoSpend[]): Vec {
   const v = zero()
   for (const x of spend) v[x.color]++

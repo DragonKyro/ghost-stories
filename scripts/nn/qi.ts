@@ -2,7 +2,7 @@
 // game) and tallies every Qi lost by cause (the engine's event text), per monk
 // and overall, split into games won / lost.
 //
-//   node scripts/nn/ts.mjs scripts/nn/qi.ts --weights training/runs/rl-v4/step-50000.json [--games 600] [--workers 18]
+//   node scripts/nn/ts.mjs scripts/nn/qi.ts --weights src/ai/nn/weights/blue-secondWind.json [--games 600] [--workers 18]
 
 import fs from 'node:fs'
 import os from 'node:os'
@@ -109,7 +109,7 @@ function arg(name: string, def: string): string {
 }
 
 async function main(): Promise<void> {
-  const weights = arg('weights', 'training/runs/rl-v4/step-50000.json')
+  const weights = arg('weights', 'src/ai/nn/weights/ghost-net-v1.json')
   const games = Number(arg('games', '600'))
   const workers = Number(arg('workers', String(Math.max(1, os.cpus().length - 2))))
   const seeds = Array.from({ length: games }, (_, i) => 7001 + i)

@@ -1,9 +1,12 @@
-// The game screen: header, the table, and the side panel (what to do now,
-// recent events, log / chat / expansion boards). Also hosts the AI driver,
+// The game screen: header, the table, the action bar (what to do now) and
+// the side column (log / chat / expansion boards). Also hosts the AI driver,
 // the hot-seat hand-off and the end-of-game screen.
 //
-// Two layouts: wide (board left, panel right) and stacked (phones in
-// portrait, narrow windows: board on top, panel below with tabs).
+// Three layouts: wide (board with the action bar under it, the log column
+// on the right — like catan), short (phones in landscape, low windows: no
+// room under the board, so a tabbed Play / Log / Chat column on the right)
+// and stacked (phones in portrait, narrow windows: board on top, tabbed
+// panel below).
 
 import { useEffect, useState } from 'react'
 import { waitingFor } from '@/game/engine'
@@ -26,6 +29,9 @@ import { AIDriver } from './AIDriver'
 import { HandoffOverlay, GameOverOverlay } from './Overlays'
 import { ExpansionPanel } from './ExpansionPanel'
 import { useCanAct, isAiSeat } from './seats'
+import { InBar } from './placement'
+import { colorVars } from './Board'
+import { TaoistFigure } from '@/ui/art'
 import './game.css'
 
 export interface Layout {
@@ -39,6 +45,8 @@ export interface Layout {
   side: number
   /** Short screen (phone in landscape): tabs instead of a fixed log, a slimmer header. */
   short: boolean
+  /** Height of the action bar under the board (wide layout); 0 when the controls sit in a tabbed panel. */
+  bar: number
 }
 
 /** The board is 5.45 tiles across and down (3 tiles + 2 boards + gaps). */
@@ -49,12 +57,20 @@ export function computeLayout(w: number, h: number): Layout {
   const clamp = (x: number) => Math.max(48, Math.min(200, Math.floor(x)))
   if (stacked) {
     const t = clamp(Math.min((w - 8) / BOARD_TILES, (h * 0.6 - 40) / BOARD_TILES))
-    return { t, stacked, compact: t < 112, side: 0, short: false }
+    return { t, stacked, compact: t < 112, side: 0, short: false, bar: 0 }
   }
-  const short = h < 560
-  const side = w < 1150 ? 320 : 380
-  const t = clamp(Math.min((w - side - 24) / BOARD_TILES, (h - (short ? 42 : 52)) / BOARD_TILES))
-  return { t, stacked, compact: t < 112, side, short }
+  // Too low for a bar under the board: the controls share the side column.
+  const short = h < 620
+  if (short) {
+    const side = w < 1150 ? 320 : 380
+    const t = clamp(Math.min((w - side - 24) / BOARD_TILES, (h - 42) / BOARD_TILES))
+    return { t, stacked, compact: t < 112, side, short, bar: 0 }
+  }
+  // The side column only holds the log, so it can be slimmer.
+  const side = w < 1150 ? 290 : 330
+  const bar = h >= 940 ? 168 : h >= 760 ? 150 : 136
+  const t = clamp(Math.min((w - side - 24) / BOARD_TILES, (h - 44 - bar - 18) / BOARD_TILES))
+  return { t, stacked, compact: t < 112, side, short, bar }
 }
 
 /** The usable viewport (the layout viewport can briefly differ from the window on phones). */
@@ -73,7 +89,7 @@ function useLayout(): Layout {
       const v = viewport()
       setLayout((old) => {
         const next = computeLayout(v.w, v.h)
-        return next.t === old.t && next.stacked === old.stacked && next.side === old.side && next.short === old.short ? old : next
+        return next.t === old.t && next.stacked === old.stacked && next.side === old.side && next.short === old.short && next.bar === old.bar ? old : next
       })
     }
     const ro = new ResizeObserver(fit)
@@ -110,12 +126,19 @@ export function GameScreen() {
   if (!game) return null
   return (
     <div
-      className={`gs-screen ${layout.stacked ? 'stacked' : ''} ${layout.compact ? 'compact' : ''}`}
-      style={{ ['--t' as string]: `${layout.t}px`, ['--side' as string]: `${layout.side}px` }}
+      className={`gs-screen ${layout.stacked ? 'stacked' : ''} ${layout.short ? 'short' : ''} ${layout.compact ? 'compact' : ''}`}
+      style={{ ['--t' as string]: `${layout.t}px`, ['--side' as string]: `${layout.side}px`, ['--bar' as string]: `${layout.bar}px` }}
     >
       <Header game={game} onRules={() => setRules(true)} stacked={layout.stacked || layout.short} />
       <BoardArea game={game} layout={layout} />
-      {layout.stacked || layout.short ? <BottomPanel game={game} /> : <Side game={game} />}
+      {layout.bar > 0 ? (
+        <>
+          <ActionBar game={game} height={layout.bar} />
+          <Side game={game} />
+        </>
+      ) : (
+        <BottomPanel game={game} />
+      )}
       <AIDriver />
       <HandoffOverlay game={game} />
       {game.phase === 'gameOver' && <GameOverOverlay game={game} />}
@@ -222,7 +245,17 @@ function ActionArea({ game }: { game: GameState }) {
   const seat = waitingFor(game)
   if (game.prompt) return <PromptPanel game={game} prompt={game.prompt} />
   if (game.phase === 'yang' && seat && canAct(seat)) return <TurnPanel game={game} />
-  if (game.phase === 'gameOver') return null
+  if (game.phase === 'gameOver')
+    return (
+      <div className="gs-card">
+        <h3>{game.outcome?.result === 'win' ? 'Victory — the village is saved' : 'The village has fallen'}</h3>
+        <div className="gs-btnrow">
+          <button className="gs-btn primary" onClick={() => useUiStore.getState().setShowStats(true)}>
+            See the stats
+          </button>
+        </div>
+      </div>
+    )
   return (
     <div className="gs-card">
       <h3>{seat ? `${seatLabel(seat)}'s move` : 'The ghosts move…'}</h3>
@@ -245,6 +278,38 @@ function useResetOnTurn(game: GameState): void {
   }, [game.turn, turn, reset])
 }
 
+/**
+ * Wide layout: the controls in a strip under the board (like catan's action
+ * bar), with a portrait of whose turn it is on the left.
+ */
+function ActionBar({ game, height }: { game: GameState; height: number }) {
+  return (
+    <div className="gs-bar">
+      <TurnBadge game={game} size={Math.round(Math.min(92, height * 0.58))} />
+      <div className="gs-bar-body">
+        <InBar.Provider value={true}>
+          <ActionArea game={game} />
+        </InBar.Provider>
+      </div>
+    </div>
+  )
+}
+
+/** The active Taoist and the phase. */
+function TurnBadge({ game, size }: { game: GameState; size: number }) {
+  const c = game.active
+  const phase =
+    game.phase === 'gameOver' ? 'Game over' : game.prompt?.owner === 'wufeng' ? 'Wu-Feng acts' : game.phase === 'yang' ? 'Yang phase' : 'Yin phase'
+  return (
+    <div className="gs-badge" style={colorVars(c)}>
+      <TaoistFigure color={c} size={size} active={game.phase === 'yang'} />
+      <strong>{COLOR_NAME[c]}</strong>
+      <span>{phase}</span>
+    </div>
+  )
+}
+
+/** Wide layout: the one log (current turn highlighted), or the chat / expansion boards. */
 function Side({ game }: { game: GameState }) {
   const panel = useUiStore((u) => u.sidePanel)
   const setPanel = useUiStore((u) => u.setSidePanel)
@@ -253,12 +318,6 @@ function Side({ game }: { game: GameState }) {
   const hasExpansion = !!(game.whiteMoon || game.blackSecret)
   return (
     <div className="gs-side">
-      <div className="gs-card" style={{ flex: '0 0 auto', maxHeight: 130, overflowY: 'auto', padding: '6px 10px' }}>
-        <RecentEvents />
-      </div>
-      <div style={{ overflowY: 'auto', flex: '1 1 auto', minHeight: 0, paddingBottom: 8 }}>
-        <ActionArea game={game} />
-      </div>
       <div className="gs-tabs">
         <button className={panel === 'log' ? 'on' : ''} onClick={() => setPanel('log')}>
           Log
@@ -274,7 +333,7 @@ function Side({ game }: { game: GameState }) {
           </button>
         )}
       </div>
-      <div className="gs-tabbody" style={{ flex: '0 0 30vh' }}>
+      <div className="gs-tabbody">
         {panel === 'chat' && online ? <ChatPanel title={null} height="100%" /> : panel === 'expansion' && hasExpansion ? <ExpansionPanel game={game} /> : <LogPanel />}
       </div>
     </div>

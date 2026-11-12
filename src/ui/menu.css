@@ -12,21 +12,168 @@
 .gs-menu-buttons { display: flex; flex-direction: column; gap: 10px; align-items: center; }
 .gs-menu-buttons .gs-btn { width: 260px; padding: 11px 16px; font-size: 15px; }
 
-.gs-setup { max-width: 980px; margin: 0 auto; padding: 22px; }
-.gs-setup h1 { font-family: var(--serif); color: var(--accent); font-weight: 600; margin: 0 0 14px; }
-.gs-setup section { background: var(--bg-elevated); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
-.gs-setup section h2 { font-family: var(--serif); font-size: 17px; margin: 0 0 10px; color: #e9d7b0; font-weight: 600; }
-.gs-seats { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
-.gs-seat { border-radius: 10px; padding: 10px; background: #1d1611; border: 1px solid #3a2e25; display: flex; flex-direction: column; align-items: center; gap: 6px; box-shadow: inset 0 0 0 2px var(--pc-dark); }
-.gs-seat .gs-seg { display: flex; gap: 3px; flex-wrap: wrap; justify-content: center; }
-.gs-opt { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
-.gs-opt label { display: flex; gap: 5px; align-items: center; font-size: 13px; }
-.gs-setup .gs-note { font-size: 12px; color: var(--ink-muted); margin: 6px 0 0; }
-.gs-setup .gs-problem { color: #f08a72; font-size: 13px; }
-
 @media (max-width: 600px) {
-  .gs-setup { padding: 12px; }
-  .gs-setup section { padding: 10px 12px; }
   .gs-menu-monks { gap: 8px; }
   .gs-menu-buttons .gs-btn { width: min(260px, 86vw); }
 }
+
+/* ------------------------------------------------------------------ */
+/* New game (this device): one card, catan-style. */
+.gs-ng-wrap {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 28px 16px 40px;
+  background: radial-gradient(ellipse at 50% 20%, #33261b 0%, #1a1410 60%, #0f0b08 100%);
+}
+.gs-ng-card {
+  width: 100%;
+  max-width: 560px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 18px 26px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-shadow: 0 10px 40px #0008;
+}
+.gs-ng-back {
+  background: transparent; border: 1px solid transparent; color: var(--ink-muted);
+  padding: 5px 10px; margin-left: -10px; border-radius: 6px; font-size: 13px; min-height: 32px;
+}
+.gs-ng-back:hover { color: var(--ink); border-color: var(--rule); }
+.gs-ng-head { text-align: center; margin-top: -10px; }
+.gs-ng-head h1 { font-family: var(--serif); color: var(--accent); font-weight: 600; font-size: 34px; letter-spacing: 0.04em; margin: 0; }
+.gs-ng-head p { margin: 2px 0 0; color: var(--ink-muted); font-size: 11.5px; letter-spacing: 0.1em; text-transform: uppercase; }
+
+.gs-ng-field { display: flex; flex-direction: column; gap: 8px; }
+.gs-ng-label { font-size: 11.5px; letter-spacing: 0.09em; text-transform: uppercase; color: #b9a886; font-weight: 600; }
+.gs-ng-note { margin: 0; font-size: 12px; line-height: 1.45; color: var(--ink-muted); }
+.gs-ng-mini { font-size: 12px; color: var(--ink-muted); }
+
+/* Segmented control. */
+.gs-ng-seg { display: flex; gap: 3px; padding: 3px; background: #1a1410; border: 1px solid var(--rule); border-radius: 8px; }
+.gs-ng-seg button {
+  flex: 1; border: none; background: transparent; color: var(--ink-muted);
+  padding: 7px 10px; border-radius: 6px; font-weight: 600; font-size: 13.5px; min-height: 34px; white-space: nowrap;
+}
+.gs-ng-seg button:hover { color: var(--ink); background: #2a2018; }
+.gs-ng-seg button.on { background: var(--accent); color: #1a1410; }
+.gs-ng-seg.small { padding: 2px; }
+.gs-ng-seg.small button { padding: 4px 10px; font-size: 12.5px; min-height: 30px; }
+
+/* Player rows. */
+.gs-ng-players { display: flex; flex-direction: column; gap: 6px; }
+.gs-ng-player {
+  display: grid;
+  grid-template-columns: 44px minmax(64px, 1fr) 116px 200px 32px;
+  grid-template-areas: "sw name kind power x" "text text text text text";
+  align-items: center;
+  column-gap: 8px;
+  padding: 6px 8px 6px 6px;
+  border-radius: 10px;
+  background: #1d1611;
+  border: 1px solid #33281f;
+  box-shadow: inset 3px 0 0 var(--pc, #6b4a8a);
+}
+.gs-ng-swatch-wrap { grid-area: sw; position: relative; }
+.gs-ng-swatch {
+  position: relative; width: 44px; height: 44px; padding: 0; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 50% 40%, #3a2c20, #1a1410 75%);
+  border: 1px solid var(--pc-dark, #3a2e25);
+  box-shadow: inset 0 0 0 1px var(--pc, transparent);
+}
+button.gs-ng-swatch:hover { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.gs-ng-caret { position: absolute; right: 2px; bottom: 0; font-size: 9px; color: var(--ink-muted); line-height: 1; }
+.gs-ng-name { grid-area: name; font-weight: 700; color: var(--pc-light, #c9a7e0); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gs-ng-kind { grid-area: kind; }
+.gs-ng-kind .gs-ng-seg { width: 100%; }
+.gs-ng-power { grid-area: power; }
+.gs-ng-remove {
+  grid-area: x; width: 32px; height: 32px; padding: 0; border-radius: 6px;
+  background: transparent; border: 1px solid transparent; color: var(--ink-muted); font-size: 18px; line-height: 1;
+}
+.gs-ng-remove:hover { color: #f08a72; border-color: #5a3a2c; background: #2a1a14; }
+.gs-ng-remove-gap { grid-area: x; }
+.gs-ng-powertext { grid-area: text; margin: 4px 0 0 54px; font-size: 11.5px; line-height: 1.35; color: var(--ink-muted); }
+.gs-ng-wufeng { --pc: #6b3a7a; }
+.gs-ng-wufeng .gs-ng-swatch { border-color: #3d2346; }
+
+.gs-ng-powerpick { display: flex; align-items: center; gap: 6px; width: 100%; }
+.gs-ng-powerpick .gs-ng-select { flex: 1; min-width: 0; }
+.gs-ng-randomicon {
+  width: 22px; height: 22px; border-radius: 50%; border: 1px dashed #6b5640; color: #8f8270;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0;
+}
+.gs-ng-select {
+  font: inherit; font-size: 12.5px; color: var(--ink);
+  background: #2a2018; border: 1px solid #4a3a2c; border-radius: 6px;
+  padding: 5px 8px; min-height: 32px;
+}
+.gs-ng-select:hover:not(:disabled) { border-color: var(--accent); }
+.gs-ng-select:disabled { opacity: 0.7; cursor: not-allowed; }
+
+/* Colour popover. */
+.gs-ng-picker {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 20;
+  display: grid; grid-template-columns: repeat(4, 64px); gap: 6px; padding: 8px;
+  background: #1d1611; border: 1px solid var(--accent); border-radius: 10px; box-shadow: 0 10px 28px #000c;
+}
+.gs-ng-pick {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 5px 2px 4px; border-radius: 8px; background: #241b15;
+  border: 1px solid var(--pc-dark); color: var(--pc-light); font-size: 11px; font-weight: 600;
+}
+.gs-ng-pick:hover { border-color: var(--pc-light); background: #2e231a; }
+.gs-ng-pick.mine { box-shadow: 0 0 0 2px var(--accent); }
+.gs-ng-pick small { position: absolute; top: 2px; right: 4px; font-size: 11px; line-height: 1; color: var(--ink-muted); font-weight: 400; }
+
+.gs-ng-add {
+  align-self: stretch; min-height: 38px; border-radius: 10px; border: 1px dashed #5a4836;
+  background: transparent; color: var(--ink-muted); font-weight: 600; font-size: 13px;
+}
+.gs-ng-add:hover { color: var(--accent); border-color: var(--accent); background: #2a2018; }
+
+/* Expansions. */
+.gs-ng-exp { border: 1px solid #33281f; background: #1d1611; border-radius: 10px; padding: 8px 10px; }
+.gs-ng-exp.on { border-color: #6b5434; }
+.gs-ng-exp-head { display: flex; gap: 10px; align-items: center; cursor: pointer; min-height: 32px; }
+.gs-ng-exp-head input { width: 17px; height: 17px; accent-color: var(--accent); flex-shrink: 0; }
+.gs-ng-exp-head span { display: flex; flex-direction: column; gap: 1px; }
+.gs-ng-exp-head strong { font-size: 13.5px; color: var(--ink); }
+.gs-ng-exp-head small { font-size: 12px; color: var(--ink-muted); }
+.gs-ng-exp-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 8px 0 2px 27px; }
+.gs-ng-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: #d9ccb5; min-height: 30px; cursor: pointer; }
+.gs-ng-check input { accent-color: var(--accent); }
+
+/* More options. */
+.gs-ng-more { border-top: 1px solid var(--rule); padding-top: 12px; }
+.gs-ng-more summary { cursor: pointer; font-size: 13px; color: var(--ink-muted); min-height: 24px; user-select: none; }
+.gs-ng-more summary:hover { color: var(--ink); }
+.gs-ng-more[open] summary { color: #b9a886; margin-bottom: 8px; }
+.gs-ng-more-body { display: flex; flex-direction: column; gap: 6px; }
+.gs-ng-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: #d9ccb5; flex-wrap: wrap; }
+
+/* Start. */
+.gs-ng-start { display: flex; flex-direction: column; gap: 8px; }
+.gs-ng-problem { margin: 0; color: #f08a72; font-size: 13px; line-height: 1.4; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.gs-btn.gs-ng-go { width: 100%; padding: 12px 16px; font-size: 15px; border-radius: 8px; }
+
+@media (max-width: 520px) {
+  .gs-ng-wrap { padding: 12px 8px 28px; }
+  .gs-ng-card { padding: 12px 14px 18px; gap: 16px; border-radius: 12px; }
+  .gs-ng-head h1 { font-size: 28px; }
+  .gs-ng-seg button { padding: 7px 4px; font-size: 13px; }
+  .gs-ng-seg.small button { padding: 4px 10px; }
+  .gs-ng-player {
+    grid-template-columns: 44px minmax(0, 1fr) 116px 32px;
+    grid-template-areas: "sw name kind x" "sw power power power" "text text text text";
+    row-gap: 4px;
+  }
+  .gs-ng-powertext { margin-left: 0; }
+  .gs-ng-exp-opts { margin-left: 0; }
+}
+.gs-ng-row .gs-ng-powerpick, .gs-ng-row > .gs-ng-select { width: 200px; }

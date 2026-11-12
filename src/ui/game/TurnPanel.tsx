@@ -69,151 +69,169 @@ export function TurnPanel({ game }: { game: GameState }) {
           ? 'The Shadow of Wu-Feng blocks this tile.'
           : helpProblem ?? helpParamsProblem(game, c, tile.kind)
 
-  return (
-    <div className="gs-card">
-      <h3>{COLOR_NAME[c]} — Yang phase</h3>
-      <div className="gs-steps">
-        <span className={step === 1 ? 'now' : 'done'}>1 · Move</span>
-        <span className={step === 2 ? 'now' : step > 2 ? 'done' : ''}>2 · Help or exorcise</span>
-        <span className={step === 3 ? 'now' : ''}>3 · Buddha</span>
-      </div>
-      <div className="gs-actions">
-        {before && <BeforeMove game={game} c={c} />}
-        {borrowablePowers(game, c).length > 0 && (
-          <>
-            <h4>Power tokens ({t.powerTokens})</h4>
-            <div className="gs-btnrow">
-              {borrowablePowers(game, c).map((b) => (
-                <button key={b} className="gs-btn small" title={POWER_TEXT[game.boards[b].power]} onClick={() => send({ type: 'powerToken', by: c, board: b })}>
-                  <PowerIcon power={game.boards[b].power} size={18} /> {POWER_NAME[game.boards[b].power]}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
+  const exoWhy =
+    !t.underground && !exoProblem && exorcisable.length === 0
+      ? blocked ?? (faced.length === 0 ? 'The centre tile faces no ghost space.' : 'No ghost on the spaces you face.')
+      : null
+  const stepClass = (n: 1 | 2 | 3) => (step === n ? 'now' : step > n ? 'done' : '')
 
-        {before && (
-          <>
-            <h4>1 · Move (optional)</h4>
-            <div className="gs-btnrow">
+  return (
+    <div className="gs-card gs-turn">
+      <h3 className="gs-turn-title">{COLOR_NAME[c]} — Yang phase</h3>
+      <div className="gs-cols gs-turn-cols">
+        <section className={`gs-col ${stepClass(1)}`}>
+          <h4>1 · Move</h4>
+          {before && <BeforeMove game={game} c={c} />}
+          {borrowablePowers(game, c).length > 0 && (
+            <>
+              <div className="gs-mini">Power tokens ({t.powerTokens}):</div>
+              <div className="gs-btnrow">
+                {borrowablePowers(game, c).map((b) => (
+                  <button key={b} className="gs-btn small" title={POWER_TEXT[game.boards[b].power]} onClick={() => send({ type: 'powerToken', by: c, board: b })}>
+                    <PowerIcon power={game.boards[b].power} size={18} /> {POWER_NAME[game.boards[b].power]}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          {before && (
+            <>
               <button className={`gs-btn ${sel?.kind === 'move' ? 'on' : ''}`} onClick={() => select(sel?.kind === 'move' ? null : { kind: 'move' })}>
                 {hasPower(game, c, 'danceOfTheSpires') ? 'Fly anywhere (Dance of the Spires)' : 'Move to an adjacent tile'}
               </button>
               {game.whiteMoon && !t.underground && tile.villagers.length > 0 && (
-                <label className="gs-mini" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <label className="gs-mini gs-check">
                   <input type="checkbox" checked={carry} onChange={(e) => setCarry(e.target.checked)} /> escort the {familyName(tile.villagers.at(-1)!)} villager
                 </label>
               )}
-            </div>
-          </>
-        )}
-        {canMove(game) && !before && (
-          <>
-            <h4>Dance of the Peaks — second move</h4>
-            <button className={`gs-btn ${sel?.kind === 'move' ? 'on' : ''}`} onClick={() => select(sel?.kind === 'move' ? null : { kind: 'move' })}>
-              Move again
-            </button>
-          </>
-        )}
-        {game.blackSecret && !climbProblem(game, c) && (
-          <button className="gs-btn" onClick={() => send({ type: 'climb', by: c })}>
-            {t.underground ? 'Climb back up to the village' : 'Climb down the ladder into the catacombs'}
-          </button>
-        )}
-        {game.whiteMoon && before && !t.underground && hasPower(game, c, 'danceOfTheSpires') && <BackAndForth game={game} c={c} />}
-
-        <h4>2 · Request help or attempt an exorcism</h4>
-        {!t.underground && (
-          <button
-            className="gs-btn"
-            disabled={!!helpBlocked}
-            title={helpBlocked ?? TILE_HELP[tile.kind]}
-            onClick={() => startHelp(game, c, tile.idx, false)}
-          >
-            Ask the villager: {TILE_NAME[tile.kind]}
-          </button>
-        )}
-        {helpBlocked && !t.underground && <div className="gs-why">{helpBlocked}</div>}
-        {!helpBlocked && !t.underground && <div className="gs-why">{TILE_HELP[tile.kind]}</div>}
-        {!t.underground && (
-          <button
-            className={`gs-btn ${sel?.kind === 'exorcise' ? 'on' : ''}`}
-            disabled={!!exoProblem || exorcisable.length === 0}
-            onClick={() => (exorcisable.length === 1 ? send({ type: 'exorcise', by: c, targets: exorcisable }) : select({ kind: 'exorcise', picked: [] }))}
-          >
-            Exorcise {exorcisable.length === 1 ? cardName(game, exorcisable[0]!) : exorcisable.length === 2 ? '(pick 1 or 2 ghosts)' : ''}
-          </button>
-        )}
-        {sel?.kind === 'exorcise' && sel.picked.length > 0 && (
-          <button className="gs-btn primary" onClick={() => send({ type: 'exorcise', by: c, targets: sel.picked })}>
-            Roll {game.yang ? '' : ''}for {sel.picked.map((r) => cardName(game, r)).join(' + ')}
-          </button>
-        )}
-        {!t.underground && !exoProblem && exorcisable.length === 0 && (
-          <div className="gs-why">{blocked ?? (faced.length === 0 ? 'The centre tile faces no ghost space.' : 'No ghost on the spaces you face.')}</div>
-        )}
-        {t.underground && <DemonFight game={game} c={c} problem={exoProblem} />}
-        {game.whiteMoon && tile.portal && !t.underground && (
-          <button
-            className="gs-btn"
-            disabled={!!step2Problem(game, 'save') || tile.villagers.length === 0}
-            onClick={() => send({ type: 'saveVillager', by: c })}
-          >
-            Save a villager {tile.villagers.length ? `(${familyName(tile.villagers.at(-1)!)})` : '(none on the Portal tile)'}
-          </button>
-        )}
-
-        <h4>3 · Place a Buddha (optional)</h4>
-        <button
-          className={`gs-btn ${sel?.kind === 'buddha' ? 'on' : ''}`}
-          disabled={readyBuddhas <= 0 || buddhaSpots.length === 0}
-          onClick={() => (buddhaSpots.length === 1 ? send({ type: 'placeBuddha', by: c, spaces: buddhaSpots }) : select({ kind: 'buddha', picked: [] }))}
-          title="A Buddha destroys the next ghost that arrives or is moved onto its space."
-        >
-          Place a Buddha ({readyBuddhas} ready{t.buddhas > readyBuddhas ? `, ${t.buddhas - readyBuddhas} taken this turn` : ''})
-        </button>
-        {game.whiteMoon && <CrystalPlacement game={game} c={c} />}
-
-        <h4>Any time</h4>
-        <div className="gs-btnrow">
-          <button className={`gs-btn small ${sel?.kind === 'yinYangTile' ? 'on' : ''}`} disabled={!t.yinYang} onClick={() => select({ kind: 'yinYangTile' })}>
-            Yin-Yang: help from any tile
-          </button>
-          <button
-            className={`gs-btn small ${sel?.kind === 'yinYangFlip' ? 'on' : ''}`}
-            disabled={!t.yinYang || !game.village.some((v) => v.haunted)}
-            onClick={() => select({ kind: 'yinYangFlip' })}
-          >
-            Yin-Yang: restore a haunted tile
-          </button>
-        </div>
-        {t.artifacts.length > 0 && <Artifacts game={game} c={c} />}
-        {sel && (
-          <button className="gs-btn small" onClick={() => select(null)}>
-            Cancel selection
-          </button>
-        )}
-
-        <div className="gs-btnrow gs-sticky-end" style={{ marginTop: 6 }}>
-          <button
-            className="gs-btn primary"
-            style={{ flex: 1 }}
-            onClick={() => send({ type: 'endTurn', by: c, reclaim: reclaim && t.tile === CENTER_TILE && !t.underground ? game.centerPowerTokens : 0 })}
-          >
-            End turn
-          </button>
-          {canUndo && (
-            <button className="gs-btn" onClick={undo} title="Take back the last move (only moves without dice)">
-              Undo
+            </>
+          )}
+          {canMove(game) && !before && (
+            <button
+              className={`gs-btn ${sel?.kind === 'move' ? 'on' : ''}`}
+              title="Dance of the Peaks: a second move"
+              onClick={() => select(sel?.kind === 'move' ? null : { kind: 'move' })}
+            >
+              Move again (Dance of the Peaks)
             </button>
           )}
-        </div>
-        {t.tile === CENTER_TILE && !t.underground && game.centerPowerTokens > 0 && (
-          <label className="gs-mini" style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-            <input type="checkbox" checked={reclaim} onChange={(e) => setReclaim(e.target.checked)} /> reclaim the {game.centerPowerTokens} power token
-            {game.centerPowerTokens > 1 ? 's' : ''} on the central tile
-          </label>
-        )}
+          {game.blackSecret && !climbProblem(game, c) && (
+            <button className="gs-btn" onClick={() => send({ type: 'climb', by: c })}>
+              {t.underground ? 'Climb back up to the village' : 'Climb down into the catacombs'}
+            </button>
+          )}
+          {game.whiteMoon && before && !t.underground && hasPower(game, c, 'danceOfTheSpires') && <BackAndForth game={game} c={c} />}
+          {!before && !canMove(game) && <div className="gs-why">Done.</div>}
+        </section>
+
+        <section className={`gs-col ${stepClass(2)}`}>
+          <h4>2 · Help or exorcise</h4>
+          {!t.underground && (
+            <button
+              className="gs-btn"
+              disabled={!!helpBlocked}
+              title={helpBlocked ?? TILE_HELP[tile.kind]}
+              onClick={() => startHelp(game, c, tile.idx, false)}
+            >
+              Ask the villager: {TILE_NAME[tile.kind]}
+            </button>
+          )}
+          {!t.underground && (
+            <div className="gs-why" title={helpBlocked ?? TILE_HELP[tile.kind]}>
+              {helpBlocked ?? TILE_HELP[tile.kind]}
+            </div>
+          )}
+          {!t.underground && (
+            <button
+              className={`gs-btn ${sel?.kind === 'exorcise' ? 'on' : ''}`}
+              disabled={!!exoProblem || exorcisable.length === 0}
+              title={exoWhy ?? exoProblem ?? undefined}
+              onClick={() => (exorcisable.length === 1 ? send({ type: 'exorcise', by: c, targets: exorcisable }) : select({ kind: 'exorcise', picked: [] }))}
+            >
+              Exorcise {exorcisable.length === 1 ? cardName(game, exorcisable[0]!) : exorcisable.length === 2 ? '(pick 1 or 2 ghosts)' : ''}
+            </button>
+          )}
+          {sel?.kind === 'exorcise' && sel.picked.length > 0 && (
+            <button className="gs-btn primary" onClick={() => send({ type: 'exorcise', by: c, targets: sel.picked })}>
+              Roll for {sel.picked.map((r) => cardName(game, r)).join(' + ')}
+            </button>
+          )}
+          {exoWhy && (
+            <div className="gs-why" title={exoWhy}>
+              {exoWhy}
+            </div>
+          )}
+          {t.underground && <DemonFight game={game} c={c} problem={exoProblem} />}
+          {game.whiteMoon && tile.portal && !t.underground && (
+            <button
+              className="gs-btn"
+              disabled={!!step2Problem(game, 'save') || tile.villagers.length === 0}
+              onClick={() => send({ type: 'saveVillager', by: c })}
+            >
+              Save a villager {tile.villagers.length ? `(${familyName(tile.villagers.at(-1)!)})` : '(none on the Portal tile)'}
+            </button>
+          )}
+        </section>
+
+        <section className={`gs-col ${stepClass(3)}`}>
+          <h4>3 · Buddha</h4>
+          <button
+            className={`gs-btn ${sel?.kind === 'buddha' ? 'on' : ''}`}
+            disabled={readyBuddhas <= 0 || buddhaSpots.length === 0}
+            onClick={() => (buddhaSpots.length === 1 ? send({ type: 'placeBuddha', by: c, spaces: buddhaSpots }) : select({ kind: 'buddha', picked: [] }))}
+            title="A Buddha destroys the next ghost that arrives or is moved onto its space."
+          >
+            Place a Buddha ({readyBuddhas} ready{t.buddhas > readyBuddhas ? `, ${t.buddhas - readyBuddhas} taken this turn` : ''})
+          </button>
+          {game.whiteMoon && <CrystalPlacement game={game} c={c} />}
+          <h4 className="gs-col-sub">Any time</h4>
+          <div className="gs-btnrow">
+            <button
+              className={`gs-btn small ${sel?.kind === 'yinYangTile' ? 'on' : ''}`}
+              disabled={!t.yinYang}
+              title="Spend your Yin-Yang: ask the villager of any tile for help"
+              onClick={() => select({ kind: 'yinYangTile' })}
+            >
+              Yin-Yang: help anywhere
+            </button>
+            <button
+              className={`gs-btn small ${sel?.kind === 'yinYangFlip' ? 'on' : ''}`}
+              disabled={!t.yinYang || !game.village.some((v) => v.haunted)}
+              title="Spend your Yin-Yang: restore a haunted tile"
+              onClick={() => select({ kind: 'yinYangFlip' })}
+            >
+              Yin-Yang: restore a tile
+            </button>
+          </div>
+          {t.artifacts.length > 0 && <Artifacts game={game} c={c} />}
+        </section>
+
+        <section className="gs-col gs-col-end gs-sticky-end">
+          <div className="gs-btnrow">
+            <button
+              className="gs-btn primary gs-endturn"
+              onClick={() => send({ type: 'endTurn', by: c, reclaim: reclaim && t.tile === CENTER_TILE && !t.underground ? game.centerPowerTokens : 0 })}
+            >
+              End turn
+            </button>
+            {canUndo && (
+              <button className="gs-btn" onClick={undo} title="Take back the last move (only moves without dice)">
+                Undo
+              </button>
+            )}
+          </div>
+          {sel && (
+            <button className="gs-btn small" onClick={() => select(null)}>
+              Cancel selection
+            </button>
+          )}
+          {t.tile === CENTER_TILE && !t.underground && game.centerPowerTokens > 0 && (
+            <label className="gs-mini gs-check">
+              <input type="checkbox" checked={reclaim} onChange={(e) => setReclaim(e.target.checked)} /> reclaim the {game.centerPowerTokens} power token
+              {game.centerPowerTokens > 1 ? 's' : ''} on the central tile
+            </label>
+          )}
+        </section>
       </div>
     </div>
   )
@@ -293,12 +311,7 @@ function BeforeMove({ game, c }: { game: GameState; c: Color }) {
     )
   }
   if (opts.length === 0) return null
-  return (
-    <>
-      <h4>Before your move</h4>
-      {opts}
-    </>
-  )
+  return <>{opts}</>
 }
 
 function ClimbToggle() {

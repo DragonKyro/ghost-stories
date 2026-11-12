@@ -23,9 +23,9 @@ export function binomTail(n: number, p: number, k: number): number {
   return total
 }
 
-/** Every multiset of `n` die faces with its probability. */
+/** Every multiset of `n` die faces with its probability (cached; don't modify). */
 const OUTCOMES = new Map<number, Array<{ dice: DieFace[]; p: number }>>()
-function outcomes(n: number): Array<{ dice: DieFace[]; p: number }> {
+export function outcomes(n: number): Array<{ dice: DieFace[]; p: number }> {
   let out = OUTCOMES.get(n)
   if (out) return out
   out = []
