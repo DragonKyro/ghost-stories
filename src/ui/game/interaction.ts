@@ -10,10 +10,12 @@ import { placementOptions } from '@/game/flow'
 import { adjacentTiles, facedSpaces, isAdjacent, isCorner, refKey } from '@/game/geometry'
 import {
   cardAt,
+  combatSpacesFor,
   exorcismBlocker,
   ghostAt,
   ghostsInPlay,
   hasPower,
+  isBastion,
   isSolo,
   livingTaoists,
   shadowOnTile,
@@ -120,13 +122,15 @@ function compute(s: GameState, sel: Selecting | null, canAct: (seat: Seat) => bo
   if (t.tile == null) return NONE
   const here = t.tile
 
+  const bastion = isBastion(s)
   const moveTargets = (): number[] => {
     if (!canMove(s)) return []
-    const fly = hasPower(s, c, 'danceOfTheSpires')
+    if (bastion && t.immobilized) return [here]
+    const fly = !bastion && hasPower(s, c, 'danceOfTheSpires')
     return [0, 1, 2, 3, 4, 5, 6, 7, 8].filter((x) => x !== here && (fly || isAdjacent(here, x)))
   }
   const exoTargets = (): GhostRef[] =>
-    t.underground || step2Problem(s, 'exorcise') ? [] : facedSpaces(here).filter((r) => ghostAt(s, r) && !exorcismBlocker(s, r))
+    t.underground || step2Problem(s, 'exorcise') ? [] : combatSpacesFor(s, c, here).filter((r) => ghostAt(s, r) && !exorcismBlocker(s, r))
 
   const doMove = (to: number) => {
     const a: Action = carry && !t.underground ? { type: 'move', by: c, to, carry: { from: here } } : { type: 'move', by: c, to }
@@ -134,7 +138,8 @@ function compute(s: GameState, sel: Selecting | null, canAct: (seat: Seat) => bo
   }
   const startExorcise = (ref: GhostRef) => {
     const targets = exoTargets()
-    if (isCorner(here) && targets.length === 2) {
+    const canTwo = isCorner(here) || (bastion && hasPower(s, c, 'danceOfTheSpires'))
+    if (canTwo && targets.length >= 2) {
       useUiStore.getState().select({ kind: 'exorcise', picked: [ref] })
       return
     }
@@ -157,7 +162,7 @@ function compute(s: GameState, sel: Selecting | null, canAct: (seat: Seat) => bo
         ...NONE,
         spaces: new Set(targets.map(refKey)),
         picked,
-        hint: isCorner(here) ? 'Corner tile: pick one or both ghosts, then roll in the panel.' : 'Pick the ghost to exorcise.',
+        hint: isCorner(here) || (bastion && hasPower(s, c, 'danceOfTheSpires')) ? 'Pick one or two targets, then roll in the panel.' : 'Pick the target to exorcise.',
         onSpace: (ref) => {
           const k = refKey(ref)
           const next = picked.has(k) ? sel.picked.filter((x) => refKey(x) !== k) : [...sel.picked, ref].slice(-2)
@@ -166,8 +171,23 @@ function compute(s: GameState, sel: Selecting | null, canAct: (seat: Seat) => bo
       }
     }
     case 'buddha': {
-      const opts = t.underground ? [] : facedSpaces(here).filter((r) => !ghostAt(s, r) && !s.boards[r.board].buddhas[r.space])
-      return spacesOnly(opts, 'Place a Buddha on an empty space you face.', (ref) => send({ type: 'placeBuddha', by: c, spaces: [ref] }))
+      const baseSpaces = bastion ? (['0', '1', '2'] as const).map((_, sp) => ({ board: c, space: sp as 0 | 1 | 2 })) : facedSpaces(here)
+      const opts = t.underground ? [] : baseSpaces.filter((r) => !ghostAt(s, r) && !s.boards[r.board].buddhas[r.space])
+      return spacesOnly(opts, bastion ? 'Place the Trap on an empty space of your Horde board.' : 'Place a Buddha on an empty space you face.', (ref) =>
+        send({ type: 'placeBuddha', by: c, spaces: [ref] }),
+      )
+    }
+    case 'teagaan': {
+      const tiles = s.village.filter((x) => x.haunted).map((x) => x.idx)
+      const ghosts = ghostsInPlay(s).filter((g) => !!g.ghost.figure).map((g) => g.ref)
+      return {
+        ...NONE,
+        tiles: new Set(tiles),
+        spaces: new Set(ghosts.map(refKey)),
+        hint: 'Teagaan: click a Bastion tile or Horde card with a Grasp of Evil figure.',
+        onTile: (tile) => tiles.includes(tile) && send({ type: 'power', by: c, use: { power: 'secondWind', tile } }),
+        onSpace: (ghost) => ghosts.some((g) => refKey(g) === refKey(ghost)) && send({ type: 'power', by: c, use: { power: 'secondWind', ghost } }),
+      }
     }
     case 'mantra': {
       const opts = ghostsInPlay(s).filter((g) => !isSkeleton(g.ghost.card)).map((g) => g.ref)
@@ -199,8 +219,8 @@ function compute(s: GameState, sel: Selecting | null, canAct: (seat: Seat) => bo
       )
     case 'yinYangTile':
       return tilesOnly(
-        s.village.filter((x) => !x.haunted && !shadowOnTile(s, x.idx)).map((x) => x.idx),
-        'Yin-Yang: click any active tile to ask its villager for help.',
+        s.village.filter((x) => (bastion || !x.haunted) && !shadowOnTile(s, x.idx)).map((x) => x.idx),
+        bastion ? 'Call to Arms: click any Bastion tile to activate it.' : 'Yin-Yang: click any active tile to ask its villager for help.',
         (tile) => startHelp(s, c, tile, true),
       )
     case 'artifact':
@@ -269,6 +289,13 @@ function helpInteraction(s: GameState, c: Color, d: HelpDraft): Interaction {
       )
     }
     case 'taoistAltar':
+      if (isBastion(s)) {
+        return spacesOnly(
+          ghostsInPlay(s).filter((g) => !g.card.incarnation).map((g) => g.ref),
+          'Trebuchet: click a Monster card to cover with the Net figure.',
+          (ghost) => fireHelp(c, d, { kind: 'taoistAltar', ghost }),
+        )
+      }
       return tilesOnly(s.village.filter((x) => x.haunted).map((x) => x.idx), 'Taoist Altar: click the haunted tile to restore (then a ghost arrives).', (tile) =>
         fireHelp(c, d, { kind: 'taoistAltar', tile }),
       )
@@ -276,11 +303,22 @@ function helpInteraction(s: GameState, c: Color, d: HelpDraft): Interaction {
       if (!d.ghost) {
         return spacesOnly(
           ghostsInPlay(s).filter((g) => !isSkeleton(g.ghost.card)).map((g) => g.ref),
-          'Pavilion: click the ghost the wind will move.',
+          isBastion(s) ? "Strategist's Tower: click the Horde card to move." : 'Pavilion: click the ghost the wind will move.',
           (ghost) => set({ ghost }),
         )
       }
       if (!d.to) {
+        if (isBastion(s)) {
+          const allOther = (['red', 'blue', 'green', 'yellow'] as Color[]).flatMap((b) =>
+            ([0, 1, 2] as const).map((space) => ({ board: b, space })).filter((r) => refKey(r) !== refKey(d.ghost!)),
+          )
+          return {
+            ...spacesOnly(allOther, "Strategist's Tower: click a free space to move, or another Horde card to swap.", (to) =>
+              fireHelp(c, d, { kind: 'pavilion', ghost: d.ghost!, to, taoist: null, taoistTo: null }),
+            ),
+            picked: new Set([refKey(d.ghost)]),
+          }
+        }
         const free = (['red', 'blue', 'green', 'yellow'] as Color[]).flatMap((b) =>
           ([0, 1, 2] as const).filter((sp) => !s.boards[b].spaces[sp]).map((space) => ({ board: b, space })),
         )

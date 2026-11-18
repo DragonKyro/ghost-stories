@@ -192,6 +192,8 @@ export interface GhostInstance {
   figure: 'card' | 'stone' | null
   /** The yellow Taoist's Enfeeblement Mantra sits on this ghost. */
   mantra: boolean
+  /** Last Bastion: the Trebuchet's Net figure covers this Monster card, cancelling its abilities. */
+  net?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +235,12 @@ export interface Taoist {
   crystals: number
   /** White Moon: artifacts held (rewards of one-member families). */
   artifacts: ArtifactId[]
+  /** Last Bastion: healed once at the Dispensary (Hero board flipped to Wounded; power permanently lost). */
+  wounded?: boolean
+  /** Last Bastion: lost all Life tokens a second time while wounded (cannot be healed again). */
+  deadForever?: boolean
+  /** Last Bastion: figure is laid down (loses next movement; standing up replaces next move). */
+  immobilized?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -363,9 +371,13 @@ export interface BlackSecretState {
 // Setup
 // ---------------------------------------------------------------------------
 
+export type GameVariant = 'ghostStories' | 'bastion'
+
 export type Difficulty = 'initiation' | 'normal' | 'nightmare' | 'hell'
 
 export interface GameConfig {
+  /** Which game is being played: Ghost Stories (default) or Last Bastion. */
+  variant?: GameVariant
   difficulty: Difficulty
   /** Each board: a human player, an AI player, or no player (neutral board). */
   seats: Record<Color, SeatKind>

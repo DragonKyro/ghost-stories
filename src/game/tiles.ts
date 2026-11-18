@@ -13,67 +13,117 @@ import {
   ghostAt,
   ghostsInPlay,
   hasPower,
+  isBastion,
   isSolo,
   livingTaoists,
   POWER_NAME,
+  tileName,
   TILE_NAME,
 } from './rules'
 import type { Color, DieFace, GameState, GhostRef, TaoColor, TileIdx } from './types'
+import { COLORS, TAO_COLORS } from './types'
 import { wmCarry, wmHerbalistWhite, wmReviveVillager } from './whiteMoon'
 import { bsCalligrapher, bsLevelChange, bsMoveUnderground } from './blackSecret'
 
 export function doTileAction(s: GameState, c: Color, tile: TileIdx, p: HelpParams): void {
   const t = s.taoists[c]
+  const bastion = isBastion(s)
   switch (p.kind) {
     case 'circleOfPrayer': {
       const circle = s.village[tile]!
-      if (s.taoSupply[p.color] <= 0) throw new Error(`No ${p.color} Tao token is left in the supply.`)
+      if (s.taoSupply[p.color] <= 0) throw new Error(`No ${p.color} token is left in the supply.`)
       if (circle.circleToken) s.taoSupply[circle.circleToken] += 1
       s.taoSupply[p.color] -= 1
       circle.circleToken = p.color
-      ev(s, 'circle', `A ${p.color} Tao token is placed on the Circle of Prayer: every ${p.color} ghost has 1 less resistance.`, { color: c, tile })
+      ev(s, 'circle', `A ${p.color} token is placed on the ${tileName(s, 'circleOfPrayer')}: every ${p.color} ${bastion ? 'Monster and Warlord' : 'ghost'} has 1 less resistance.`, {
+        color: c,
+        tile,
+      })
       return
     }
 
     case 'buddhistTemple':
-      if (s.templeBuddhas <= 0) throw new Error('There is no Buddha left on the Temple.')
+      if (s.templeBuddhas <= 0) throw new Error(bastion ? 'The Trap is already on a Horde board.' : 'There is no Buddha left on the Temple.')
+      if (bastion && p.space) {
+        if (p.space.board !== c) throw new Error('The Trap can only be placed on your own Horde board.')
+        if (ghostAt(s, p.space) || s.boards[c].buddhas[p.space.space]) throw new Error('Place the Trap on a free space of your Horde board.')
+        s.templeBuddhas -= 1
+        s.boards[c].buddhas[p.space.space] = true
+        ev(s, 'buddha', `${COLOR_NAME[c]} places the Trap on ${boardName(s, c)} space ${p.space.space + 1}.`, { color: c, ref: p.space })
+        return
+      }
       s.templeBuddhas -= 1
       t.buddhas += 1
-      if (s.yang && s.active === c) s.yang.newBuddhas += 1
-      ev(s, 'buddha', `${COLOR_NAME[c]} takes a Buddha figure (it can be placed from a later turn).`, { color: c })
+      if (!bastion && s.yang && s.active === c) s.yang.newBuddhas += 1
+      ev(s, 'buddha', bastion ? `${COLOR_NAME[c]} takes the Trap figure from the Dwarven Quarry.` : `${COLOR_NAME[c]} takes a Buddha figure (it can be placed from a later turn).`, {
+        color: c,
+      })
       return
 
     case 'cemetery': {
-      if (isSolo(s)) throw new Error('In a solo game no aid can be requested from the Cemetery.')
+      if ('color' in p && p.color) {
+        if (!bastion) throw new Error('The Cemetery only revives dead Taoists or villagers.')
+        const recipient = p.to ?? c
+        if (!s.taoists[recipient].alive) throw new Error('Choose a living Hero to receive the Equipment token.')
+        if (takeTao(s, recipient, p.color) <= 0) throw new Error(`No ${p.color} Equipment token is left in the reserve.`)
+        ev(s, 'tao', `Dispensary: ${COLOR_NAME[recipient]} receives a ${p.color} Equipment token from the reserve.`, { color: recipient, tile })
+        return
+      }
+      if (isSolo(s) && !bastion) throw new Error('In a solo game no aid can be requested from the Cemetery.')
       if ('villager' in p) {
         if (!s.whiteMoon) throw new Error('Villagers are a White Moon component.')
         wmReviveVillager(s, tile, p.villager)
-      } else {
+      } else if ('revive' in p) {
         const dead = s.taoists[p.revive]
-        if (s.boards[p.revive].neutral || dead.alive) throw new Error('Choose a dead Taoist to bring back.')
+        if (s.boards[p.revive].neutral || dead.alive) throw new Error(`Choose a ${bastion ? 'taken-out Hero' : 'dead Taoist'} to bring back.`)
+        if (bastion && dead.deadForever) throw new Error(`${COLOR_NAME[p.revive]} lost all Life tokens a second time and is dead for good.`)
         dead.alive = true
-        dead.qi = 2
+        dead.qi = bastion ? 3 : 2
+        if (bastion) {
+          dead.wounded = true
+          dead.yinYang = true
+        }
         dead.tile = tile
         dead.underground = false
         s.boards[p.revive].possessed = false
-        ev(s, 'revive', `${COLOR_NAME[p.revive]} returns to life on the Cemetery with 2 Qi.`, { color: p.revive, tile })
+        ev(
+          s,
+          'revive',
+          bastion
+            ? `${COLOR_NAME[p.revive]} returns to play wounded on the Dispensary with 3 Life tokens and a Call to Arms (Hero power lost).`
+            : `${COLOR_NAME[p.revive]} returns to life on the Cemetery with 2 Qi.`,
+          { color: p.revive, tile },
+        )
       }
-      // "...then roll the curse die. The Haunting face haunts the Cemetery tile."
-      now(s, { k: 'curse', ctx: { roller: c, board: c, haunt: { kind: 'tile', tile }, why: 'the Cemetery' } })
+      if (!bastion) {
+        // "...then roll the curse die. The Haunting face haunts the Cemetery tile."
+        now(s, { k: 'curse', ctx: { roller: c, board: c, haunt: { kind: 'tile', tile }, why: 'the Cemetery' } })
+      }
       return
     }
 
     case 'taoistAltar': {
+      if (bastion && p.ghost) {
+        const g = ghostAt(s, p.ghost)
+        if (!g) throw new Error('There is no Monster there.')
+        const card = cardOnBoard(g.card, p.ghost.board)
+        if (card.incarnation) throw new Error('The Trebuchet cannot target a Warlord.')
+        for (const b of COLORS) for (const sp of s.boards[b].spaces) if (sp) sp.net = false
+        g.net = true
+        ev(s, 'help', `Trebuchet: the Net figure is placed on ${card.name}, cancelling its abilities.`, { color: c, ref: p.ghost })
+        return
+      }
+      if (p.tile == null) throw new Error('Choose a haunted tile to restore.')
       const target = s.village[p.tile]
       if (!target?.haunted) throw new Error('Choose a haunted tile to restore.')
-      unhaunt(s, p.tile, 'Taoist Altar')
-      now(s, { k: 'arrival', why: 'Taoist Altar' })
+      unhaunt(s, p.tile, tileName(s, 'taoistAltar'))
+      if (!bastion) now(s, { k: 'arrival', why: 'Taoist Altar' })
       return
     }
 
     case 'herbalistShop': {
       const dice = rollDice(s, 2)
-      ev(s, 'roll', `${COLOR_NAME[c]} rolls 2 Tao dice at the Herbalist's Shop.`, { color: c, dice })
+      ev(s, 'roll', `${COLOR_NAME[c]} rolls 2 ${bastion ? 'Combat' : 'Tao'} dice at the ${tileName(s, 'herbalistShop')}.`, { color: c, dice })
       openHerbalist(s, c, dice, hasPower(s, c, 'godsFavorite'))
       return
     }
@@ -82,16 +132,52 @@ export function doTileAction(s: GameState, c: Color, tile: TileIdx, p: HelpParam
       const g = ghostAt(s, p.ghost)
       if (!g) throw new Error('There is no ghost there.')
       const card = cardOnBoard(g.card, p.ghost.board)
-      if (card.incarnation) throw new Error("Incarnations of Wu-Feng aren't affected by the Sorcerer's Hut.")
+      if (card.incarnation) throw new Error(`${bastion ? 'Warlords' : 'Incarnations of Wu-Feng'} aren't affected by the ${tileName(s, 'sorcerersHut')}.`)
       if (isSkeleton(g.card)) throw new Error("Skeletons aren't ghost cards: the Sorcerer can't touch them.")
       removeGhost(s, p.ghost)
-      ev(s, 'discard', `The Sorcerer banishes ${card.name} (no curse, no reward).`, { color: c, ref: p.ghost })
-      loseQi(s, c, "Sorcerer's Hut")
+      ev(s, 'discard', `${tileName(s, 'sorcerersHut')} eliminates ${card.name} (no exit effect).`, { color: c, ref: p.ghost })
+      loseQi(s, c, tileName(s, 'sorcerersHut'))
       return
     }
 
     case 'nightWatchman': {
-      const b = s.boards[p.board]
+      if (bastion) {
+        let left = 2
+        for (const tIdx of p.tiles ?? []) {
+          if (left <= 0) break
+          if (s.village[tIdx]?.haunted) {
+            unhaunt(s, tIdx, 'Divine Fountain')
+            left--
+          }
+        }
+        for (const ref of p.ghosts ?? []) {
+          if (left <= 0) break
+          const g = ghostAt(s, ref)
+          if (g && g.figure === 'stone') {
+            g.figure = 'card'
+            left--
+          }
+        }
+        if (p.board) {
+          for (const g of s.boards[p.board].spaces) {
+            if (left <= 0) break
+            if (g && g.figure === 'stone') {
+              g.figure = 'card'
+              left--
+            }
+          }
+          for (const v of s.village) {
+            if (left <= 0) break
+            if (v.haunted) {
+              unhaunt(s, v.idx, 'Divine Fountain')
+              left--
+            }
+          }
+        }
+        ev(s, 'watchman', `Divine Fountain: ${COLOR_NAME[c]} removes ${2 - left} Grasp of Evil figure${2 - left === 1 ? '' : 's'}.`, { color: c })
+        return
+      }
+      const b = s.boards[p.board!]
       let n = 0
       for (const g of b.spaces) {
         if (g && g.figure === 'stone') {
@@ -99,7 +185,7 @@ export function doTileAction(s: GameState, c: Color, tile: TileIdx, p: HelpParam
           n++
         }
       }
-      ev(s, 'watchman', `The Night Watchman drives ${n} haunting figure${n === 1 ? '' : 's'} on ${boardName(s, p.board)}'s board back onto the cards.`, {
+      ev(s, 'watchman', `The Night Watchman drives ${n} haunting figure${n === 1 ? '' : 's'} on ${boardName(s, p.board!)}'s board back onto the cards.`, {
         color: c,
       })
       return
@@ -108,13 +194,32 @@ export function doTileAction(s: GameState, c: Color, tile: TileIdx, p: HelpParam
     case 'pavilion':
       return pavilion(s, c, p)
 
-    case 'teaHouse':
-      if (takeTao(s, c, p.color) > 0) ev(s, 'tao', `${COLOR_NAME[c]} takes a ${p.color} Tao token at the Tea House.`, { color: c })
-      else if (Object.values(s.taoSupply).some((n) => n > 0)) throw new Error(`No ${p.color} Tao token is left in the supply: choose another colour.`)
+    case 'teaHouse': {
+      if (bastion) {
+        const hero = p.taoist ?? c
+        if (!s.taoists[hero].alive) throw new Error('Choose a living Hero.')
+        gainQi(s, hero, 1, 'Tavern')
+        if (p.to != null) {
+          const h = s.taoists[hero]
+          if (h.immobilized) {
+            h.immobilized = false
+            ev(s, 'move', `Tavern: ${COLOR_NAME[hero]} stands back up.`, { color: hero })
+          } else if (p.to !== h.tile) {
+            if (!isAdjacent(h.tile!, p.to)) throw new Error('Tavern moves the Hero to an adjacent tile.')
+            h.tile = p.to
+            ev(s, 'move', `Tavern: ${COLOR_NAME[hero]} moves to the ${tileName(s, s.village[p.to]!.kind)}.`, { color: hero, tile: p.to })
+          }
+        }
+        return
+      }
+      const color = p.color ?? TAO_COLORS.find((x) => s.taoSupply[x] > 0) ?? 'red'
+      if (takeTao(s, c, color) > 0) ev(s, 'tao', `${COLOR_NAME[c]} takes a ${color} Tao token at the Tea House.`, { color: c })
+      else if (Object.values(s.taoSupply).some((n) => n > 0)) throw new Error(`No ${color} Tao token is left in the supply: choose another colour.`)
       else ev(s, 'note', 'The Tao supply is empty: no token at the Tea House.')
       gainQi(s, c, 1, 'Tea House')
       now(s, { k: 'arrival', why: 'Tea House' })
       return
+    }
 
     case 'kungFuSchool':
       return kungFu(s, c, p.scope)
@@ -185,12 +290,26 @@ function pavilion(s: GameState, c: Color, p: Extract<HelpParams, { kind: 'pavili
   if (!g) throw new Error('Choose a ghost to move.')
   if (isSkeleton(g.card)) throw new Error("Skeletons aren't ghost cards: the wind can't move them.")
   if (sameRef(p.ghost, p.to)) throw new Error('Move the ghost to another space.')
-  if (ghostAt(s, p.to)) throw new Error('The ghost must go to a free space.')
+  const bastion = isBastion(s)
+  const destGhost = ghostAt(s, p.to)
+  if (destGhost && !bastion) throw new Error('The ghost must go to a free space.')
+  if (bastion && destGhost) {
+    // Strategist's Tower: swap the positions of 2 Horde cards!
+    s.boards[p.ghost.board].spaces[p.ghost.space] = destGhost
+    s.boards[p.to.board].spaces[p.to.space] = g
+    ev(
+      s,
+      'moveGhost',
+      `Strategist's Tower: ${cardOnBoard(g.card, p.ghost.board).name} and ${cardOnBoard(destGhost.card, p.to.board).name} swap spaces.`,
+      { ref: p.to, card: g.card },
+    )
+    return
+  }
   const solo = isSolo(s)
   const movable = solo ? [c] : livingTaoists(s).filter((x) => x.color !== c && x.tile != null).map((x) => x.color)
-  // Validate the Taoist move before changing anything.
+  // Validate the Taoist move before changing anything (optional in Last Bastion).
   if (p.taoist == null) {
-    if (movable.length > 0 && !solo) throw new Error('The Pavilion also moves another Taoist one space.')
+    if (!bastion && movable.length > 0 && !solo) throw new Error('The Pavilion also moves another Taoist one space.')
   } else {
     if (!movable.includes(p.taoist)) throw new Error(solo ? 'Solo: the Pavilion moves your own Taoist.' : 'Move another living Taoist.')
     const o = s.taoists[p.taoist]
@@ -198,6 +317,9 @@ function pavilion(s: GameState, c: Color, p: Extract<HelpParams, { kind: 'pavili
     if (!o.underground && !isAdjacent(o.tile!, p.taoistTo)) throw new Error('A normal move is to an adjacent tile.')
   }
   moveGhost(s, p.ghost, p.to)
+  if (bastion && p.ghost2 && p.to2 && !sameRef(p.ghost2, p.to2) && ghostAt(s, p.ghost2) && !ghostAt(s, p.to2)) {
+    moveGhost(s, p.ghost2, p.to2)
+  }
   if (p.taoist != null && p.taoistTo != null) {
     const o = s.taoists[p.taoist]
     if (o.underground) bsMoveUnderground(s, p.taoist, p.taoistTo, true)
@@ -210,7 +332,7 @@ function pavilion(s: GameState, c: Color, p: Extract<HelpParams, { kind: 'pavili
     }
     // Black Secret: "changing levels is possible after a movement due to the Pavilion".
     if (p.climb) bsLevelChange(s, p.taoist)
-    ev(s, 'move', `The heavenly wind carries ${COLOR_NAME[p.taoist]} to the ${TILE_NAME[s.village[p.taoistTo]!.kind]}.`, { color: p.taoist })
+    ev(s, 'move', `The heavenly wind carries ${COLOR_NAME[p.taoist]} to the ${tileName(s, s.village[p.taoistTo]!.kind)}.`, { color: p.taoist })
   }
 }
 

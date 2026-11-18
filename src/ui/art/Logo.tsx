@@ -1,6 +1,7 @@
 // Title art for the main menu: a vermilion 鬼 seal, "GHOST STORIES" in
 // inked capitals, a full moon over misty mountain ranges. Transparent
 // background — made for the dark menu screen.
+import type { GameVariant } from '@/game/types'
 import { ArtSvg, type ArtBaseProps } from './ArtSvg'
 import { brush, smooth, strokes, type Pt } from './brush'
 import { GUI_PATH } from './glyphs'
@@ -41,9 +42,12 @@ const SEAL_BRUSH = brush([[18, 152], [70, 156], [130, 150]], 6, 'both')
 
 const TITLE_FONT = "'Palatino Linotype', Palatino, 'Book Antiqua', 'URW Palladio L', Georgia, serif"
 
-export function Logo({ width = 480, title = 'Ghost Stories', ...rest }: ArtBaseProps & { width?: number }) {
+export function Logo({ width = 480, variant = 'ghostStories', title, ...rest }: ArtBaseProps & { width?: number; variant?: GameVariant }) {
+  const bastion = variant === 'bastion'
+  const line1 = bastion ? 'LAST' : 'GHOST'
+  const line2 = bastion ? 'BASTION' : 'STORIES'
   return (
-    <ArtSvg width={width} height={(width * 260) / 600} viewBox="0 0 600 260" title={title} {...rest}>
+    <ArtSvg width={width} height={(width * 260) / 600} viewBox="0 0 600 260" title={title ?? (bastion ? 'Last Bastion' : 'Ghost Stories')} {...rest}>
       {/* sky: moon and its halo */}
       <circle cx={470} cy={72} r={72} fill="url(#gs-moon-halo)" />
       <circle cx={470} cy={70} r={44} fill="url(#gs-moon)" />
@@ -61,35 +65,42 @@ export function Logo({ width = 480, title = 'Ghost Stories', ...rest }: ArtBaseP
       </g>
       <path d={PINE} fill="#120e14" opacity={0.9} />
 
-      {/* vermilion seal with a brushed 鬼 */}
+      {/* vermilion seal with a brushed 鬼 or Bastion fortress crest */}
       <g transform="translate(26 40) rotate(-4 75 75)" filter="url(#gs-rough)">
         <path d={SEAL_EDGE} fill="#2a0b08" transform="translate(4 5)" opacity={0.55} />
         <path d={SEAL_EDGE} fill="url(#gs-seal)" />
         <rect x={12} y={12} width={126} height={126} rx={4} fill="none" stroke="#f3e3cf" strokeWidth={3} />
-        <path d={GUI_PATH} transform="translate(22 22) scale(1.06)" fill="#f6e8d6" />
+        {bastion ? (
+          <g fill="#f6e8d6" transform="translate(24 22)">
+            <path d="M10 18H26V32H36V18H66V32H76V18H92V56L82 66V102H20V66L10 56Z" />
+            <rect x={42} y={70} width={18} height={32} rx={9} fill="#8c231c" />
+          </g>
+        ) : (
+          <path d={GUI_PATH} transform="translate(22 22) scale(1.06)" fill="#f6e8d6" />
+        )}
         <path d={SEAL_BRUSH} fill="#b8322a" opacity={0.9} />
       </g>
 
       {/* the title */}
       <g filter="url(#gs-rough)" fontFamily={TITLE_FONT} fontWeight={700}>
-        <text x={203} y={127} fontSize={92} textLength={360} lengthAdjust="spacingAndGlyphs" fill="#000" opacity={0.6}>
-          GHOST
+        <text x={203} y={127} fontSize={92} textLength={bastion ? 260 : 360} lengthAdjust="spacingAndGlyphs" fill="#000" opacity={0.6}>
+          {line1}
         </text>
         <text
           x={198}
           y={122}
           fontSize={92}
-          textLength={360}
+          textLength={bastion ? 260 : 360}
           lengthAdjust="spacingAndGlyphs"
           fill="url(#gs-title)"
           stroke="#0d0a08"
           strokeWidth={4}
           paintOrder="stroke"
         >
-          GHOST
+          {line1}
         </text>
         <text x={203} y={219} fontSize={78} textLength={380} lengthAdjust="spacingAndGlyphs" fill="#000" opacity={0.6}>
-          STORIES
+          {line2}
         </text>
         <text
           x={198}
@@ -102,7 +113,7 @@ export function Logo({ width = 480, title = 'Ghost Stories', ...rest }: ArtBaseP
           strokeWidth={4}
           paintOrder="stroke"
         >
-          STORIES
+          {line2}
         </text>
       </g>
       <path d={brush([[200, 140], [380, 136], [578, 142]], 5, 'both')} fill="#b8322a" opacity={0.9} />

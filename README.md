@@ -1,15 +1,18 @@
-# Ghost Stories
+# Ghost Stories & Last Bastion
 
-A web version of the cooperative board game *Ghost Stories* (Antoine Bauza, Repos Production, 2008), built for private play with friends. The physical game is out of print and there is no official digital version.
+A web version of the cooperative board games *Ghost Stories* (Antoine Bauza, Repos Production, 2008) and its fantasy re-implementation *Last Bastion* (Antoine Bauza, Repos Production, 2019), built for private play with friends.
 
 **▶ Play it here: [dragonkyro.github.io/ghost-stories](https://dragonkyro.github.io/ghost-stories/)** (runs in the browser on desktop, tablet or phone; nothing to install)
 
 ## What you can play
 
-- **On one device:** solo, or hot-seat for 2–4 players, with AI on any seat. Every difficulty (Initiation / Normal / Nightmare / Hell), each board's power chosen or random, the 1–3 player rules (neutral boards, power tokens, the solo bonuses).
-- **Online:** create a room, share the 4-letter code or link, sit at the boards, start. Seats can be people, AI (run by the host) or neutral. Rejoin a game in progress from the same browser; anyone else who opens the link watches. In-game chat.
-- **White Moon:** villagers and their families, fleeing and Devourers, Su-Ling, moon crystals, the receptacles and the Mystic Barrier, the Portal and the Kung-Fu School.
-- **Black Secret:** one more player (or the AI) is Wu-Feng — every ghost drawn is theirs to place, turn into a demon or spend on a curse; catacombs under the village with ladders, demons and tokens; Bloody Mantras, blood brothers, the Shadow of Wu-Feng, the Calligrapher.
+- **Game selection on the home screen:** choose between **Ghost Stories** (Taoist monks defending a village from the ghosts of Wu-Feng) and **Last Bastion** (fantasy heroes defending the Bastion of the Ancient Kings against the Monstrous hordes and Warlords of the Baleful Queen).
+- **On one device:** solo, or hot-seat for 2–4 players, with AI on any seat. Every difficulty (Initiation / Normal / Nightmare / Hell in Ghost Stories; Novice / Normal / Difficult / Heroic in Last Bastion), each board's power / hero chosen or random, the 1–3 player rules.
+- **Online:** create a room (for Ghost Stories or Last Bastion), share the 4-letter code or link, sit at the boards, start. Seats can be people, AI (run by the host) or neutral. Rejoin a game in progress from the same browser; anyone else who opens the link watches. In-game chat.
+- **Ghost Stories expansions:**
+  - **White Moon:** villagers and their families, fleeing and Devourers, Su-Ling, moon crystals, the receptacles and the Mystic Barrier, the Portal and the Kung-Fu School.
+  - **Black Secret:** one more player (or the AI) is Wu-Feng — every ghost drawn is theirs to place, turn into a demon or spend on a curse; catacombs under the village with ladders, demons and tokens; Bloody Mantras, blood brothers, the Shadow of Wu-Feng, the Calligrapher.
+- **Last Bastion (no expansions):** all 8 Heroes (Twindalli, Elmer & Chestnut, Sindara, Teagaan, Feng-Li, Kazgin, Arne & Soko, Mylfaar), all 9 Bastion tiles (Standard, Dwarven Quarry, Dispensary, Trebuchet, Market, Tomb of the Ancient Kings, Divine Fountain, Strategist's Tower, Tavern), 50 Monster cards + 10 Warlords, the 4 Horde board overrun powers, wounded vs dead heroes, Act-and-Move in either order, and Call to Arms on any Bastion tile (even in the Grasp of Evil).
 
 It works on phones (portrait and landscape) and tablets as well as desktops, and every game ends with a stats screen.
 
@@ -30,18 +33,15 @@ The Esoteric Order of Gamers rules summary in [`ghost stories rules.pdf`](./ghos
 
 ## Roadmap
 
-- [x] Rules engine following the summary: base game, White Moon, Black Secret (deterministic, seeded dice, step-by-step prompts)
-- [x] AI: a neural network per monk, trained by self-play, plays solo games (about 45% wins on Normal, 53% on Initiation); a rules-based search AI plays everything else and Wu-Feng
+- [x] Rules engine following the summary: Ghost Stories base game, White Moon, Black Secret (deterministic, seeded dice, step-by-step prompts)
+- [x] Last Bastion rules engine, 8 Heroes, 9 Bastion tiles, 50 Monsters & 10 Warlords, home screen & lobby game selector (no expansions)
+- [x] AI: a neural network per monk, trained by self-play, plays solo Ghost Stories games (about 45% wins on Normal, 53% on Initiation); a rules-based search AI plays everything else (including Last Bastion and Wu-Feng)
 - [x] Game screen and hand-drawn ink-painting art set
 - [x] Online multiplayer on Firebase Realtime Database
-- [x] Rulebook with search
+- [x] Rulebook with search (covering both Ghost Stories and Last Bastion)
 - [x] End-of-game stats (Qi over the game, ghosts and hauntings, who exorcised what, dice luck)
 - [x] Phone and tablet layouts
-- [ ] Stronger AI: a lookahead on top of the networks when they're unsure; networks for 2–4 players, Nightmare / Hell and the expansions (the rules-based AI still plays those)
-
-## Ideas for later
-
-- **Last Bastion** — Antoine Bauza's re-themed version of Ghost Stories (fantasy heroes defending a fortress from the horde). Possibly recreate it here on top of the same engine.
+- [ ] Stronger AI: a lookahead on top of the networks when they're unsure; networks for 2–4 players, Nightmare / Hell, Last Bastion and the expansions (the rules-based AI still plays those)
 
 ## Tech stack
 

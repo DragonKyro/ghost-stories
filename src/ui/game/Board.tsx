@@ -5,7 +5,7 @@
 import type { CSSProperties } from 'react'
 import { cardOnBoard } from '@/game/catalogue'
 import { refKey } from '@/game/geometry'
-import { boardPowerActive, COLOR_NAME, POWER_NAME, POWER_TEXT, powersSuppressed, suLingAt, TILE_NAME } from '@/game/rules'
+import { boardPowerActive, COLOR_NAME, isBastion, powerName, powerText, powersSuppressed, suLingAt, tileName } from '@/game/rules'
 import { BOARD_SIDE, COLORS, TAO_COLORS, type Color, type GameState, type GhostRef, type SpaceIdx, type TileIdx } from '@/game/types'
 import {
   BuddhaFigure,
@@ -98,8 +98,8 @@ function TileView({ game, idx, ia, size, compact }: { game: GameState; idx: Tile
       onPointerEnter={(e) => e.pointerType === 'mouse' && setInspect({ kind: 'tile', tile: idx })}
       onPointerLeave={(e) => e.pointerType === 'mouse' && setInspect(null)}
     >
-      <TileArt kind={t.kind} haunted={t.haunted} size={size} className="gs-tileart" />
-      {!compact && <div className="gs-tilename">{TILE_NAME[t.kind]}</div>}
+      <TileArt kind={t.kind} haunted={t.haunted} size={size} title={`${tileName(game, t.kind)}${t.haunted ? (isBastion(game) ? ' (Grasp of Evil)' : ' (haunted)') : ''}`} className="gs-tileart" />
+      {!compact && <div className="gs-tilename">{tileName(game, t.kind)}</div>}
       <div className="gs-corner-tl">
         {t.kind === 'circleOfPrayer' && t.circleToken && <TaoToken color={t.circleToken} size={Math.round(size * 0.17)} />}
         {t.kind === 'buddhistTemple' && Array.from({ length: game.templeBuddhas }, (_, i) => <BuddhaFigure key={i} size={Math.round(size * 0.17)} />)}
@@ -169,7 +169,12 @@ function SpaceView({ game, ghostRef, ia, tile }: { game: GameState; ghostRef: Gh
         )}
         {g?.mantra && (
           <div className="gs-onCard" style={{ left: -4, top: -6 }}>
-            <MantraToken size={fig} title="Enfeeblement Mantra: resistance −1" />
+            <MantraToken size={fig} title={isBastion(game) ? "Mylfaar's Enchantment: resistance −1" : 'Enfeeblement Mantra: resistance −1'} />
+          </div>
+        )}
+        {g?.net && (
+          <div className="gs-onCard" style={{ left: -4, bottom: -4, fontSize: 12, background: '#1d1611', borderRadius: 6, padding: '0 3px' }} title="Trebuchet Net: abilities cancelled">
+            🕸
           </div>
         )}
       </div>
@@ -192,6 +197,7 @@ function SpaceView({ game, ghostRef, ia, tile }: { game: GameState; ghostRef: Gh
 export function PlayerPlate({ game, color, compact = false }: { game: GameState; color: Color; compact?: boolean }) {
   const b = game.boards[color]
   const t = game.taoists[color]
+  const bastion = isBastion(game)
   const online = useNetworkStore((n) => n.connection === 'in-game')
   const who = online ? seatName(color) : t.kind === 'ai' ? 'AI' : null
   const powerOn = boardPowerActive(game, color) && !powersSuppressed(game)
@@ -201,24 +207,45 @@ export function PlayerPlate({ game, color, compact = false }: { game: GameState;
     <div className={`gs-plate ${game.active === color ? 'active' : ''} ${!t.alive && !b.neutral ? 'dead' : ''}`} style={{ ...colorVars(color), flex: 1 }}>
       <div className="gs-plate-head">
         <span>{COLOR_NAME[color]}</span>
-        <span className="gs-who">{b.neutral ? (b.possessed ? 'neutral · possessed' : 'neutral board') : !t.alive ? 'dead' : who ?? ''}</span>
+        <span className="gs-who">
+          {b.neutral
+            ? b.possessed
+              ? 'neutral · possessed'
+              : 'neutral board'
+            : !t.alive
+              ? t.deadForever
+                ? 'dead'
+                : bastion
+                  ? 'taken out'
+                  : 'dead'
+              : t.wounded
+                ? `${who ? `${who} · ` : ''}wounded`
+                : who ?? ''}
+        </span>
       </div>
-      <div className={`gs-power ${powerOn ? '' : 'off'}`} title={`${POWER_NAME[b.power]}: ${POWER_TEXT[b.power]}`}>
+      <div className={`gs-power ${powerOn ? '' : 'off'}`} title={`${powerName(game, b.power)}: ${powerText(game, b.power)}`}>
         <PowerIcon power={b.power} size={22} />
-        <span>{POWER_NAME[b.power]}</span>
+        <span>{powerName(game, b.power)}</span>
         {!powerOn && <InactiveMarker size={14} title="Power inactive" />}
       </div>
       {b.neutral ? (
         <div className="gs-row">
-          {Array.from({ length: b.qi }, (_, i) => <QiToken key={i} size={s} />)}
-          {b.qi === 0 && <span className="gs-count">no Qi</span>}
+          {bastion ? (
+            <span className="gs-count">neutral Horde board</span>
+          ) : (
+            <>
+              {Array.from({ length: b.qi }, (_, i) => <QiToken key={i} size={s} />)}
+              {b.qi === 0 && <span className="gs-count">no Qi</span>}
+            </>
+          )}
         </div>
       ) : t.alive ? (
         <>
-          <div className="gs-row" title={`${t.qi} Qi`}>
+          <div className="gs-row" title={`${t.qi} ${bastion ? 'Life' : 'Qi'}`}>
             {Array.from({ length: Math.min(t.qi, 7) }, (_, i) => <QiToken key={i} size={s} />)}
             {t.qi > 7 && <span className="gs-count">×{t.qi}</span>}
-            {t.yinYang && <YinYangToken size={s} title="Yin-Yang ready" />}
+            {t.yinYang && <YinYangToken size={s} title={bastion ? 'Call to Arms ready' : 'Yin-Yang ready'} />}
+            {t.immobilized && <span className="gs-count" title="Figure laid down: standing up replaces next movement">⬇ laid down</span>}
           </div>
           <div className="gs-row">
             {TAO_COLORS.filter((x) => t.tao[x] > 0).map((x) => (
@@ -227,10 +254,10 @@ export function PlayerPlate({ game, color, compact = false }: { game: GameState;
                 {t.tao[x] > 1 && <span className="gs-count">{t.tao[x]}</span>}
               </span>
             ))}
-            {Object.values(t.tao).every((n) => n === 0) && <span className="gs-count">no Tao</span>}
+            {Object.values(t.tao).every((n) => n === 0) && <span className="gs-count">no {bastion ? 'Equipment' : 'Tao'}</span>}
           </div>
           <div className="gs-row">
-            {Array.from({ length: t.buddhas }, (_, i) => <BuddhaFigure key={i} size={s} title="Buddha in hand" />)}
+            {Array.from({ length: t.buddhas }, (_, i) => <BuddhaFigure key={i} size={s} title={bastion ? 'Trap figure' : 'Buddha in hand'} />)}
             {Array.from({ length: t.powerTokens }, (_, i) => <PowerToken key={i} color={color} size={s - 2} title="Power token" />)}
             {Array.from({ length: t.crystals }, (_, i) => <MoonCrystal key={i} size={s} title="Moon crystal" />)}
             {t.artifacts.map((a) => (
@@ -242,7 +269,13 @@ export function PlayerPlate({ game, color, compact = false }: { game: GameState;
           </div>
         </>
       ) : (
-        <div className="gs-row gs-count">Lies on the Cemetery. Their board is possessed.</div>
+        <div className="gs-row gs-count">
+          {bastion
+            ? t.deadForever
+              ? 'Dead for good (wounded twice).'
+              : 'Taken out — heal at the Dispensary.'
+            : 'Lies on the Cemetery. Their board is possessed.'}
+        </div>
       )}
     </div>
   )
@@ -257,7 +290,7 @@ function CompactPlate({ game, color, powerOn, who }: { game: GameState; color: C
     <div
       className={`gs-plate compact ${game.active === color ? 'active' : ''} ${!t.alive && !b.neutral ? 'dead' : ''}`}
       style={{ ...colorVars(color), flex: 1 }}
-      title={`${COLOR_NAME[color]}${who ? ` (${who})` : ''} — ${POWER_NAME[b.power]}`}
+      title={`${COLOR_NAME[color]}${who ? ` (${who})` : ''} — ${powerName(game, b.power)}`}
     >
       <div className="gs-plate-head">
         <PowerIcon power={b.power} size={14} style={{ opacity: powerOn ? 1 : 0.35 }} />

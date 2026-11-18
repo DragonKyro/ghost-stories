@@ -15,9 +15,11 @@ import {
   hauntedCount,
   incarnationInPlay,
   incarnationsInDeck,
+  isBastion,
+  isWuFengCard,
   livingTaoists,
   TAO_NAME,
-  TILE_NAME,
+  tileName,
 } from './rules'
 import {
   CURSE_DIE,
@@ -139,7 +141,7 @@ export function hauntTile(s: GameState, tile: TileIdx, why: string): boolean {
     s.taoSupply[t.circleToken] += 1
     t.circleToken = null
   }
-  ev(s, 'haunt', `${TILE_NAME[t.kind]} (${tilePlace(tile)}) is haunted — ${why}.`, { tile })
+  ev(s, 'haunt', `${tileName(s, t.kind)} (${tilePlace(tile)}) is ${isBastion(s) ? 'in the Grasp of Evil' : 'haunted'} — ${why}.`, { tile })
   if (s.blackSecret) bsTileHaunted(s, tile)
   return true
 }
@@ -158,7 +160,7 @@ export function unhaunt(s: GameState, tile: TileIdx, why: string): void {
   const t = s.village[tile]!
   if (!t.haunted) return
   t.haunted = false
-  ev(s, 'unhaunt', `${TILE_NAME[t.kind]} is restored — ${why}.`, { tile })
+  ev(s, 'unhaunt', `${tileName(s, t.kind)} is restored — ${why}.`, { tile })
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +228,8 @@ export function killTaoist(s: GameState, c: Color): void {
   if (!t.alive) return
   t.alive = false
   t.qi = 0
+  t.immobilized = false
+  if (isBastion(s) && t.wounded) t.deadForever = true
   discardAllTao(s, c)
   t.yinYang = false
   s.templeBuddhas += t.buddhas
@@ -242,8 +246,19 @@ export function killTaoist(s: GameState, c: Color): void {
       t.artifacts = []
     }
   }
-  ev(s, 'death', `${COLOR_NAME[c]} has died. Their figure lies on the Cemetery; their possessions are lost.`, { color: c })
-  possess(s, c, `${COLOR_NAME[c]} died`)
+  if (isBastion(s)) {
+    ev(
+      s,
+      'death',
+      t.deadForever
+        ? `${COLOR_NAME[c]} is dead for good; their possessions are returned to the reserve.`
+        : `${COLOR_NAME[c]} is taken out and can return wounded via the Dispensary; their tokens are returned to the reserve.`,
+      { color: c },
+    )
+  } else {
+    ev(s, 'death', `${COLOR_NAME[c]} has died. Their figure lies on the Cemetery; their possessions are lost.`, { color: c })
+  }
+  possess(s, c, `${COLOR_NAME[c]} ${isBastion(s) ? 'was taken out' : 'died'}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -315,9 +330,10 @@ export function removeGhost(s: GameState, ref: GhostRef): GhostInstance {
   const g = ghostAt(s, ref)
   if (!g) throw new Error('engine: no ghost to remove')
   s.boards[ref.board].spaces[ref.space] = null
+  if (g.net) g.net = false
   if (g.mantra && s.mantra === 'placed') {
-    s.mantra = 'cooldown'
-    ev(s, 'note', 'The Enfeeblement Mantra token returns to its owner (usable again next turn).')
+    s.mantra = isBastion(s) ? 'ready' : 'cooldown'
+    ev(s, 'note', isBastion(s) ? "Mylfaar's Enchantment token returns to her." : 'The Enfeeblement Mantra token returns to its owner (usable again next turn).')
   }
   if (isSkeleton(g.card)) bsSkeletonRemoved(s, g.card)
   else s.discard.push(g.card)
@@ -358,9 +374,9 @@ export function moveGhost(s: GameState, from: GhostRef, to: GhostRef): void {
   checkMantraLoss(s)
 }
 
-/** "If you lose your power, remove the Enfeeblement Mantra token from the game." */
+/** "If you lose your power, remove the Enfeeblement Mantra token from the game." (Not in Last Bastion.) */
 export function checkMantraLoss(s: GameState): void {
-  if (s.mantra === 'removed') return
+  if (isBastion(s) || s.mantra === 'removed') return
   const owners = (['red', 'blue', 'green', 'yellow'] as Color[]).filter((c) => s.boards[c].power === 'enfeeblementMantra')
   if (owners.length === 0) return
   if (owners.some((c) => boardPowerActive(s, c))) return
@@ -385,8 +401,11 @@ function endGame(s: GameState, outcome: GameState['outcome']): void {
   s.queue = []
   s.prompt = null
   s.yang = null
-  if (outcome?.result === 'win') ev(s, 'win', 'The last incarnation of Wu-Feng is exorcised. The village is saved!')
-  else if (outcome?.result === 'loss') ev(s, 'loss', `Defeat: ${LOSS_TEXT[outcome.reason]}`)
+  if (outcome?.result === 'win') {
+    ev(s, 'win', isBastion(s) ? 'The last Warlord is vanquished. The Bastion stands!' : 'The last incarnation of Wu-Feng is exorcised. The village is saved!')
+  } else if (outcome?.result === 'loss') {
+    ev(s, 'loss', `Defeat: ${lossText(s, outcome.reason)}`)
+  }
 }
 
 export const LOSS_TEXT: Record<LossReason, string> = {
@@ -394,6 +413,21 @@ export const LOSS_TEXT: Record<LossReason, string> = {
   thirdHaunting: 'a third village tile is haunted.',
   deckExhausted: 'the ghost deck is exhausted while Wu-Feng remains.',
   villagers: 'the twelfth villager has been killed.',
+}
+
+export const BASTION_LOSS_TEXT: Record<LossReason, string> = {
+  allDead: 'all the Heroes are taken out.',
+  thirdHaunting: 'a third Bastion tile falls under the Grasp of Evil.',
+  deckExhausted: 'the Horde deck is exhausted before the Warlord is vanquished.',
+  villagers: 'the twelfth villager has been killed.',
+}
+
+export function lossText(s: Parameters<typeof isBastion>[0], reason: LossReason): string {
+  return (isBastion(s) ? BASTION_LOSS_TEXT : LOSS_TEXT)[reason]
+}
+
+export function loseGame(s: GameState, reason: LossReason): void {
+  endGame(s, { result: 'loss', reason })
 }
 
 /** The three (four with White Moon) defeats. Returns true if the game just ended. */

@@ -10,22 +10,26 @@ import type { ArtifactId, Color, Corner, DemonId, GhostRef, PowerId, Seat, TaoCo
 /** Parameters of a village tile's action ("request help from a villager"). */
 export type HelpParams =
   | { kind: 'circleOfPrayer'; color: TaoColor }
-  | { kind: 'buddhistTemple' }
-  /** Bring a dead Taoist back, or (White Moon) a killed villager by graveyard index. */
+  | { kind: 'buddhistTemple'; space?: GhostRef }
+  /** Bring a dead Taoist/Hero back, (White Moon) a killed villager, or (Last Bastion Dispensary) give an Equipment token. */
   | { kind: 'cemetery'; revive: Color }
   | { kind: 'cemetery'; villager: number }
-  | { kind: 'taoistAltar'; tile: TileIdx }
+  | { kind: 'cemetery'; color: TaoColor; to?: Color }
+  | { kind: 'taoistAltar'; tile?: TileIdx; ghost?: GhostRef }
   | { kind: 'herbalistShop' }
   | { kind: 'sorcerersHut'; ghost: GhostRef }
-  | { kind: 'nightWatchman'; board: Color }
+  | { kind: 'nightWatchman'; board?: Color; tiles?: TileIdx[]; ghosts?: GhostRef[] }
   /**
    * Move a ghost to any free space, then make a normal move with another
    * Taoist (solo: your own). `taoist` is null only when nobody can be moved.
+   * Last Bastion (Strategist's Tower): move up to 2 Horde cards or swap 2 Horde cards.
    */
   | {
       kind: 'pavilion'
       ghost: GhostRef
       to: GhostRef
+      ghost2?: GhostRef
+      to2?: GhostRef
       taoist: Color | null
       taoistTo: TileIdx | null
       /** White Moon: the moved Taoist brings the top villager of their tile along. */
@@ -33,18 +37,20 @@ export type HelpParams =
       /** Black Secret: after the move, the moved Taoist changes levels by the ladder there. */
       climb?: boolean
     }
-  | { kind: 'teaHouse'; color: TaoColor }
+  | { kind: 'teaHouse'; color?: TaoColor; taoist?: Color; to?: TileIdx | null }
   /** White Moon: a solitary exorcism of every ghost of your board's colour, or every black ghost. */
   | { kind: 'kungFuSchool'; scope: 'ownColor' | 'black' | { neutralBoard: Color } }
   /** Black Secret: swap a Bloody Mantra and/or put a Qi from the reserve on one. */
   | { kind: 'calligrapher'; swap: { mantra: number; replacement: string } | null; placeQi: number | null }
 
-/** Powers used "before your move". */
+/** Powers used "before your move" (or during your Hero phase in Last Bastion). */
 export type PowerUse =
   | { power: 'danceOfTheTwinWinds'; taoist: Color; to: TileIdx; carry?: boolean; climb?: boolean }
   | { power: 'bottomlessPockets'; color: TaoColor }
   /** On a ghost, or (Black Secret) on a demon's space on Wu-Feng's board. */
   | { power: 'enfeeblementMantra'; ghost?: GhostRef; demon?: DemonId }
+  /** Last Bastion (Teagaan): forego movement to remove a Grasp of Evil figure from a tile or Horde card. */
+  | { power: 'secondWind'; tile?: TileIdx; ghost?: GhostRef }
 
 export type YinYangUse = { kind: 'flip'; tile: TileIdx } | { kind: 'help'; tile: TileIdx; params: HelpParams }
 

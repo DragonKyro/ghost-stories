@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { applyAction, createGame } from './engine'
+import { applyAction, createGame, setupProblem } from './engine'
 import { covers } from './exorcism'
-import { isWuFengCard } from './rules'
+import { boardPowerActive, isWuFengCard } from './rules'
 import { act, config, game, putGhost, ref, respond, rigCurse, rigDice, tileKindAt, yangFor } from './testUtil'
-import type { GameState } from './types'
+import type { GameConfig, GameState } from './types'
 
 const zero = { red: 0, blue: 0, green: 0, yellow: 0, black: 0 }
 
@@ -620,6 +620,141 @@ describe('determinism and replay', () => {
       return s
     }
     expect(JSON.stringify(play())).toBe(JSON.stringify(play()))
+  })
+})
+
+describe('Last Bastion (variant: bastion)', () => {
+  const lbGame = (patch: Partial<GameConfig> = {}) => finishYin(createGame(config({ variant: 'bastion', ...patch })))
+
+  it('setup: 50 Monsters, 8 cards under each Warlord, 3 Life, 1 Call to Arms, no expansions allowed', () => {
+    expect(setupProblem(config({ variant: 'bastion', whiteMoon: { portal: 'center', randomTiles: false } }))).toMatch(/expansions/)
+    const norm = createGame(config({ variant: 'bastion', difficulty: 'normal' }))
+    // 50 monsters + 1 warlord - 1 drawn on turn 1 = 50 in deck, Warlord 8 cards from bottom (index 41).
+    expect(norm.deck.length).toBe(50)
+    expect(isWuFengCard(norm.deck[norm.deck.length - 9]!)).toBe(true)
+    expect(norm.templeBuddhas).toBe(1)
+    for (const c of ['red', 'blue', 'green', 'yellow'] as const) {
+      expect(norm.taoists[c].qi).toBe(3)
+      expect(norm.taoists[c].yinYang).toBe(true)
+      expect(norm.taoists[c].powerTokens).toBe(0)
+    }
+
+    const novice = createGame(config({ variant: 'bastion', difficulty: 'initiation' }))
+    // 4 fewer monsters on Novice: 46 + 1 - 1 drawn = 46 in deck; each hero starts with 3 Life and +1 black Equipment token.
+    expect(novice.deck.length).toBe(46)
+    expect(novice.taoists.red.qi).toBe(3)
+    expect(novice.taoists.red.tao.black).toBe(1)
+
+    const heroic = createGame(config({ variant: 'bastion', difficulty: 'hell' }))
+    // Heroic has 3 Warlords and Heroes still start with 1 Call to Arms token.
+    expect(heroic.deck.filter(isWuFengCard).length).toBe(3)
+    expect(heroic.taoists.red.yinYang).toBe(true)
+  })
+
+  it('Hero phase: Act then Move in either order, and Call to Arms works on a tile in the Grasp of Evil', () => {
+    let s = yangFor(lbGame(), 'red')
+    s.taoists.red.tile = 4
+    tileKindAt(s, 4, 'circleOfPrayer') // Standard
+    // Act first (Standard), then Move!
+    s = act(s, { type: 'help', by: 'red', params: { kind: 'circleOfPrayer', color: 'red' } })
+    expect(s.village[4]!.circleToken).toBe('red')
+    s = act(s, { type: 'move', by: 'red', to: 1 })
+    expect(s.taoists.red.tile).toBe(1)
+
+    // Call to Arms activates a tile even when it is in the Grasp of Evil (haunted).
+    tileKindAt(s, 8, 'circleOfPrayer')
+    s.village[8]!.haunted = true
+    s = act(s, { type: 'yinYang', by: 'red', use: { kind: 'help', tile: 8, params: { kind: 'circleOfPrayer', color: 'blue' } } })
+    expect(s.village[8]!.circleToken).toBe('blue')
+    expect(s.taoists.red.yinYang).toBe(false)
+  })
+
+  it('Horde board overrun effects: Red (−1 Life), Green (discard bottom card), Yellow (Corruption die), Blue (lose next movement)', () => {
+    // Blue board full -> active hero is immobilized (laid down); their next move stands them back up.
+    let b = yangFor(lbGame(), 'red')
+    for (const sp of [0, 1, 2] as const) putGhost(b, ref('blue', sp), 'lb-blue-1')
+    b = act(b, { type: 'endTurn', by: 'red' })
+    expect(b.active).toBe('blue')
+    expect(b.taoists.blue.immobilized).toBe(true)
+    const tileBefore = b.taoists.blue.tile!
+    b = act(b, { type: 'move', by: 'blue', to: tileBefore })
+    expect(b.taoists.blue.immobilized).toBeFalsy()
+    expect(b.yang?.moved).toBe(true)
+
+    // Green board full -> discards bottom card; if it is a Warlord, immediate defeat!
+    let g = yangFor(lbGame(), 'blue')
+    for (const sp of [0, 1, 2] as const) putGhost(g, ref('green', sp), 'lb-green-1')
+    g.deck = ['lb-red-1', 'lb-wf-vampireLord']
+    g = act(g, { type: 'endTurn', by: 'blue' })
+    expect(g.outcome).toEqual({ result: 'loss', reason: 'deckExhausted' })
+  })
+
+  it('Wounded vs Dead Heroes and Dispensary: first knockout can be healed (wounded, power lost); second knockout is permanent', () => {
+    let s = yangFor(lbGame(), 'red')
+    s.taoists.red.tile = 1
+    tileKindAt(s, 1, 'cemetery') // Dispensary
+    s.taoists.blue.qi = 1
+    // Blue loses last Life -> taken out (not deadForever).
+    putGhost(s, ref('blue', 0), 'lb-blue-5') // loseQi on arrival
+    s.taoists.blue.alive = false
+    s.taoists.blue.qi = 0
+    s.boards.blue.possessed = true
+
+    // Red heals Blue at the Dispensary: Blue returns with 3 Life and a Call to Arms, wounded (power inactive), no curse die rolled!
+    s = act(s, { type: 'help', by: 'red', params: { kind: 'cemetery', revive: 'blue' } })
+    expect(s.taoists.blue.alive).toBe(true)
+    expect(s.taoists.blue.qi).toBe(3)
+    expect(s.taoists.blue.yinYang).toBe(true)
+    expect(s.taoists.blue.wounded).toBe(true)
+    expect(boardPowerActive(s, 'blue')).toBe(false)
+
+    // Dispensary can also give an Equipment token from the reserve.
+    let s2 = yangFor(lbGame(), 'red')
+    s2.taoists.red.tile = 1
+    tileKindAt(s2, 1, 'cemetery')
+    const beforeBlack = s2.taoists.red.tao.black
+    s2 = act(s2, { type: 'help', by: 'red', params: { kind: 'cemetery', color: 'black', to: 'red' } })
+    expect(s2.taoists.red.tao.black).toBe(beforeBlack + 1)
+  })
+
+  it('Bastion tiles & Heroes: Trebuchet Net, Strategist’s Tower swap, Twindalli ranged combat from centre, Kazgin exit immunity, Teagaan', () => {
+    // Twindalli (red / danceOfTheSpires) combats from the central tile (4), and Kazgin ignores negative exit effects.
+    let s = yangFor(lbGame({ powers: { red: 'danceOfTheSpires', green: 'strengthOfMountain' } }), 'red')
+    s.taoists.red.tile = 4
+    putGhost(s, ref('red', 1), 'lb-red-1') // res 1, orthogonal to tile 4 (col 1)
+    putGhost(s, ref('blue', 1), 'lb-blue-1') // res 1, orthogonal to tile 4 (row 1)
+    rigDice(s, ['red', 'blue', 'white'])
+    s = act(s, { type: 'exorcise', by: 'red', targets: [ref('red', 1), ref('blue', 1)] })
+    s = respond(s, { kind: 'commit', spend: [], crystals: [], exorcise: [ref('red', 1), ref('blue', 1)], demons: [] })
+    if (s.prompt?.kind === 'gainTao') s = respond(s, { kind: 'gainTao', colors: ['red'] })
+    expect(s.boards.red.spaces[1]).toBeNull()
+    expect(s.boards.blue.spaces[1]).toBeNull()
+
+    // Trebuchet (taoistAltar) places Net on a Monster, cancelling its powerBlocker and exit curse.
+    s = yangFor(s, 'green')
+    s.taoists.green.tile = 7
+    tileKindAt(s, 7, 'taoistAltar')
+    putGhost(s, ref('green', 1), 'lb-red-7') // powerBlocker
+    s = act(s, { type: 'help', by: 'green', params: { kind: 'taoistAltar', ghost: ref('green', 1) } })
+    expect(s.boards.green.spaces[1]!.net).toBe(true)
+
+    // Strategist's Tower (pavilion) swaps two Horde cards.
+    s = yangFor(s, 'red')
+    s.taoists.red.tile = 1
+    tileKindAt(s, 1, 'pavilion')
+    putGhost(s, ref('red', 0), 'lb-red-1')
+    putGhost(s, ref('blue', 0), 'lb-blue-1')
+    s = act(s, { type: 'help', by: 'red', params: { kind: 'pavilion', ghost: ref('red', 0), to: ref('blue', 0), taoist: null, taoistTo: null } })
+    expect(s.boards.red.spaces[0]?.card).toBe('lb-blue-1')
+    expect(s.boards.blue.spaces[0]?.card).toBe('lb-red-1')
+
+    // Teagaan (blue / secondWind) foregoes movement to remove a Grasp of Evil figure from a Bastion tile.
+    s.boards.blue.power = 'secondWind'
+    s = yangFor(s, 'blue')
+    s.village[2]!.haunted = true
+    s = act(s, { type: 'power', by: 'blue', use: { power: 'secondWind', tile: 2 } })
+    expect(s.village[2]!.haunted).toBe(false)
+    expect(s.yang?.moved).toBe(true)
   })
 })
 

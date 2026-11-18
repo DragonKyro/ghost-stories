@@ -4,17 +4,18 @@
 import type React from 'react'
 import { cardOnBoard } from '@/game/catalogue'
 import { lineOf } from '@/game/geometry'
-import { boardName, suLingAt, TILE_NAME } from '@/game/rules'
+import { boardName, isBastion, suLingAt, tileName } from '@/game/rules'
 import type { Ability, GameState } from '@/game/types'
 import { useUiStore } from '@/store/uiStore'
 import { AbilityIcon, GhostCardArt, TileArt } from '@/ui/art'
-import { ABILITY_TEXT, GROUP_TEXT, TILE_HELP } from './text'
+import { ABILITY_TEXT, GROUP_TEXT, tileHelp } from './text'
 import { familyName } from '@/game/whiteMoon'
 
 export function Inspector({ game, tile, stacked = false }: { game: GameState; tile: number; stacked?: boolean }) {
   const inspect = useUiStore((u) => u.inspect)
   const setInspect = useUiStore((u) => u.setInspect)
   if (!inspect) return null
+  const bastion = isBastion(game)
   // Phones: a card pinned over the board; tap it to close.
   const pos: React.CSSProperties = stacked
     ? { left: 4, right: 4, top: 4, pointerEvents: 'auto', maxWidth: 'none', transform: 'scale(0.92)', transformOrigin: 'top center' }
@@ -27,8 +28,16 @@ export function Inspector({ game, tile, stacked = false }: { game: GameState; ti
       <div className="gs-inspect" style={pos} onClick={close}>
         <TileArt kind={t.kind} haunted={t.haunted} size={130} />
         <div style={{ maxWidth: 240 }}>
-          <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--accent)' }}>{TILE_NAME[t.kind]}</div>
-          {t.haunted ? <p className="gs-mini">Haunted: the villager is gone and the tile has no action. The Taoist Altar or a Yin-Yang can restore it.</p> : <p style={{ fontSize: 12.5, margin: '4px 0' }}>{TILE_HELP[t.kind]}</p>}
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--accent)' }}>{tileName(game, t.kind)}</div>
+          {t.haunted ? (
+            <p className="gs-mini">
+              {bastion
+                ? 'In the Grasp of Evil: this Bastion tile cannot be activated (except with a Call to Arms token). Remove the figure with the Divine Fountain or Teagaan.'
+                : 'Haunted: the villager is gone and the tile has no action. The Taoist Altar or a Yin-Yang can restore it.'}
+            </p>
+          ) : (
+            <p style={{ fontSize: 12.5, margin: '4px 0' }}>{tileHelp(game, t.kind)}</p>
+          )}
           {t.villagers.length > 0 && <p className="gs-mini">Villagers (top first): {[...t.villagers].reverse().map(familyName).join(', ')}</p>}
         </div>
       </div>
@@ -37,7 +46,7 @@ export function Inspector({ game, tile, stacked = false }: { game: GameState; ti
   const g = game.boards[inspect.ref.board].spaces[inspect.ref.space]
   if (!g) return null
   const card = cardOnBoard(g.card, inspect.ref.board)
-  const line = lineOf(inspect.ref).map((x) => TILE_NAME[game.village[x]!.kind])
+  const line = lineOf(inspect.ref).map((x) => tileName(game, game.village[x]!.kind))
   const row = (label: string, abs: Ability[]) =>
     abs.map((a, i) => (
       <div key={`${label}-${i}`} className="gs-abil">
@@ -65,8 +74,9 @@ export function Inspector({ game, tile, stacked = false }: { game: GameState; ti
         {row('each Yin', card.center)}
         {row('exorcised', card.right)}
         {card.left.length + card.center.length + card.right.length === 0 && <p className="gs-mini">No abilities.</p>}
-        {g.figure && <p className="gs-mini">Haunting figure: {g.figure === 'card' ? 'on the card' : 'on the board — it haunts next Yin phase'}.</p>}
-        {g.mantra && <p className="gs-mini">The Enfeeblement Mantra lowers its resistance by 1.</p>}
+        {g.figure && <p className="gs-mini">{bastion ? 'Grasp of Evil figure' : 'Haunting figure'}: {g.figure === 'card' ? 'on the card' : 'on the board — it strikes next phase'}.</p>}
+        {g.mantra && <p className="gs-mini">{bastion ? "Mylfaar's Enchantment" : 'The Enfeeblement Mantra'} lowers its resistance by 1.</p>}
+        {g.net && <p className="gs-mini">Covered by the Trebuchet's Net: its abilities are cancelled.</p>}
         {suLingAt(game, inspect.ref) && <p className="gs-mini">Su-Ling cancels its centre stone.</p>}
         <p className="gs-mini">In front of it: {line.join(' → ')}.</p>
       </div>

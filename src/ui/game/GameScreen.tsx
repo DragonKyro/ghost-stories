@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from 'react'
 import { waitingFor } from '@/game/engine'
-import { hauntedCount, incarnationsInDeck, COLOR_NAME, seatName as seatLabel } from '@/game/rules'
+import { hauntedCount, incarnationsInDeck, isBastion, COLOR_NAME, seatName as seatLabel } from '@/game/rules'
 import type { GameState } from '@/game/types'
 import { useGameStore } from '@/store/gameStore'
 import { useUiStore } from '@/store/uiStore'
@@ -160,23 +160,24 @@ function Header({ game, onRules, stacked }: { game: GameState; onRules: () => vo
   const leave = useNetworkStore((n) => n.leaveRoom)
   const haunted = hauntedCount(game)
   const dead = game.whiteMoon?.dead.length ?? 0
+  const bastion = isBastion(game)
   return (
     <div className="gs-header">
-      {!stacked && <span className="gs-title">Ghost Stories</span>}
+      {!stacked && <span className="gs-title">{bastion ? 'Last Bastion' : 'Ghost Stories'}</span>}
       <span className="gs-stat">
         {stacked ? 'T' : 'Turn '}
         <strong>{game.turn}</strong> · <strong>{COLOR_NAME[game.active]}</strong>
       </span>
-      <span className="gs-stat" title="Ghost cards left in the deck">
+      <span className="gs-stat" title={bastion ? 'Horde cards left in the deck' : 'Ghost cards left in the deck'}>
         Deck <strong>{game.deck.length}</strong>
       </span>
       {!stacked && (
-        <span className="gs-stat" title="Incarnations of Wu-Feng still hidden in the deck">
-          Wu-Feng hidden <strong>{incarnationsInDeck(game)}</strong>
+        <span className="gs-stat" title={bastion ? 'Warlords still hidden in the Horde deck' : 'Incarnations of Wu-Feng still hidden in the deck'}>
+          {bastion ? 'Warlords hidden' : 'Wu-Feng hidden'} <strong>{incarnationsInDeck(game)}</strong>
         </span>
       )}
-      <span className={`gs-stat ${haunted >= 2 ? 'gs-danger' : ''}`} title="A third haunted tile loses the game">
-        {stacked ? 'Haunt' : 'Haunted'} <strong>{haunted}/3</strong>
+      <span className={`gs-stat ${haunted >= 2 ? 'gs-danger' : ''}`} title={bastion ? 'A third Bastion tile in the Grasp of Evil loses the game' : 'A third haunted tile loses the game'}>
+        {stacked ? (bastion ? 'Grasp' : 'Haunt') : bastion ? 'Grasp of Evil' : 'Haunted'} <strong>{haunted}/3</strong>
       </span>
       {game.whiteMoon && (
         <span className={`gs-stat ${dead >= 9 ? 'gs-danger' : ''}`} title="The twelfth dead villager loses the game">
@@ -298,8 +299,19 @@ function ActionBar({ game, height }: { game: GameState; height: number }) {
 /** The active Taoist and the phase. */
 function TurnBadge({ game, size }: { game: GameState; size: number }) {
   const c = game.active
+  const bastion = isBastion(game)
   const phase =
-    game.phase === 'gameOver' ? 'Game over' : game.prompt?.owner === 'wufeng' ? 'Wu-Feng acts' : game.phase === 'yang' ? 'Yang phase' : 'Yin phase'
+    game.phase === 'gameOver'
+      ? 'Game over'
+      : game.prompt?.owner === 'wufeng'
+        ? 'Wu-Feng acts'
+        : game.phase === 'yang'
+          ? bastion
+            ? 'Hero phase'
+            : 'Yang phase'
+          : bastion
+            ? 'Horde phase'
+            : 'Yin phase'
   return (
     <div className="gs-badge" style={colorVars(c)}>
       <TaoistFigure color={c} size={size} active={game.phase === 'yang'} />

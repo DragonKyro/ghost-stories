@@ -30,6 +30,7 @@ export type Selecting =
   | { kind: 'yinYangFlip' }
   | { kind: 'twinWinds'; taoist?: Color }
   | { kind: 'mantra' }
+  | { kind: 'teagaan' }
   | { kind: 'artifact'; artifact: 'jadeTalisman' | 'phoenixFeather' }
 
 interface UiStore {

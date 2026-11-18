@@ -10,12 +10,14 @@ import { adjacentTiles, facedSpaces, isAdjacent, isCorner, refKey } from '@/game
 import {
   borrowablePowers,
   cardAt,
+  combatSpacesFor,
   exorcismBlocker,
   exorcismDice,
   ghostAt,
   ghostsInPlay,
   hasPower,
   hauntedCount,
+  isBastion,
   isSolo,
   livingTaoists,
   shadowOnTile,
@@ -116,10 +118,10 @@ function expectedSpend(s: GameState, c: Color, tile: TileIdx, targets: GhostRef[
   return Math.max(0, Math.min(have, need - n / 3))
 }
 
-/** Exorcism options from `tile` (one target, or two from a corner). */
+/** Exorcism options from `tile` (one target, or two from a corner / Twindalli). */
 export function exorcismOptions(s: GameState, c: Color, tile: TileIdx): Option[] {
   const out: Option[] = []
-  const faced = facedSpaces(tile).filter((r) => ghostAt(s, r) && !exorcismBlocker(s, r))
+  const faced = combatSpacesFor(s, c, tile).filter((r) => ghostAt(s, r) && !exorcismBlocker(s, r))
   if (faced.length === 0) return out
   const n = exorcismDice(s, c)
   const reroll = hasPower(s, c, 'godsFavorite')
@@ -131,14 +133,20 @@ export function exorcismOptions(s: GameState, c: Color, tile: TileIdx): Option[]
     const v = p * (gain(r) - expectedSpend(s, c, tile, [r], n) * W.tao * W.spend)
     out.push({ action: { type: 'exorcise', by: c, targets: [r] }, value: v })
   }
-  if (faced.length === 2 && isCorner(tile)) {
-    const [a, b] = faced as [GhostRef, GhostRef]
-    const o = pairChances(s, c, tile, a, b, n, reroll)
-    const ga = gain(a)
-    const gb = gain(b)
-    const v = o.both * (ga + gb) + o.onlyA * ga + o.onlyB * gb + o.either * Math.max(ga, gb)
-    const spend = expectedSpend(s, c, tile, faced, n) * W.tao * W.spend * (o.both + o.onlyA + o.onlyB + o.either)
-    if (o.both + o.onlyA + o.onlyB + o.either > 0) out.push({ action: { type: 'exorcise', by: c, targets: [a, b] }, value: v - spend })
+  const canPair = isCorner(tile) || (isBastion(s) && hasPower(s, c, 'danceOfTheSpires'))
+  if (faced.length >= 2 && canPair) {
+    for (let i = 0; i < faced.length; i++) {
+      for (let j = i + 1; j < faced.length; j++) {
+        const a = faced[i]!
+        const b = faced[j]!
+        const o = pairChances(s, c, tile, a, b, n, reroll)
+        const ga = gain(a)
+        const gb = gain(b)
+        const v = o.both * (ga + gb) + o.onlyA * ga + o.onlyB * gb + o.either * Math.max(ga, gb)
+        const spend = expectedSpend(s, c, tile, [a, b], n) * W.tao * W.spend * (o.both + o.onlyA + o.onlyB + o.either)
+        if (o.both + o.onlyA + o.onlyB + o.either > 0) out.push({ action: { type: 'exorcise', by: c, targets: [a, b] }, value: v - spend })
+      }
+    }
   }
   return out
 }
@@ -219,11 +227,27 @@ export function helpOptions(s: GameState, c: Color, tile: TileIdx): Array<{ para
     case 'buddhistTemple':
       return s.templeBuddhas > 0 ? [{ params: { kind }, value: W.buddhaHeld * (t.buddhas > 0 ? 0.6 : 1) }] : []
     case 'cemetery': {
+      const dead = COLORS.filter((x) => !s.boards[x].neutral && !s.taoists[x].alive && !s.taoists[x].deadForever)
+      if (isBastion(s)) {
+        const revives = dead.map((d) => ({ params: { kind, revive: d } as HelpParams, value: W.dead + qiValue(3) + W.yinYang }))
+        const color = neededColors(s).find((x) => s.taoSupply[x] > 0)
+        const tokenOpt = color ? [{ params: { kind, color, to: c } as HelpParams, value: W.tao + W.taoMatch * 0.5 }] : []
+        return [...revives, ...tokenOpt]
+      }
       if (isSolo(s)) return []
-      const dead = COLORS.filter((x) => !s.boards[x].neutral && !s.taoists[x].alive)
       return dead.map((d) => ({ params: { kind, revive: d } as HelpParams, value: W.dead + qiValue(2) - curseCost(s, c) }))
     }
     case 'taoistAltar': {
+      if (isBastion(s)) {
+        // Trebuchet: place the Net figure on a non-Warlord Monster card to cancel its abilities.
+        let best: { ref: GhostRef; v: number } | null = null
+        for (const g of ghostsInPlay(s)) {
+          if (g.card.incarnation || g.ghost.net || g.card.center.length + g.card.right.length === 0) continue
+          const v = removalValue(s, g.ref, h) * 0.55
+          if (!best || v > best.v) best = { ref: g.ref, v }
+        }
+        return best ? [{ params: { kind, ghost: best.ref }, value: best.v }] : []
+      }
       const haunted = s.village.filter((x) => x.haunted)
       if (haunted.length === 0) return []
       const best = haunted.sort((a, b) => (W.tileHaunted[b.kind] ?? 0) - (W.tileHaunted[a.kind] ?? 0))[0]!
@@ -242,6 +266,19 @@ export function helpOptions(s: GameState, c: Color, tile: TileIdx): Array<{ para
       return best && best.action.type === 'help' ? [{ params: best.action.params, value: best.value }] : []
     }
     case 'nightWatchman': {
+      if (isBastion(s)) {
+        const haunted = s.village.filter((x) => x.haunted).sort((a, b) => (W.tileHaunted[b.kind] ?? 0) - (W.tileHaunted[a.kind] ?? 0))
+        const tiles = haunted.slice(0, 2).map((x) => x.idx)
+        const ghosts = ghostsInPlay(s)
+          .filter((g) => g.ghost.figure === 'stone')
+          .slice(0, Math.max(0, 2 - tiles.length))
+          .map((g) => g.ref)
+        if (tiles.length === 0 && ghosts.length === 0) return []
+        const v =
+          (hauntedPenalty(h) - hauntedPenalty(Math.max(0, h - tiles.length))) +
+          ghosts.length * (W.haunterStone - W.haunterCard) * hauntCost(h)
+        return [{ params: { kind, tiles, ghosts }, value: v }]
+      }
       let best: { board: Color; v: number } | null = null
       for (const b of COLORS) {
         let v = 0
@@ -256,6 +293,10 @@ export function helpOptions(s: GameState, c: Color, tile: TileIdx): Array<{ para
     case 'pavilion':
       return pavilionOptions(s, c)
     case 'teaHouse': {
+      if (isBastion(s)) {
+        const lowest = [...livingTaoists(s)].sort((a, b) => a.qi - b.qi)[0] ?? t
+        return [{ params: { kind, taoist: lowest.color }, value: qiValue(lowest.qi + 1) - qiValue(lowest.qi) }]
+      }
       const color = neededColors(s).find((x) => s.taoSupply[x] > 0)
       if (!color) return []
       return [{ params: { kind, color }, value: qiValue(t.qi + 1) - qiValue(t.qi) + W.tao - W.arrival }]
@@ -314,8 +355,8 @@ export function positionValue(s: GameState, c: Color, tile: TileIdx): number {
 export function reachable(s: GameState, c: Color): TileIdx[] {
   const t = s.taoists[c]
   const here = t.tile!
-  if (!beforeMove(s) || t.underground) return [here]
-  const fly = hasPower(s, c, 'danceOfTheSpires')
+  if (!beforeMove(s) || t.underground || t.immobilized) return [here]
+  const fly = !isBastion(s) && hasPower(s, c, 'danceOfTheSpires')
   return [0, 1, 2, 3, 4, 5, 6, 7, 8].filter((x) => x === here || fly || isAdjacent(here, x))
 }
 
@@ -384,6 +425,7 @@ export function finishTurn(s: GameState, c: Color): Action {
 
 /** Spend the Yin-Yang to restore a tile when a third haunting is near. */
 export function yinYangFlip(s: GameState, c: Color): Action | null {
+  if (isBastion(s)) return null
   const t = s.taoists[c]
   if (!t.yinYang) return null
   const haunted = s.village.filter((x) => x.haunted)

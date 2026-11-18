@@ -1,5 +1,6 @@
-// Rules text shown in the UI (from the rules summary's reference sheet).
+// Rules text shown in the UI (from the rules summary's reference sheet and Last Bastion's Power Description booklet).
 
+import { isBastion } from '@/game/rules'
 import type { AbilityKind, CurseFace, TileKind } from '@/game/types'
 
 export const TILE_HELP: Record<TileKind, string> = {
@@ -14,6 +15,24 @@ export const TILE_HELP: Record<TileKind, string> = {
   teaHouse: 'Take a Tao token of your choice and gain 1 Qi. Then a ghost comes into play.',
   kungFuSchool: 'A solitary exorcism of every ghost of your board’s colour, or every black ghost (no curses, no rewards).',
   calligrapher: 'Swap a Bloody Mantra for one of the same level, and/or put a Qi from the reserve on a Mantra.',
+}
+
+export const BASTION_TILE_HELP: Record<TileKind, string> = {
+  circleOfPrayer: 'Place or change a Standard token: all Monsters and Warlords of its colour have 1 less resistance.',
+  buddhistTemple: 'Place the Trap figure on a free space of your Horde board: the next Monster placed there is discarded without effects.',
+  cemetery: 'Either give 1 available Equipment token from the reserve to any Hero, OR heal a taken-out Hero (returns wounded with 3 Life and a Call to Arms).',
+  taoistAltar: 'Place the Net figure on a Monster card (not a Warlord) to cancel its abilities.',
+  herbalistShop: 'Roll 2 Combat dice and take matching Equipment tokens from the reserve; a white face is any colour of your choice.',
+  sorcerersHut: 'Lose 1 Life token and eliminate 1 Monster card in play (not a Warlord; no exit effect).',
+  nightWatchman: 'Remove up to 2 Grasp of Evil figures from Bastion tiles or Horde cards.',
+  pavilion: 'Move a Horde card to any free space, or swap the positions of 2 Horde cards in play.',
+  teaHouse: 'Grant a Hero of your choice 1 Life token and 1 optional movement.',
+  kungFuSchool: TILE_HELP.kungFuSchool,
+  calligrapher: TILE_HELP.calligrapher,
+}
+
+export function tileHelp(s: Parameters<typeof isBastion>[0], kind: TileKind): string {
+  return isBastion(s) ? BASTION_TILE_HELP[kind] : TILE_HELP[kind]
 }
 
 export const ABILITY_TEXT: Record<AbilityKind, string> = {

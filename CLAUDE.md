@@ -4,9 +4,9 @@ Context for Claude working in this repo.
 
 ## What this is
 
-A web version of the cooperative board game *Ghost Stories* (Antoine Bauza, Repos Production, 2008), hosted on GitHub Pages, played privately with friends: solo, hot-seat on one device (with AI seats), or online. Includes the **White Moon** and **Black Secret** expansions.
+A web version of the cooperative board games *Ghost Stories* (Antoine Bauza, Repos Production, 2008) and its fantasy re-implementation *Last Bastion* (Antoine Bauza, Repos Production, 2019), hosted on GitHub Pages, played privately with friends: solo, hot-seat on one device (with AI seats), or online. Ghost Stories includes the **White Moon** and **Black Secret** expansions; Last Bastion (`config.variant === 'bastion'`) has no expansions.
 
-Source rules: [`ghost stories rules.pdf`](./ghost%20stories%20rules.pdf) (Esoteric Order of Gamers summary v3.3, Oct 2019). **That PDF is canonical.** Where it is silent, the decisions are listed under "Rules decisions" below and in the in-game rulebook's "About this version" topic — keep the two in sync.
+Source rules: [`docs/ghost stories rules.pdf`](./docs/ghost%20stories%20rules.pdf) (Esoteric Order of Gamers summary v3.3, Oct 2019) and [`docs/last bastion rules.pdf`](./docs/last%20bastion%20rules.pdf). **Those PDFs are canonical.** (Note: do not call the `read` tool directly on the binary PDF files; use Python `pymupdf` in `exec` if you need to inspect their text.) Where they are silent, the decisions are listed under "Rules decisions" below and in the in-game rulebook's "About this version" topic — keep the two in sync.
 
 ## Tech stack
 

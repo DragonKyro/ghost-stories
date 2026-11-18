@@ -13,4 +13,18 @@ describe('AI self-play (fuzz)', () => {
       }
     })
   }
+
+  it('plays Last Bastion to the end without illegal moves (4p and solo)', () => {
+    for (const seed of [1, 2]) {
+      const { s } = playOut({ variant: 'bastion', difficulty: 'normal', seats: allSeats('ai'), seed })
+      expect(s.phase).toBe('gameOver')
+    }
+    const { s: solo } = playOut({
+      variant: 'bastion',
+      difficulty: 'initiation',
+      seats: { red: 'ai', blue: 'neutral', green: 'neutral', yellow: 'neutral' },
+      seed: 1,
+    })
+    expect(solo.phase).toBe('gameOver')
+  })
 })

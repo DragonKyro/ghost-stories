@@ -14,7 +14,7 @@
 import { create } from 'zustand'
 import { applyAction, createGame } from '@/game/engine'
 import type { Action } from '@/game/actions'
-import type { Color, GameConfig, GameState } from '@/game/types'
+import type { Color, GameConfig, GameState, GameVariant } from '@/game/types'
 import { useLogStore, type LogSnapshot } from './logStore'
 
 export type UiMode = 'mainMenu' | 'newGame' | 'online' | 'rulebook' | 'inGame'
@@ -52,6 +52,8 @@ const UNDO_DEPTH = 30
 interface GameStore {
   game: GameState | null
   uiMode: UiMode
+  /** Selected game on the home screen: Ghost Stories or Last Bastion. */
+  selectedVariant: GameVariant
   /** When the game began (ms since epoch), for the game clock. */
   startedAt: number
   /** The last move that failed, shown as a toast. */
@@ -62,6 +64,7 @@ interface GameStore {
   undoStack: GameSnapshot[]
 
   setUiMode: (mode: UiMode) => void
+  setSelectedVariant: (variant: GameVariant) => void
   clearError: () => void
   setHandoff: (c: Color | null) => void
 
@@ -93,12 +96,14 @@ function undoable(before: GameState, after: GameState): boolean {
 export const useGameStore = create<GameStore>((set, get) => ({
   game: null,
   uiMode: 'mainMenu',
+  selectedVariant: 'ghostStories',
   startedAt: 0,
   error: null,
   handoff: null,
   undoStack: [],
 
   setUiMode: (uiMode) => set({ uiMode }),
+  setSelectedVariant: (selectedVariant) => set({ selectedVariant }),
   clearError: () => set({ error: null }),
   setHandoff: (handoff) => set({ handoff }),
 

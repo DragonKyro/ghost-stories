@@ -4,9 +4,9 @@
 
 import type { ReactElement, ReactNode } from 'react'
 import { CURSE_DIE, POWERS_BY_COLOR, type AbilityKind, type TileKind } from '@/game/types'
-import { POWER_NAME, POWER_TEXT, TILE_NAME } from '@/game/rules'
+import { BASTION_POWER_NAME, BASTION_POWER_TEXT, BASTION_TILE_NAME, POWER_NAME, POWER_TEXT, TILE_NAME } from '@/game/rules'
 import { AbilityIcon, CurseDie, PowerIcon, TaoDie, TileArt } from '@/ui/art'
-import { ABILITY_TEXT, CURSE_FACE_TEXT, TILE_HELP } from '@/ui/game/text'
+import { ABILITY_TEXT, BASTION_TILE_HELP, CURSE_FACE_TEXT, TILE_HELP } from '@/ui/game/text'
 import { CURSE_EFFECT_TEXT, MANTRA_TEXT, TOKEN_NAME, TOKEN_TEXT } from '@/game/blackSecret'
 import { ARTIFACT_NAME, ARTIFACT_TEXT, DEATH_TEXT, FAMILIES, rewardText } from '@/game/whiteMoon'
 
@@ -345,6 +345,51 @@ export const TOPICS: Topic[] = [
         ))}
         {Object.entries(MANTRA_TEXT).map(([k, v]) => (
           <P key={k}>◦ {v}</P>
+        ))}
+      </>
+    ),
+  },
+  {
+    id: 'last-bastion',
+    title: 'Last Bastion (2019)',
+    category: 'modes',
+    searchBlob: `last bastion heroes horde boards warlords corruption die grasp of evil call to arms wounded dispensary trebuchet dwarven quarry strategist tower divine fountain tavern market standard tomb of the ancient kings ${Object.values(BASTION_POWER_NAME).join(' ')} ${Object.values(BASTION_TILE_NAME).join(' ')}`,
+    body: () => (
+      <>
+        <P>
+          <strong>Last Bastion</strong> (Antoine Bauza, Repos Production, 2019) re-themes and streamlines Ghost Stories into a fantasy siege: 1–4 Heroes defend
+          the Bastion of the Ancient Kings against the Monstrous hordes and Warlords of the Baleful Queen. Select <strong>Last Bastion</strong> on the home
+          screen or in the online lobby to play it (Last Bastion has no expansions).
+        </P>
+        <H>Key rules & differences from Ghost Stories</H>
+        <ul>
+          <Li><strong>Setup & Deck:</strong> 50 Monster cards (10 per colour) and 10 Warlord cards. Remove 4 Monsters per missing player (plus 4 on Novice). Difficulties: <strong>Novice</strong> (1 Warlord, +1 black Equipment token each), <strong>Normal</strong> (1 Warlord), <strong>Difficult</strong> (2 Warlords), <strong>Heroic</strong> (3 Warlords). Warlords alternate with 8 Monster cards from the bottom of the deck. Every Hero starts with 3 Life tokens and 1 Call to Arms token.</Li>
+          <Li><strong>Hero Phase order:</strong> During your Hero phase you may <strong>Move AND Act in either order</strong> (Move then Act, or Act then Move), and use your once-per-turn Hero power at any point during your Hero phase.</Li>
+          <Li><strong>Call to Arms:</strong> Lets you activate the action of <strong>any</strong> Bastion tile without standing on it — even if that tile is in the Grasp of Evil!</Li>
+          <Li><strong>Horde Board Overrun (when all 3 spaces are full):</strong> Instead of always losing 1 Life, each Horde board triggers its own overrun effect: <strong>Red</strong> loses 1 Life token; <strong>Green</strong> discards the bottom card of the Horde deck (immediate defeat if it is a Warlord!); <strong>Yellow</strong> rolls the Corruption die; <strong>Blue</strong> lays down the Hero figure (standing back up replaces their next movement).</Li>
+          <Li><strong>Wounded vs Dead Heroes:</strong> The first time a Hero loses their last Life token, they are <em>taken out</em> (their board becomes neutral). Another Hero can heal them at the <strong>Dispensary</strong>: they return with 3 Life tokens and 1 Call to Arms token, but flip their Hero board to the <strong>Wounded</strong> side (permanently losing their Hero power). Losing all Life tokens a second time is permanent death.</Li>
+        </ul>
+        <H>The 8 Heroes</H>
+        {(['red', 'blue', 'green', 'yellow'] as const).map((c) => (
+          <div key={c}>
+            {POWERS_BY_COLOR[c].map((p) => (
+              <Row key={p}>
+                <PowerIcon power={p} size={32} />
+                <div>
+                  <strong>{BASTION_POWER_NAME[p]}</strong> ({c}) — {BASTION_POWER_TEXT[p]}
+                </div>
+              </Row>
+            ))}
+          </div>
+        ))}
+        <H>The 9 Bastion Tiles</H>
+        {BASE_TILE_KINDS.map((k) => (
+          <Row key={k}>
+            <TileArt kind={k} haunted={false} size={56} />
+            <div>
+              <strong>{BASTION_TILE_NAME[k]}</strong> — {BASTION_TILE_HELP[k]}
+            </div>
+          </Row>
         ))}
       </>
     ),

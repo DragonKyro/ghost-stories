@@ -7,18 +7,30 @@
 import { useEffect, useState } from 'react'
 import { setupProblem } from '@/game/engine'
 import { OPPOSITE } from '@/game/geometry'
-import { COLOR_NAME, POWER_NAME, POWER_TEXT } from '@/game/rules'
-import { COLORS, POWERS_BY_COLOR, type Color, type Difficulty, type GameConfig, type PowerId, type SeatKind } from '@/game/types'
+import { COLOR_NAME, powerName, powerText } from '@/game/rules'
+import { COLORS, POWERS_BY_COLOR, type Color, type Difficulty, type GameConfig, type GameVariant, type PowerId, type SeatKind } from '@/game/types'
 import { useGameStore } from '@/store/gameStore'
 import { PowerIcon, ShadowFigure, TaoistFigure } from '@/ui/art'
 import { colorVars } from './game/Board'
 import './menu.css'
 
-const DIFFICULTY: Array<{ id: Difficulty; name: string; text: string }> = [
+const DIFFICULTY_GS: Array<{ id: Difficulty; name: string; text: string }> = [
   { id: 'initiation', name: 'Initiation', text: '4 Qi each, a black Tao token too, one incarnation.' },
   { id: 'normal', name: 'Normal', text: '3 Qi, only your own Tao token, one incarnation.' },
   { id: 'nightmare', name: 'Nightmare', text: 'Normal, with 4 incarnations (3 with 1–2 players), every 10 cards.' },
   { id: 'hell', name: 'Hell', text: 'Nightmare, and nobody starts with a Yin-Yang.' },
+]
+
+const DIFFICULTY_BASTION: Array<{ id: Difficulty; name: string; text: string }> = [
+  { id: 'initiation', name: 'Novice', text: '3 Life each, a black Equipment token too, 4 fewer Monster cards, 1 Warlord.' },
+  { id: 'normal', name: 'Normal', text: '3 Life each, your own colour Equipment token, 1 Call to Arms, 1 Warlord.' },
+  { id: 'nightmare', name: 'Difficult', text: 'Normal, with 2 Warlords alternating every 8 Monster cards.' },
+  { id: 'hell', name: 'Heroic', text: 'Normal, with 3 Warlords alternating every 8 Monster cards.' },
+]
+
+const GAME_OPTIONS: Array<{ id: GameVariant; label: string }> = [
+  { id: 'ghostStories', label: 'Ghost Stories' },
+  { id: 'bastion', label: 'Last Bastion' },
 ]
 
 type PlayerKind = Exclude<SeatKind, 'neutral'>
@@ -45,6 +57,10 @@ const SOLO_POWER: PowerId = 'danceOfTheSpires'
 export function NewGame() {
   const setUiMode = useGameStore((s) => s.setUiMode)
   const start = useGameStore((s) => s.startLocalGame)
+  const variant = useGameStore((s) => s.selectedVariant)
+  const setVariant = useGameStore((s) => s.setSelectedVariant)
+  const bastion = variant === 'bastion'
+  const diffList = bastion ? DIFFICULTY_BASTION : DIFFICULTY_GS
   const [difficulty, setDifficulty] = useState<Difficulty>('initiation')
   const [players, setPlayers] = useState<PlayerRow[]>(DEFAULT_PLAYERS)
   const [powers, setPowers] = useState<Partial<Record<Color, PowerId>>>({})
@@ -74,13 +90,14 @@ export function NewGame() {
   const solo = players.length === 1
   const neutral = COLORS.filter((c) => seats[c] === 'neutral')
   const buildConfig = (seed: number): GameConfig => ({
+    ...(bastion ? { variant: 'bastion' } : {}),
     difficulty,
     seats,
     seed,
     powers,
     ...(first !== 'random' && seats[first] !== 'neutral' ? { firstPlayer: first } : {}),
-    ...(wm.on ? { whiteMoon: { portal: wm.portal, randomTiles: wm.randomTiles } } : {}),
-    ...(bs.on ? { blackSecret: { wuFeng: bs.wuFeng, side: bs.side } } : {}),
+    ...(!bastion && wm.on ? { whiteMoon: { portal: wm.portal, randomTiles: wm.randomTiles } } : {}),
+    ...(!bastion && bs.on ? { blackSecret: { wuFeng: bs.wuFeng, side: bs.side } } : {}),
   })
   const problem = setupProblem(buildConfig(0))
   // Two players not facing each other: offer to move the second one across.
@@ -113,11 +130,15 @@ export function NewGame() {
   }
 
   const missing = 4 - players.length
-  const countNote = solo
-    ? 'Solo: 3 power tokens and a Tao token of each colour; the red board shows the Dance of the Spires; no help from the Cemetery.'
-    : missing > 0
-      ? `${players.length} players: ${missing * 5} ghost cards are removed and each player gets a power token.`
+  const countNote = bastion
+    ? missing > 0
+      ? `${players.length} player${players.length > 1 ? 's' : ''}: ${missing * 4} Monster cards are removed from the Horde deck.`
       : null
+    : solo
+      ? 'Solo: 3 power tokens and a Tao token of each colour; the red board shows the Dance of the Spires; no help from the Cemetery.'
+      : missing > 0
+        ? `${players.length} players: ${missing * 5} ghost cards are removed and each player gets a power token.`
+        : null
 
   return (
     <div className="gs-ng-wrap">
@@ -128,21 +149,26 @@ export function NewGame() {
           </button>
         </div>
         <header className="gs-ng-head">
-          <h1>New game</h1>
+          <h1>New game — {bastion ? 'Last Bastion' : 'Ghost Stories'}</h1>
           <p>Solo or hot-seat on this device</p>
         </header>
 
         <section className="gs-ng-field">
-          <span className="gs-ng-label">Difficulty</span>
-          <Segmented value={difficulty} options={DIFFICULTY.map((d) => ({ id: d.id, label: d.name, title: d.text }))} onChange={setDifficulty} />
-          <p className="gs-ng-note">{DIFFICULTY.find((d) => d.id === difficulty)!.text}</p>
+          <span className="gs-ng-label">Game</span>
+          <Segmented value={variant} options={GAME_OPTIONS} onChange={setVariant} />
         </section>
 
         <section className="gs-ng-field">
-          <span className="gs-ng-label">Players</span>
+          <span className="gs-ng-label">Difficulty</span>
+          <Segmented value={difficulty} options={diffList.map((d) => ({ id: d.id, label: d.name, title: d.text }))} onChange={setDifficulty} />
+          <p className="gs-ng-note">{diffList.find((d) => d.id === difficulty)!.text}</p>
+        </section>
+
+        <section className="gs-ng-field">
+          <span className="gs-ng-label">{bastion ? 'Heroes' : 'Players'}</span>
           <div className="gs-ng-players">
             {players.map((p, i) => {
-              const forced = solo && p.color === 'red'
+              const forced = !bastion && solo && p.color === 'red'
               const power = forced ? SOLO_POWER : powers[p.color]
               const others = players.filter((_, j) => j !== i).map((o) => o.color)
               return (
@@ -167,7 +193,7 @@ export function NewGame() {
                     <Segmented small value={p.kind} options={KIND_OPTIONS} onChange={(k) => setKind(i, k)} />
                   </div>
                   <div className="gs-ng-power">
-                    <PowerPicker color={p.color} value={power ?? null} disabled={forced} onChange={(v) => setPower(p.color, v)} />
+                    <PowerPicker variant={variant} color={p.color} value={power ?? null} disabled={forced} onChange={(v) => setPower(p.color, v)} />
                   </div>
                   {players.length > 1 ? (
                     <button className="gs-ng-remove" onClick={() => removePlayer(i)} aria-label={`Remove ${COLOR_NAME[p.color]}`} title="Remove this player">
@@ -176,11 +202,11 @@ export function NewGame() {
                   ) : (
                     <span className="gs-ng-remove-gap" />
                   )}
-                  {power && <p className="gs-ng-powertext">{forced ? `Solo: ${POWER_TEXT[power]}` : POWER_TEXT[power]}</p>}
+                  {power && <p className="gs-ng-powertext">{forced ? `Solo: ${powerText(variant, power)}` : powerText(variant, power)}</p>}
                 </div>
               )
             })}
-            {bs.on && (
+            {!bastion && bs.on && (
               <div className="gs-ng-player gs-ng-wufeng">
                 <div className="gs-ng-swatch-wrap">
                   <div className="gs-ng-swatch" aria-hidden>
@@ -203,65 +229,70 @@ export function NewGame() {
           )}
           {(neutral.length > 0 || countNote) && (
             <p className="gs-ng-note">
-              {neutral.length > 0 && `Empty boards play as neutral boards (3 Qi, no Yang phase): ${neutral.map((c) => COLOR_NAME[c]).join(', ')}. `}
+              {neutral.length > 0 &&
+                (bastion
+                  ? `Unlinked Horde boards play as neutral boards (no Hero phase): ${neutral.map((c) => COLOR_NAME[c]).join(', ')}. `
+                  : `Empty boards play as neutral boards (3 Qi, no Yang phase): ${neutral.map((c) => COLOR_NAME[c]).join(', ')}. `)}
               {countNote}
             </p>
           )}
         </section>
 
-        <section className="gs-ng-field">
-          <span className="gs-ng-label">Expansions</span>
-          <div className={`gs-ng-exp ${wm.on ? 'on' : ''}`}>
-            <label className="gs-ng-exp-head">
-              <input type="checkbox" checked={wm.on} onChange={(e) => setWm({ ...wm, on: e.target.checked })} />
-              <span>
-                <strong>White Moon</strong>
-                <small>Villagers, Su-Ling, moon crystals, the Mystic Barrier</small>
-              </span>
-            </label>
-            {wm.on && (
-              <div className="gs-ng-exp-opts">
-                <span className="gs-ng-mini">Portal</span>
-                <Segmented
-                  small
-                  value={wm.portal}
-                  options={[
-                    { id: 'center', label: 'Centre', title: 'Standard' },
-                    { id: 'edge', label: 'Side', title: 'Harder' },
-                    { id: 'corner', label: 'Corner', title: 'Hardest' },
-                  ]}
-                  onChange={(portal) => setWm({ ...wm, portal })}
-                />
-                <label className="gs-ng-check">
-                  <input type="checkbox" checked={wm.randomTiles} onChange={(e) => setWm({ ...wm, randomTiles: e.target.checked })} /> Random village tiles
-                </label>
-              </div>
-            )}
-          </div>
-          <div className={`gs-ng-exp ${bs.on ? 'on' : ''}`}>
-            <label className="gs-ng-exp-head">
-              <input type="checkbox" checked={bs.on} onChange={(e) => setBs({ ...bs, on: e.target.checked })} />
-              <span>
-                <strong>Black Secret</strong>
-                <small>One more player is Wu-Feng: catacombs, demons, curses</small>
-              </span>
-            </label>
-            {bs.on && (
-              <div className="gs-ng-exp-opts">
-                <span className="gs-ng-mini">Catacombs</span>
-                <Segmented
-                  small
-                  value={bs.side}
-                  options={[
-                    { id: 'a', label: 'Side A' },
-                    { id: 'b', label: 'Side B' },
-                  ]}
-                  onChange={(side) => setBs({ ...bs, side })}
-                />
-              </div>
-            )}
-          </div>
-        </section>
+        {!bastion && (
+          <section className="gs-ng-field">
+            <span className="gs-ng-label">Expansions</span>
+            <div className={`gs-ng-exp ${wm.on ? 'on' : ''}`}>
+              <label className="gs-ng-exp-head">
+                <input type="checkbox" checked={wm.on} onChange={(e) => setWm({ ...wm, on: e.target.checked })} />
+                <span>
+                  <strong>White Moon</strong>
+                  <small>Villagers, Su-Ling, moon crystals, the Mystic Barrier</small>
+                </span>
+              </label>
+              {wm.on && (
+                <div className="gs-ng-exp-opts">
+                  <span className="gs-ng-mini">Portal</span>
+                  <Segmented
+                    small
+                    value={wm.portal}
+                    options={[
+                      { id: 'center', label: 'Centre', title: 'Standard' },
+                      { id: 'edge', label: 'Side', title: 'Harder' },
+                      { id: 'corner', label: 'Corner', title: 'Hardest' },
+                    ]}
+                    onChange={(portal) => setWm({ ...wm, portal })}
+                  />
+                  <label className="gs-ng-check">
+                    <input type="checkbox" checked={wm.randomTiles} onChange={(e) => setWm({ ...wm, randomTiles: e.target.checked })} /> Random village tiles
+                  </label>
+                </div>
+              )}
+            </div>
+            <div className={`gs-ng-exp ${bs.on ? 'on' : ''}`}>
+              <label className="gs-ng-exp-head">
+                <input type="checkbox" checked={bs.on} onChange={(e) => setBs({ ...bs, on: e.target.checked })} />
+                <span>
+                  <strong>Black Secret</strong>
+                  <small>One more player is Wu-Feng: catacombs, demons, curses</small>
+                </span>
+              </label>
+              {bs.on && (
+                <div className="gs-ng-exp-opts">
+                  <span className="gs-ng-mini">Catacombs</span>
+                  <Segmented
+                    small
+                    value={bs.side}
+                    options={[
+                      { id: 'a', label: 'Side A' },
+                      { id: 'b', label: 'Side B' },
+                    ]}
+                    onChange={(side) => setBs({ ...bs, side })}
+                  />
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         <details className="gs-ng-more">
           <summary>More options</summary>
@@ -278,13 +309,13 @@ export function NewGame() {
               </select>
             </label>
             {neutral.map((c) => {
-              const forced = solo && c === 'red'
+              const forced = !bastion && solo && c === 'red'
               return (
                 <label key={c} className="gs-ng-row" style={colorVars(c)}>
                   <span>
                     <span style={{ color: 'var(--pc-light)' }}>{COLOR_NAME[c]}</span> neutral board
                   </span>
-                  <PowerPicker color={c} value={forced ? SOLO_POWER : powers[c] ?? null} disabled={forced} onChange={(v) => setPower(c, v)} />
+                  <PowerPicker variant={variant} color={c} value={forced ? SOLO_POWER : powers[c] ?? null} disabled={forced} onChange={(v) => setPower(c, v)} />
                 </label>
               )
             })}
@@ -333,8 +364,20 @@ function Segmented<T extends string>({
   )
 }
 
-/** Which side of a board is up: random, or one of its two powers. */
-function PowerPicker({ color, value, disabled, onChange }: { color: Color; value: PowerId | null; disabled: boolean; onChange: (p: PowerId | null) => void }) {
+/** Which side of a board is up: random, or one of its two powers/heroes. */
+function PowerPicker({
+  variant,
+  color,
+  value,
+  disabled,
+  onChange,
+}: {
+  variant: GameVariant
+  color: Color
+  value: PowerId | null
+  disabled: boolean
+  onChange: (p: PowerId | null) => void
+}) {
   return (
     <span className="gs-ng-powerpick">
       {value ? <PowerIcon power={value} size={22} /> : <span className="gs-ng-randomicon" aria-hidden>?</span>}
@@ -342,14 +385,14 @@ function PowerPicker({ color, value, disabled, onChange }: { color: Color; value
         className="gs-ng-select"
         value={value ?? ''}
         disabled={disabled}
-        title={value ? POWER_TEXT[value] : 'Board side: random'}
+        title={value ? powerText(variant, value) : 'Board side: random'}
         aria-label={`${COLOR_NAME[color]} board side`}
         onChange={(e) => onChange((e.target.value || null) as PowerId | null)}
       >
-        <option value="">Random side</option>
+        <option value="">{variant === 'bastion' ? 'Random hero' : 'Random side'}</option>
         {POWERS_BY_COLOR[color].map((p) => (
           <option key={p} value={p}>
-            {POWER_NAME[p]}
+            {powerName(variant, p)}
           </option>
         ))}
       </select>
