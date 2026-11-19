@@ -195,6 +195,21 @@ export function ring(cx: number, cy: number, r: number, w: number, a0 = -2.2, sw
   return brush(pts, w, taper, { perSeg: 4 })
 }
 
+const r1p = (n: number): number => Math.round(n * 10) / 10
+
+/** A circle as a path (two arcs), for joining with other shapes into one `d`. */
+export function circ(cx: number, cy: number, r: number): string {
+  return `M${r1p(cx - r)} ${r1p(cy)}a${r1p(r)} ${r1p(r)} 0 1 0 ${r1p(2 * r)} 0a${r1p(r)} ${r1p(r)} 0 1 0 ${r1p(-2 * r)} 0Z`
+}
+/** An ellipse as a path. */
+export function ell(cx: number, cy: number, rx: number, ry: number): string {
+  return `M${r1p(cx - rx)} ${r1p(cy)}a${r1p(rx)} ${r1p(ry)} 0 1 0 ${r1p(2 * rx)} 0a${r1p(rx)} ${r1p(ry)} 0 1 0 ${r1p(-2 * rx)} 0Z`
+}
+/** A rectangle as a path. */
+export function rect(x: number, y: number, w: number, h: number): string {
+  return `M${x} ${y}h${w}v${h}h${-w}Z`
+}
+
 /** Points on an arc, for building curves. */
 export function arcPts(cx: number, cy: number, rx: number, ry: number, a0: number, a1: number, n = 8): Pt[] {
   const out: Pt[] = []
@@ -205,10 +220,6 @@ export function arcPts(cx: number, cy: number, rx: number, ry: number, a0: numbe
   return out
 }
 
-/** Translate / scale a point list. */
-export function tx(pts: readonly Pt[], dx: number, dy: number, k = 1): Pt[] {
-  return pts.map(([x, y]) => [x * k + dx, y * k + dy] as const)
-}
 
 /** Mirror a point list horizontally around x = cx. */
 export function mirrorX(pts: readonly Pt[], cx: number): Pt[] {

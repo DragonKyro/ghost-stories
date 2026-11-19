@@ -1,8 +1,9 @@
 // Dev gallery of every art piece in every variant. Open the dev server with
-// ?gallery (all sections) or ?gallery=tiles,ghosts (some sections).
-// Imports only from src/ui/art/ (types are erased), so it renders even while
-// the rest of the app is mid-rewrite.
-import type { CSSProperties, ReactNode } from 'react'
+// ?gallery (all sections) or ?gallery=tiles,ghosts (some sections); the Last
+// Bastion sections (bastion/Gallery.tsx) are named lb-….
+// Uses the art set and the engine's names / catalogue only (no stores or UI),
+// so it renders without a game.
+import type { ReactNode } from 'react'
 import type {
   AbilityKind,
   CatacombTokenKind,
@@ -17,6 +18,8 @@ import type {
   TileKind,
 } from '@/game/types'
 import { ArtDefs } from './ArtDefs'
+import { BASTION_SECTIONS } from './bastion/Gallery'
+import { Cell, page, row, Section } from './galleryKit'
 import { AbilityIcon } from './AbilityIcon'
 import { CatacombTokenArt, CurseTokenArt, DemonFigure, LadderIcon, ShadowFigure, SkeletonToken } from './BlackSecret'
 import { CurseDie, TaoDie } from './Dice'
@@ -163,40 +166,6 @@ const INCARNATIONS: GhostCard[] = [
   inc('hopeKiller', 'Hope Killer', 'black', { red: 2, blue: 2, green: 2, yellow: 2 }, [], ['curse']),
   inc('nameless', 'Nameless', 'black', { red: 1, blue: 1, green: 1, yellow: 1, black: 1 }),
 ]
-
-// ---------------------------------------------------------------------------
-// Layout helpers.
-// ---------------------------------------------------------------------------
-const page: CSSProperties = {
-  background: '#1a1410',
-  color: '#f4e9d6',
-  fontFamily: 'Inter, system-ui, sans-serif',
-  padding: '20px 28px 60px',
-  minHeight: '100vh',
-}
-const row: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-end', marginBottom: 14 }
-
-function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
-  return (
-    <section id={`gallery-${id}`} className="gs-gallery-section" style={{ marginBottom: 36 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 600, color: '#d4a857', borderBottom: '1px solid #3a2e25', paddingBottom: 6, margin: '0 0 14px' }}>
-        {title}
-      </h2>
-      {children}
-    </section>
-  )
-}
-
-function Cell({ label, children, light }: { label?: string; children: ReactNode; light?: boolean }) {
-  return (
-    <figure style={{ margin: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-      <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', padding: light ? 6 : 0, background: light ? '#efe4cc' : undefined, borderRadius: 4 }}>
-        {children}
-      </div>
-      {label && <figcaption style={{ fontSize: 10, color: '#8a7e6b', maxWidth: 220, textAlign: 'center' }}>{label}</figcaption>}
-    </figure>
-  )
-}
 
 // ---------------------------------------------------------------------------
 // Sections.
@@ -557,13 +526,14 @@ const SECTIONS: Record<string, () => ReactNode> = {
   whiteMoon: WhiteMoonSection,
   blackSecret: BlackSecretSection,
   mock: MockSection,
+  ...BASTION_SECTIONS,
 }
 
 export function Gallery({ sections }: { sections?: string[] }) {
   const keys = sections && sections.length ? sections.filter((s) => s in SECTIONS) : Object.keys(SECTIONS)
   return (
     <div style={page} className="gs-gallery" data-ready="1">
-      <h1 style={{ fontSize: 22, margin: '0 0 18px', color: '#f4e9d6' }}>Ghost Stories — art gallery</h1>
+      <h1 style={{ fontSize: 22, margin: '0 0 18px', color: '#f4e9d6' }}>Ghost Stories / Last Bastion — art gallery</h1>
       {keys.map((k) => {
         const S = SECTIONS[k]
         return <S key={k} />

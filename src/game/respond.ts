@@ -2,7 +2,6 @@
 // closes it, and applies the choice (effects then resume in engine.run).
 
 import type { Response } from './actions'
-import { getCard } from './catalogue'
 import { commitExorcism, rerollDice } from './exorcism'
 import { refKey } from './geometry'
 import { CURSE_TEXT, ev, gainQi, loseQi, now, placeCard, returnTao, rollCurse, takeTao } from './ops'
@@ -155,4 +154,3 @@ function checkCount(colors: TaoColor[], n: number): void {
   if (colors.length !== n) throw new Error(`Choose exactly ${n} token${n === 1 ? '' : 's'}.`)
 }
 
-export const _unused = getCard

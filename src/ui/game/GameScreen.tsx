@@ -9,6 +9,7 @@
 // panel below).
 
 import { useEffect, useState } from 'react'
+import { say } from '@/game/vocab'
 import { waitingFor } from '@/game/engine'
 import { hauntedCount, incarnationsInDeck, isBastion, COLOR_NAME, seatName as seatLabel } from '@/game/rules'
 import type { GameState } from '@/game/types'
@@ -49,27 +50,32 @@ export interface Layout {
   bar: number
 }
 
-/** The board is 5.45 tiles across and down (3 tiles + 2 boards + gaps). */
-const BOARD_TILES = 5.45 // 3 + 2 × 1.18, plus a little air
+/**
+ * Tiles across and down the board: 3 tiles + 2 boards (1.18 each), plus a
+ * little air; Last Bastion adds its enclosure wall (0.07 a side, bastion.css).
+ */
+const BOARD_TILES = 5.45
+const BASTION_BOARD_TILES = 5.5
 
-export function computeLayout(w: number, h: number): Layout {
+export function computeLayout(w: number, h: number, bastion = false): Layout {
+  const BOARD = bastion ? BASTION_BOARD_TILES : BOARD_TILES
   const stacked = w < 760 || (w < 1000 && h > w * 1.1)
   const clamp = (x: number) => Math.max(48, Math.min(200, Math.floor(x)))
   if (stacked) {
-    const t = clamp(Math.min((w - 8) / BOARD_TILES, (h * 0.6 - 40) / BOARD_TILES))
+    const t = clamp(Math.min((w - 8) / BOARD, (h * 0.6 - 40) / BOARD))
     return { t, stacked, compact: t < 112, side: 0, short: false, bar: 0 }
   }
   // Too low for a bar under the board: the controls share the side column.
   const short = h < 620
   if (short) {
     const side = w < 1150 ? 320 : 380
-    const t = clamp(Math.min((w - side - 24) / BOARD_TILES, (h - 42) / BOARD_TILES))
+    const t = clamp(Math.min((w - side - 24) / BOARD, (h - 42) / BOARD))
     return { t, stacked, compact: t < 112, side, short, bar: 0 }
   }
   // The side column only holds the log, so it can be slimmer.
   const side = w < 1150 ? 290 : 330
   const bar = h >= 940 ? 168 : h >= 760 ? 150 : 136
-  const t = clamp(Math.min((w - side - 24) / BOARD_TILES, (h - 44 - bar - 18) / BOARD_TILES))
+  const t = clamp(Math.min((w - side - 24) / BOARD, (h - 44 - bar - 18) / BOARD))
   return { t, stacked, compact: t < 112, side, short, bar }
 }
 
@@ -79,16 +85,16 @@ function viewport(): { w: number; h: number } {
   return { w: Math.min(window.innerWidth, de.clientWidth || Infinity), h: Math.min(window.innerHeight, de.clientHeight || Infinity) }
 }
 
-function useLayout(): Layout {
+function useLayout(bastion: boolean): Layout {
   const [layout, setLayout] = useState(() => {
     const v = viewport()
-    return computeLayout(v.w, v.h)
+    return computeLayout(v.w, v.h, bastion)
   })
   useEffect(() => {
     const fit = () => {
       const v = viewport()
       setLayout((old) => {
-        const next = computeLayout(v.w, v.h)
+        const next = computeLayout(v.w, v.h, bastion)
         return next.t === old.t && next.stacked === old.stacked && next.side === old.side && next.short === old.short && next.bar === old.bar ? old : next
       })
     }
@@ -104,7 +110,7 @@ function useLayout(): Layout {
       window.removeEventListener('orientationchange', fit)
       window.visualViewport?.removeEventListener('resize', fit)
     }
-  }, [])
+  }, [bastion])
   return layout
 }
 
@@ -112,7 +118,7 @@ export function GameScreen() {
   const game = useGameStore((g) => g.game)
   const error = useGameStore((g) => g.error)
   const clearError = useGameStore((g) => g.clearError)
-  const layout = useLayout()
+  const layout = useLayout(isBastion(game))
   const [rules, setRules] = useState(false)
   const showStats = useUiStore((u) => u.showStats)
   const setShowStats = useUiStore((u) => u.setShowStats)
@@ -142,7 +148,7 @@ export function GameScreen() {
       <AIDriver />
       <HandoffOverlay game={game} />
       {game.phase === 'gameOver' && <GameOverOverlay game={game} />}
-      {rules && <RulebookOverlay onClose={() => setRules(false)} />}
+      {rules && <RulebookOverlay onClose={() => setRules(false)} initialTopicId={isBastion(game) ? 'last-bastion' : undefined} />}
       {showStats && <StatsView game={game} onClose={() => setShowStats(false)} />}
       {error && (
         <div className="gs-toast" onClick={clearError}>
@@ -229,7 +235,7 @@ function BoardArea({ game, layout }: { game: GameState; layout: Layout }) {
         <Board game={game} ia={ia} tile={layout.t} compact={layout.compact} />
         <Inspector game={game} tile={layout.t} stacked={layout.stacked} />
       </div>
-      {ia.hint && <div className="gs-hint gs-boardhint">{touchWording(ia.hint)}</div>}
+      {ia.hint && <div className="gs-hint gs-boardhint">{touchWording(say(game, ia.hint))}</div>}
     </div>
   )
 }
@@ -237,7 +243,7 @@ function BoardArea({ game, layout }: { game: GameState; layout: Layout }) {
 const COARSE = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
 /** "Click" → "Tap" on touch screens. */
 function touchWording(text: string): string {
-  return COARSE ? text.replace(/Click/g, 'Tap').replace(/click/g, 'tap') : text
+  return COARSE ? text.replace(/\bClick\b/g, 'Tap').replace(/\bclick\b/g, 'tap') : text
 }
 
 /** What the player can do now (or who we're waiting on). */

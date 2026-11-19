@@ -13,7 +13,8 @@ import {
 } from '@/game/blackSecret'
 import { getCard } from '@/game/catalogue'
 import { CURSE_TEXT } from '@/game/ops'
-import { COLOR_NAME, heldColors, livingTaoists, seatName, TILE_NAME } from '@/game/rules'
+import { COLOR_NAME, heldColors, isBastion, livingTaoists, seatName, TILE_NAME } from '@/game/rules'
+import { say } from '@/game/vocab'
 import { ARTIFACT_NAME, barrierTargets, familyName } from '@/game/whiteMoon'
 import { COLORS, TAO_COLORS, type Color, type GameState, type Prompt, type TaoColor } from '@/game/types'
 import { useGameStore } from '@/store/gameStore'
@@ -28,7 +29,7 @@ export function PromptPanel({ game, prompt }: { game: GameState; prompt: Prompt 
   if (prompt.kind === 'exorcism') return <ExorcismPanel game={game} roll={prompt.roll} owner={prompt.owner} mine={mine} />
   return (
     <div className="gs-card">
-      <h3>{titleOf(game, prompt)}</h3>
+      <h3>{say(game, titleOf(game, prompt))}</h3>
       {mine ? <Answer game={game} p={prompt} /> : <p className="gs-mini">Waiting for {seatName(prompt.owner)}…</p>}
     </div>
   )
@@ -118,7 +119,7 @@ function Answer({ game, p }: { game: GameState; p: Prompt }) {
         <div className="gs-actions">
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <CurseDie face={p.face} size={44} />
-            <p>{CURSE_TEXT[p.face]}. Reroll it once? You must keep the second result.</p>
+            <p>{say(game, CURSE_TEXT[p.face])}. Reroll it once? You must keep the second result.</p>
           </div>
           <div className="gs-btnrow">
             <button className="gs-btn" onClick={() => r({ kind: 'curseReroll', reroll: false })}>
@@ -133,11 +134,11 @@ function Answer({ game, p }: { game: GameState; p: Prompt }) {
     case 'qiPayer':
       return (
         <div className="gs-actions">
-          <p>The possessed {p.board} board loses Qi ({p.why}): a Taoist of your choice takes it.</p>
+          <p>{say(game, `The possessed ${p.board} board loses Qi (${p.why}): a Taoist of your choice takes it.`)}</p>
           <div className="gs-btnrow">
             {p.options.map((c) => (
               <button key={c} className="gs-btn" onClick={() => r({ kind: 'qiPayer', taoist: c })}>
-                {COLOR_NAME[c]} ({game.taoists[c].qi} Qi)
+                {COLOR_NAME[c]} ({game.taoists[c].qi} {say(game, 'Qi')})
               </button>
             ))}
           </div>
@@ -151,10 +152,10 @@ function Answer({ game, p }: { game: GameState; p: Prompt }) {
       return (
         <div className="gs-btnrow">
           <button className="gs-btn" onClick={() => r({ kind: 'qiOrYinYang', choice: 'qi' })}>
-            Gain 1 Qi
+            {say(game, 'Gain 1 Qi')}
           </button>
           <button className="gs-btn" onClick={() => r({ kind: 'qiOrYinYang', choice: 'yinYang' })}>
-            Regain the Yin-Yang
+            {say(game, 'Regain the Yin-Yang')}
           </button>
         </div>
       )
@@ -163,7 +164,7 @@ function Answer({ game, p }: { game: GameState; p: Prompt }) {
     case 'bonecrackerPayer':
       return (
         <div className="gs-actions">
-          <p>Bonecracker's host board is neutral: choose who discards a Tao token.</p>
+          <p>{isBastion(game) ? "Kragor the Skullcrusher's host board is neutral: choose who discards an Equipment token." : "Bonecracker's host board is neutral: choose who discards a Tao token."}</p>
           <div className="gs-btnrow">
             {p.options.map((c) => (
               <button key={c} className="gs-btn" onClick={() => r({ kind: 'bonecrackerPayer', taoist: c })}>
@@ -345,11 +346,10 @@ function TaoPicker({
     if (next.length === count) onDone(next)
     else setPicked(next)
   }
-  void game
   return (
     <div className="gs-actions">
       <p>
-        {verb} {count - picked.length} more ({why}).
+        {verb} {count - picked.length} more ({say(game, why)}).
       </p>
       <div className="gs-chips">
         {from.map((c) => (
@@ -374,9 +374,9 @@ function IncarnationReward({ game, onDone }: { game: GameState; onDone: (qi: Col
   const [yy, setYy] = useState<Color | null>(yyOptions[0]?.color ?? null)
   return (
     <div className="gs-actions">
-      <p>The incarnation returns 1 Qi and 1 Yin-Yang to the group: the players decide who gets them.</p>
+      <p>{say(game, 'The incarnation returns 1 Qi and 1 Yin-Yang to the group: the players decide who gets them.')}</p>
       <div className="gs-btnrow">
-        <span className="gs-mini">Qi:</span>
+        <span className="gs-mini">{say(game, 'Qi')}:</span>
         {living.map((t) => (
           <button key={t.color} className={`gs-btn small ${qi === t.color ? 'on' : ''}`} onClick={() => setQi(t.color)}>
             {COLOR_NAME[t.color]} ({t.qi})
@@ -384,7 +384,7 @@ function IncarnationReward({ game, onDone }: { game: GameState; onDone: (qi: Col
         ))}
       </div>
       <div className="gs-btnrow">
-        <span className="gs-mini">Yin-Yang:</span>
+        <span className="gs-mini">{say(game, 'Yin-Yang')}:</span>
         {yyOptions.map((t) => (
           <button key={t.color} className={`gs-btn small ${yy === t.color ? 'on' : ''}`} onClick={() => setYy(t.color)}>
             {COLOR_NAME[t.color]}

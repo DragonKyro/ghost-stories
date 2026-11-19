@@ -4,9 +4,9 @@ import type { Response } from '@/game/actions'
 import { getCard } from '@/game/catalogue'
 import { facedSpaces, isAdjacent, adjacentTiles, refKey, lineOf } from '@/game/geometry'
 import { placementOptions } from '@/game/flow'
-import { livingTaoists, ghostAt } from '@/game/rules'
+import { livingTaoists } from '@/game/rules'
 import { CATACOMB_SIDES, openSlots, summonableDemons, throwableCurses } from '@/game/blackSecret'
-import type { Color, GameState, GhostRef, Prompt } from '@/game/types'
+import type { GameState, GhostRef, Prompt } from '@/game/types'
 import { aiRandom } from './eval'
 import { COLORS } from '@/game/types'
 
@@ -93,4 +93,3 @@ export function answerWuFeng(s: GameState, p: Prompt): Response {
   }
 }
 
-export const _ = { ghostAt, Color: null as unknown as Color }

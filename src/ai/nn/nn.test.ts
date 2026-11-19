@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Action } from '@/game/actions'
 import { applyAction, createGame, waitingFor } from '@/game/engine'
-import { allCards, baseGhostIds } from '@/game/catalogue'
+import { baseGhostIds, ghostStoriesCards } from '@/game/catalogue'
 import { facingTile, isAdjacent } from '@/game/geometry'
 import { ALL_SPACES } from '@/game/rules'
 import type { Color, GameConfig, GameState, Seat, SeatKind } from '@/game/types'
@@ -71,8 +71,8 @@ describe('nn schema', () => {
     expect(j.nTokens).toBe(N_TOKENS)
     expect(TOKENS.map((t) => t.type)).toEqual(['global', 'prompt', 'seat', 'tile', 'space', 'family', 'catacomb', 'demon', 'curse', 'mantra'])
     for (const t of TOKENS) expect(t.layout.size).toBeGreaterThan(5)
-    const slots = new Set(allCards().map((c) => cardSlot(c.id)))
-    expect(slots.size).toBe(allCards().length)
+    const slots = new Set(ghostStoriesCards().map((c) => cardSlot(c.id)))
+    expect(slots.size).toBe(ghostStoriesCards().length)
     expect(cardSlot('skeleton')).not.toBe(cardSlot('bones'))
     expect(cardSlot('summon-1')).toBe(cardSlot('summon-2'))
   })

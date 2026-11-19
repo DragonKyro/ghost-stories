@@ -2,21 +2,19 @@
 // private deep copy of the state (see engine.ts), so these mutate in place.
 
 import { cardOnBoard, getCard, isSkeleton } from './catalogue'
-import { lineOf, OPPOSITE, sameRef, tilePlace } from './geometry'
+import { lineOf, sameRef, tilePlace } from './geometry'
 import { nextInt } from './rng'
 import {
   boardName,
   boardPowerActive,
   COLOR_NAME,
   decider,
-  findGhost,
   ghostAt,
   ghostsInPlay,
   hauntedCount,
   incarnationInPlay,
   incarnationsInDeck,
   isBastion,
-  isWuFengCard,
   livingTaoists,
   TAO_NAME,
   tileName,
@@ -37,6 +35,7 @@ import {
   type TaoColor,
   type TileIdx,
 } from './types'
+import { say } from './vocab'
 import { wmHauntAbsorbed, wmIncarnationArrived } from './whiteMoon'
 import { bsQiLost, bsSkeletonRemoved, bsTileHaunted } from './blackSecret'
 
@@ -44,8 +43,9 @@ import { bsQiLost, bsSkeletonRemoved, bsTileHaunted } from './blackSecret'
 // Events, queue, prompts
 // ---------------------------------------------------------------------------
 
+/** Log an event; the text is written in Ghost Stories terms and put into the game's words (vocab.ts). */
 export function ev(s: GameState, kind: string, text: string, extra: Partial<GameEvent> = {}): void {
-  s.events.push({ kind, text, ...extra })
+  s.events.push({ kind, text: say(s, text), ...extra })
 }
 
 /** Resolve these effects next (before anything already queued), in the given order. */
@@ -141,7 +141,7 @@ export function hauntTile(s: GameState, tile: TileIdx, why: string): boolean {
     s.taoSupply[t.circleToken] += 1
     t.circleToken = null
   }
-  ev(s, 'haunt', `${tileName(s, t.kind)} (${tilePlace(tile)}) is ${isBastion(s) ? 'in the Grasp of Evil' : 'haunted'} — ${why}.`, { tile })
+  ev(s, 'haunt', `${tileName(s, t.kind)} (${tilePlace(tile)}) is haunted — ${why}.`, { tile })
   if (s.blackSecret) bsTileHaunted(s, tile)
   return true
 }
@@ -386,11 +386,6 @@ export function checkMantraLoss(s: GameState): void {
   ev(s, 'note', 'The Enfeeblement Mantra board lost its power: the Mantra token is removed from the game.')
 }
 
-export function ghostName(s: GameState, uid: number): string {
-  const g = findGhost(s, uid)
-  return g ? g.card.name : 'the ghost'
-}
-
 // ---------------------------------------------------------------------------
 // End of game
 // ---------------------------------------------------------------------------
@@ -457,5 +452,4 @@ export function checkWin(s: GameState): boolean {
   return true
 }
 
-export const oppositeBoard = OPPOSITE
 export { sameRef }

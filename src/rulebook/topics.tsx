@@ -3,7 +3,7 @@
 // drawn with the game's own art components.
 
 import type { ReactElement, ReactNode } from 'react'
-import { CURSE_DIE, POWERS_BY_COLOR, type AbilityKind, type TileKind } from '@/game/types'
+import { CURSE_DIE, POWERS_BY_COLOR, type AbilityKind, type GameVariant, type TileKind } from '@/game/types'
 import { BASTION_POWER_NAME, BASTION_POWER_TEXT, BASTION_TILE_NAME, POWER_NAME, POWER_TEXT, TILE_NAME } from '@/game/rules'
 import { AbilityIcon, CurseDie, PowerIcon, TaoDie, TileArt } from '@/ui/art'
 import { ABILITY_TEXT, BASTION_TILE_HELP, CURSE_FACE_TEXT, TILE_HELP } from '@/ui/game/text'
@@ -17,6 +17,8 @@ export type Topic = {
   /** Plain text the search box matches against. */
   searchBlob: string
   body: () => ReactElement
+  /** The game whose art the topic's pictures use (default Ghost Stories). */
+  variant?: GameVariant
 }
 
 const P = ({ children }: { children: ReactNode }) => <p style={{ lineHeight: 1.55, margin: '8px 0' }}>{children}</p>
@@ -353,6 +355,7 @@ export const TOPICS: Topic[] = [
     id: 'last-bastion',
     title: 'Last Bastion (2019)',
     category: 'modes',
+    variant: 'bastion',
     searchBlob: `last bastion heroes horde boards warlords corruption die grasp of evil call to arms wounded dispensary trebuchet dwarven quarry strategist tower divine fountain tavern market standard tomb of the ancient kings ${Object.values(BASTION_POWER_NAME).join(' ')} ${Object.values(BASTION_TILE_NAME).join(' ')}`,
     body: () => (
       <>

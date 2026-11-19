@@ -294,7 +294,7 @@ export function commitExorcism(s: GameState, roll: ExorcismRoll, r: Extract<Resp
     const netted = !!g?.net
     const card = cardAt(s, ref)!
     removeGhost(s, ref)
-    ev(s, 'exorcised', `${card.name} is ${isBastion(s) ? 'vanquished' : 'exorcised'}!`, { color: roll.actor, ref, card: card.id })
+    ev(s, 'exorcised', `${card.name} is exorcised!`, { color: roll.actor, ref, card: card.id })
     if (roll.mode !== 'exorcism' || netted) continue // Kung-Fu School / Mystic Barrier / Netted Monster: no right stone
     for (const ab of card.right) {
       switch (ab.kind) {

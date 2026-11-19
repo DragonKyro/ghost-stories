@@ -18,7 +18,6 @@ import {
   livingTaoists,
   POWER_NAME,
   tileName,
-  TILE_NAME,
 } from './rules'
 import type { Color, DieFace, GameState, GhostRef, TaoColor, TileIdx } from './types'
 import { COLORS, TAO_COLORS } from './types'
@@ -123,7 +122,7 @@ export function doTileAction(s: GameState, c: Color, tile: TileIdx, p: HelpParam
 
     case 'herbalistShop': {
       const dice = rollDice(s, 2)
-      ev(s, 'roll', `${COLOR_NAME[c]} rolls 2 ${bastion ? 'Combat' : 'Tao'} dice at the ${tileName(s, 'herbalistShop')}.`, { color: c, dice })
+      ev(s, 'roll', `${COLOR_NAME[c]} rolls 2 Tao dice at the ${tileName(s, 'herbalistShop')}.`, { color: c, dice })
       openHerbalist(s, c, dice, hasPower(s, c, 'godsFavorite'))
       return
     }

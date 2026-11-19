@@ -1,33 +1,17 @@
 // The eight Taoist powers, as pictograms on a stone disc rimmed in the
 // board's colour.
 import type { ReactNode } from 'react'
-import type { Color, PowerId } from '@/game/types'
+import { POWERS_BY_COLOR, type Color, type PowerId } from '@/game/types'
+import { POWER_NAME } from '@/game/rules'
 import { ArtSvg, type ArtBaseProps } from './ArtSvg'
 import { arcPts, brush, strokes, type Pt } from './brush'
 import { CoinG, MonkG, NumG, ROOF_PATH, TaoDieFaceG, WispG } from './glyphs'
 import { COLOR_DARK, COLOR_HEX, INK, VERMILION } from './palette'
 
-export const POWER_COLOR: Record<PowerId, Color> = {
-  danceOfTheSpires: 'red',
-  danceOfTheTwinWinds: 'red',
-  heavenlyGust: 'blue',
-  secondWind: 'blue',
-  godsFavorite: 'green',
-  strengthOfMountain: 'green',
-  bottomlessPockets: 'yellow',
-  enfeeblementMantra: 'yellow',
-}
-
-export const POWER_LABEL: Record<PowerId, string> = {
-  danceOfTheSpires: 'Dance of the Spires',
-  danceOfTheTwinWinds: 'Dance of the Twin Winds',
-  heavenlyGust: 'Heavenly Gust',
-  secondWind: 'Second Wind',
-  godsFavorite: "The Gods' Favorite",
-  strengthOfMountain: 'Strength of a Mountain',
-  bottomlessPockets: 'Bottomless Pockets',
-  enfeeblementMantra: 'Enfeeblement Mantra',
-}
+/** The board each power belongs to (its two sides). */
+export const POWER_COLOR = Object.fromEntries(
+  (Object.entries(POWERS_BY_COLOR) as Array<[Color, readonly PowerId[]]>).flatMap(([c, powers]) => powers.map((p) => [p, c])),
+) as Record<PowerId, Color>
 
 // ---------------------------------------------------------------------------
 // Static brush paths.
@@ -214,7 +198,7 @@ export interface PowerIconProps extends ArtBaseProps {
 export function PowerIcon({ power, size = 40, inactive = false, title, ...rest }: PowerIconProps) {
   const color = POWER_COLOR[power]
   return (
-    <ArtSvg width={size} height={size} viewBox="0 0 100 100" title={title ?? POWER_LABEL[power]} {...rest}>
+    <ArtSvg width={size} height={size} viewBox="0 0 100 100" title={title ?? POWER_NAME[power]} {...rest}>
       <g opacity={inactive ? 0.45 : 1}>
         <circle cx={50} cy={50} r={48} fill="url(#gs-stone-pale)" stroke={COLOR_HEX[color]} strokeWidth={5} />
         <circle cx={50} cy={50} r={42} fill="none" stroke={COLOR_DARK[color]} strokeOpacity={0.5} strokeWidth={1.5} />

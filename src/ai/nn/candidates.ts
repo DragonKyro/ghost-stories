@@ -118,7 +118,7 @@ function writeAction(ctx: Ctx, r: CandRow, a: Action): void {
         r.set('cOddsBase', bestThisTurn(ctx, a.by))
       } else {
         if (u.ghost) r.point('ghost1', ctx.spaceSlot(u.ghost))
-        if (u.demon) r.point('extra', ctx.demonSlot(u.demon))
+        if ('demon' in u && u.demon) r.point('extra', ctx.demonSlot(u.demon))
         if (u.power === 'enfeeblementMantra' && u.ghost) {
           writeOdds(r, spaceOdds(s, a.by, u.ghost, true))
           r.set('cOddsBase', spaceOdds(s, a.by, u.ghost).all)
@@ -206,22 +206,23 @@ function writeHelp(ctx: Ctx, r: CandRow, p: HelpParams, by: Color): void {
   switch (p.kind) {
     case 'circleOfPrayer':
     case 'teaHouse':
-      r.set('color', 1, f.tao(p.color))
+      // (A Last Bastion Tavern has no colour; the network only plays Ghost Stories.)
+      if (p.color) r.set('color', 1, f.tao(p.color))
       return
     case 'cemetery':
       if ('revive' in p) {
         r.set('revive', 1)
         r.point('seat1', ctx.seatSlot(p.revive))
-      } else r.set('villager', (p.villager + 1) / 12)
+      } else if ('villager' in p) r.set('villager', (p.villager + 1) / 12)
       return
     case 'taoistAltar':
-      r.point('tile2', ctx.tileSlot(p.tile))
+      if (p.tile !== undefined) r.point('tile2', ctx.tileSlot(p.tile))
       return
     case 'sorcerersHut':
       r.point('ghost1', ctx.spaceSlot(p.ghost))
       return
     case 'nightWatchman':
-      r.point('seat1', ctx.seatSlot(p.board))
+      if (p.board) r.point('seat1', ctx.seatSlot(p.board))
       return
     case 'pavilion':
       r.point('ghost1', ctx.spaceSlot(p.ghost))

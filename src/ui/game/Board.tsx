@@ -18,11 +18,13 @@ import {
   LadderIcon,
   MantraToken,
   MoonCrystal,
+  NetToken,
   PortalIcon,
   PowerIcon,
   PowerToken,
   QiToken,
   ShadowFigure,
+  StandardToken,
   SuLingFigure,
   TaoistFigure,
   TaoToken,
@@ -33,6 +35,7 @@ import {
 import { useUiStore } from '@/store/uiStore'
 import { seatName, useNetworkStore } from '@/store/networkStore'
 import type { Interaction } from './interaction'
+import { useBoardFx, type BoardFx } from './fx'
 import { familyName, ARTIFACT_NAME } from '@/game/whiteMoon'
 
 export function colorVars(c: Color): CSSProperties {
@@ -59,27 +62,37 @@ const BOARD_CELL: Record<Color, CSSProperties> = {
 }
 
 export function Board({ game, ia, tile, compact = false }: { game: GameState; ia: Interaction; tile: number; compact?: boolean }) {
+  const bastion = isBastion(game)
+  const fx = useBoardFx(game.events, bastion)
   return (
-    <div className="gs-board">
+    <div className={`gs-board ${bastion ? 'lb-board' : ''}`}>
       {game.village.map((t) => (
-        <TileView key={t.idx} game={game} idx={t.idx} ia={ia} size={tile} compact={compact} />
+        <TileView key={t.idx} game={game} idx={t.idx} ia={ia} size={tile} compact={compact} fx={fx} />
       ))}
+      {/* Last Bastion: the enclosure wall around the nine tiles (drawn in the gap, never over them). */}
+      {bastion && <div className="lb-walls" aria-hidden="true" />}
       {COLORS.map((c) => (
-        <PlayerBoardView key={c} game={game} color={c} ia={ia} tile={tile} />
+        <PlayerBoardView key={c} game={game} color={c} ia={ia} tile={tile} fx={fx} />
       ))}
       {COLORS.map((c) => (
         <div key={`p-${c}`} style={{ gridColumn: PLATE_CELL[c].col, gridRow: PLATE_CELL[c].row, display: 'flex' }}>
-          <PlayerPlate game={game} color={c} compact={compact} />
+          <PlayerPlate game={game} color={c} compact={compact} fx={fx} />
         </div>
       ))}
     </div>
   )
 }
 
+/** A one-shot effect layer, remounted (so replayed) for every action. */
+function Fx({ fx, kind }: { fx: BoardFx; kind: string | undefined }) {
+  return kind ? <div key={fx.serial} className={`lb-fx lb-fx-${kind}`} aria-hidden="true" /> : null
+}
+
 // ---------------------------------------------------------------------------
 
-function TileView({ game, idx, ia, size, compact }: { game: GameState; idx: TileIdx; ia: Interaction; size: number; compact: boolean }) {
+function TileView({ game, idx, ia, size, compact, fx }: { game: GameState; idx: TileIdx; ia: Interaction; size: number; compact: boolean; fx: BoardFx }) {
   const t = game.village[idx]!
+  const bastion = isBastion(game)
   const setInspect = useUiStore((u) => u.setInspect)
   const col = (idx % 3) + 2
   const row = Math.floor(idx / 3) + 2
@@ -98,11 +111,20 @@ function TileView({ game, idx, ia, size, compact }: { game: GameState; idx: Tile
       onPointerEnter={(e) => e.pointerType === 'mouse' && setInspect({ kind: 'tile', tile: idx })}
       onPointerLeave={(e) => e.pointerType === 'mouse' && setInspect(null)}
     >
-      <TileArt kind={t.kind} haunted={t.haunted} size={size} title={`${tileName(game, t.kind)}${t.haunted ? (isBastion(game) ? ' (Grasp of Evil)' : ' (haunted)') : ''}`} className="gs-tileart" />
+      <TileArt kind={t.kind} haunted={t.haunted} size={size} title={`${tileName(game, t.kind)}${t.haunted ? (bastion ? ' (Grasp of Evil)' : ' (haunted)') : ''}`} className="gs-tileart" />
       {!compact && <div className="gs-tilename">{tileName(game, t.kind)}</div>}
       <div className="gs-corner-tl">
-        {t.kind === 'circleOfPrayer' && t.circleToken && <TaoToken color={t.circleToken} size={Math.round(size * 0.17)} />}
-        {t.kind === 'buddhistTemple' && Array.from({ length: game.templeBuddhas }, (_, i) => <BuddhaFigure key={i} size={Math.round(size * 0.17)} />)}
+        {t.kind === 'circleOfPrayer' &&
+          t.circleToken &&
+          (bastion ? (
+            <StandardToken color={t.circleToken} size={Math.round(size * 0.2)} title={`Standard: every ${t.circleToken} Horde card has 1 less resistance`} />
+          ) : (
+            <TaoToken color={t.circleToken} size={Math.round(size * 0.17)} />
+          ))}
+        {t.kind === 'buddhistTemple' &&
+          Array.from({ length: game.templeBuddhas }, (_, i) => (
+            <BuddhaFigure key={i} size={Math.round(size * 0.17)} title={bastion ? 'The Trap figure waits at the Dwarven Quarry' : undefined} />
+          ))}
         {idx === 4 && Array.from({ length: game.centerPowerTokens }, (_, i) => <PowerToken key={i} color="yellow" size={Math.round(size * 0.13)} title="Power token waiting on the central tile" />)}
         {t.portal && <PortalIcon size={Math.round(size * 0.2)} title="The Portal: save villagers here" />}
       </div>
@@ -117,33 +139,47 @@ function TileView({ game, idx, ia, size, compact }: { game: GameState; idx: Tile
       </div>
       <div className="gs-figures">
         {standing.map((c) => (
-          <TaoistFigure key={c} color={c} size={fig} style={{ filter: game.active === c ? `drop-shadow(0 0 6px ${COLOR_HEX[c]})` : undefined }} />
+          <TaoistFigure
+            key={c}
+            color={c}
+            size={fig}
+            wounded={game.taoists[c].wounded}
+            style={{ filter: game.active === c ? `drop-shadow(0 0 6px ${COLOR_HEX[c]})` : undefined }}
+          />
         ))}
         {lying.map((c) => (
-          <TaoistFigure key={`d-${c}`} color={c} size={fig} lying title={`${COLOR_NAME[c]} lies dead on the Cemetery`} />
+          <TaoistFigure
+            key={`d-${c}`}
+            color={c}
+            size={fig}
+            lying
+            title={bastion ? `${COLOR_NAME[c]} is taken out${game.taoists[c].deadForever ? ' for good' : ': heal them here'}` : `${COLOR_NAME[c]} lies dead on the Cemetery`}
+          />
         ))}
         {shadowHere && <ShadowFigure size={Math.round(size * 0.32)} title="The Shadow of Wu-Feng" />}
       </div>
+      <Fx fx={fx} kind={fx.tiles.get(idx)} />
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
 
-function PlayerBoardView({ game, color, ia, tile }: { game: GameState; color: Color; ia: Interaction; tile: number }) {
+function PlayerBoardView({ game, color, ia, tile, fx }: { game: GameState; color: Color; ia: Interaction; tile: number; fx: BoardFx }) {
   const side = BOARD_SIDE[color]
   const active = game.active === color
   return (
     <div className={`gs-pboard ${side} ${active ? 'active' : ''}`} style={{ ...BOARD_CELL[color], ...colorVars(color) }}>
       {([0, 1, 2] as SpaceIdx[]).map((space) => (
-        <SpaceView key={space} game={game} ghostRef={{ board: color, space }} ia={ia} tile={tile} />
+        <SpaceView key={space} game={game} ghostRef={{ board: color, space }} ia={ia} tile={tile} fx={fx} />
       ))}
     </div>
   )
 }
 
-function SpaceView({ game, ghostRef, ia, tile }: { game: GameState; ghostRef: GhostRef; ia: Interaction; tile: number }) {
+function SpaceView({ game, ghostRef, ia, tile, fx }: { game: GameState; ghostRef: GhostRef; ia: Interaction; tile: number; fx: BoardFx }) {
   const setInspect = useUiStore((u) => u.setInspect)
+  const bastion = isBastion(game)
   const b = game.boards[ghostRef.board]
   const g = b.spaces[ghostRef.space]
   const key = refKey(ghostRef)
@@ -161,32 +197,41 @@ function SpaceView({ game, ghostRef, ia, tile }: { game: GameState; ghostRef: Gh
       onPointerLeave={(e) => e.pointerType === 'mouse' && setInspect(null)}
     >
       <div className={`gs-cardslot ${card ? 'filled' : ''}`}>
-        {card ? <GhostCardArt card={card} width={cardW} compact /> : <span>{ghostRef.space + 1}</span>}
+        {/* Keyed by card: a new card mounts fresh (Last Bastion animates its arrival). */}
+        {card ? <GhostCardArt key={card.id} card={card} width={cardW} compact /> : <span>{ghostRef.space + 1}</span>}
         {g?.figure === 'card' && (
           <div className="gs-onCard" style={{ right: -4, top: -6 }}>
-            <HauntingFigure size={fig} title="Haunting figure on the card" />
+            <HauntingFigure size={fig} title={bastion ? 'Grasp of Evil figure on the card' : 'Haunting figure on the card'} />
           </div>
         )}
         {g?.mantra && (
           <div className="gs-onCard" style={{ left: -4, top: -6 }}>
-            <MantraToken size={fig} title={isBastion(game) ? "Mylfaar's Enchantment: resistance −1" : 'Enfeeblement Mantra: resistance −1'} />
+            <MantraToken size={fig} title={bastion ? "Mylfaar's Enchantment: resistance −1" : 'Enfeeblement Mantra: resistance −1'} />
           </div>
         )}
         {g?.net && (
-          <div className="gs-onCard" style={{ left: -4, bottom: -4, fontSize: 12, background: '#1d1611', borderRadius: 6, padding: '0 3px' }} title="Trebuchet Net: abilities cancelled">
-            🕸
+          <div className="gs-onCard" style={{ left: -4, bottom: -4 }}>
+            <NetToken size={fig} title="The Trebuchet's Net: its abilities are cancelled" />
           </div>
         )}
+        <Fx fx={fx} kind={fx.spaces.get(key)} />
       </div>
       <div className="gs-track">
-        <div className="gs-buddha-spot" title="Buddha space">
-          {b.buddhas[ghostRef.space] && <BuddhaFigure size={Math.round(tile * 0.18)} />}
+        <div className="gs-buddha-spot" title={bastion ? 'Trap space' : 'Buddha space'}>
+          {b.buddhas[ghostRef.space] && (
+            <BuddhaFigure size={Math.round(tile * 0.18)} title={bastion ? 'Trap: the next Monster placed here is discarded' : undefined} />
+          )}
         </div>
-        <div className="gs-stone" title="Haunting stone">
-          {g?.figure === 'stone' && <HauntingFigure size={fig} title="Haunting figure: it haunts on this board's next Yin phase" />}
+        <div className="gs-stone" title={bastion ? 'Grasp of Evil track' : 'Haunting stone'}>
+          {g?.figure === 'stone' && (
+            <HauntingFigure
+              size={fig}
+              title={bastion ? "Grasp of Evil figure: it reaches the Bastion on this board's next Horde phase" : "Haunting figure: it haunts on this board's next Yin phase"}
+            />
+          )}
           {suLing && <SuLingFigure size={fig} title="Su-Ling cancels the centre stone of this ghost" />}
         </div>
-        <div className="gs-stone edge" title="Haunting stone (the village edge)" />
+        <div className="gs-stone edge" title={bastion ? 'Grasp of Evil track (the foot of the wall)' : 'Haunting stone (the village edge)'} />
       </div>
     </div>
   )
@@ -194,7 +239,7 @@ function SpaceView({ game, ghostRef, ia, tile }: { game: GameState; ghostRef: Gh
 
 // ---------------------------------------------------------------------------
 
-export function PlayerPlate({ game, color, compact = false }: { game: GameState; color: Color; compact?: boolean }) {
+function PlayerPlate({ game, color, compact = false, fx }: { game: GameState; color: Color; compact?: boolean; fx: BoardFx }) {
   const b = game.boards[color]
   const t = game.taoists[color]
   const bastion = isBastion(game)
@@ -202,9 +247,10 @@ export function PlayerPlate({ game, color, compact = false }: { game: GameState;
   const who = online ? seatName(color) : t.kind === 'ai' ? 'AI' : null
   const powerOn = boardPowerActive(game, color) && !powersSuppressed(game)
   const s = compact ? 11 : 16
-  if (compact) return <CompactPlate game={game} color={color} powerOn={powerOn} who={who} />
+  if (compact) return <CompactPlate game={game} color={color} powerOn={powerOn} who={who} fx={fx} />
   return (
     <div className={`gs-plate ${game.active === color ? 'active' : ''} ${!t.alive && !b.neutral ? 'dead' : ''}`} style={{ ...colorVars(color), flex: 1 }}>
+      <Fx fx={fx} kind={fx.plates.get(color)} />
       <div className="gs-plate-head">
         <span>{COLOR_NAME[color]}</span>
         <span className="gs-who">
@@ -282,7 +328,7 @@ export function PlayerPlate({ game, color, compact = false }: { game: GameState;
 }
 
 /** Small tiles (phones): the essentials as icons and numbers. */
-function CompactPlate({ game, color, powerOn, who }: { game: GameState; color: Color; powerOn: boolean; who: string | null }) {
+function CompactPlate({ game, color, powerOn, who, fx }: { game: GameState; color: Color; powerOn: boolean; who: string | null; fx: BoardFx }) {
   const b = game.boards[color]
   const t = game.taoists[color]
   const s = 11
@@ -292,14 +338,20 @@ function CompactPlate({ game, color, powerOn, who }: { game: GameState; color: C
       style={{ ...colorVars(color), flex: 1 }}
       title={`${COLOR_NAME[color]}${who ? ` (${who})` : ''} — ${powerName(game, b.power)}`}
     >
+      <Fx fx={fx} kind={fx.plates.get(color)} />
       <div className="gs-plate-head">
         <PowerIcon power={b.power} size={14} style={{ opacity: powerOn ? 1 : 0.35 }} />
         <span>{COLOR_NAME[color]}</span>
       </div>
       {b.neutral ? (
         <div className="gs-row">
-          <QiToken size={s} />
-          <span className="gs-count">{b.qi}</span>
+          {/* Last Bastion's neutral boards hold no Life. */}
+          {!isBastion(game) && (
+            <>
+              <QiToken size={s} />
+              <span className="gs-count">{b.qi}</span>
+            </>
+          )}
           <span className="gs-count">{b.possessed ? 'poss.' : 'neutral'}</span>
         </div>
       ) : t.alive ? (

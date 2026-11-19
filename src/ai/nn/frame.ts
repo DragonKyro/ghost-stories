@@ -74,4 +74,3 @@ export function frameFor(me: Color): Frame {
 }
 
 /** In the canonical frame the seat-i board sits where COLORS[i]'s board sits on the real table. */
-export const canonicalColor = (i: number): Color => COLORS[i]!

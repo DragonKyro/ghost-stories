@@ -7,6 +7,7 @@ import { DEMONS } from '@/game/blackSecret'
 import { bestCommit, covers, requirementsFor, spendersFor, spendVec } from '@/game/exorcism'
 import { refKey } from '@/game/geometry'
 import { cardAt, COLOR_NAME, isBastion, powerName, taoBlocked, whiteIsWild } from '@/game/rules'
+import { say } from '@/game/vocab'
 import { TAO_COLORS, type DemonId, type ExorcismRoll, type GameState, type GhostRef, type Seat, type TaoColor } from '@/game/types'
 import { useGameStore } from '@/store/gameStore'
 import { GhostCardArt, MoonCrystal, TaoDie, TaoToken } from '@/ui/art'
@@ -142,7 +143,7 @@ export function ExorcismPanel({ game, roll, owner, mine }: { game: GameState; ro
           <div className="gs-col">
             {canSpendTao && (
               <>
-                <h4>Spend Tao tokens{spenders.length > 1 ? ' (anyone on this tile)' : ''}</h4>
+                <h4>{say(game, 'Spend Tao tokens')}{spenders.length > 1 ? ' (anyone on this tile)' : ''}</h4>
                 {spenders.map((c) => (
                   <div key={c} className="gs-chips" style={{ marginBottom: 3 }}>
                     <span className="gs-mini" style={{ width: 46 }}>
@@ -160,7 +161,7 @@ export function ExorcismPanel({ game, roll, owner, mine }: { game: GameState; ro
                 ))}
               </>
             )}
-            {taoBlocked(game) && roll.mode !== 'barrier' && <div className="gs-why">A Tao blocker is in play: Tao tokens can't be spent (moon crystals still can).</div>}
+            {taoBlocked(game) && roll.mode !== 'barrier' && <div className="gs-why">{isBastion(game) ? "Equipment tokens can't be used in Combat while this Horde card is in play." : "A Tao blocker is in play: Tao tokens can't be spent (moon crystals still can)."}</div>}
             {crystalPool.some((p) => p.n > 0) && (
               <>
                 <h4>Moon crystals (any colour)</h4>

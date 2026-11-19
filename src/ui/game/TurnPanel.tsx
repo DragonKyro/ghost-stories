@@ -4,7 +4,7 @@
 import type { Action, HelpParams } from '@/game/actions'
 import { climbProblem, DEMONS, demonsOn } from '@/game/blackSecret'
 import { getCard, isSkeleton } from '@/game/catalogue'
-import { adjacentTiles, facedSpaces } from '@/game/geometry'
+import { adjacentTiles } from '@/game/geometry'
 import {
   borrowablePowers,
   boardName,
@@ -29,6 +29,7 @@ import { useGameStore } from '@/store/gameStore'
 import { useUiStore, type HelpDraft } from '@/store/uiStore'
 import { PowerIcon, TaoToken } from '@/ui/art'
 import { tileHelp } from './text'
+import { say } from '@/game/vocab'
 import { fireHelp, startHelp } from './interaction'
 import { useState, type ReactElement } from 'react'
 
@@ -310,7 +311,7 @@ function BeforeMove({ game, c }: { game: GameState; c: Color }) {
         onClick={() => select({ kind: 'mantra' })}
       >
         {powerName(game, 'enfeeblementMantra')}{' '}
-        {canPlace ? (bastion && game.mantra === 'placed' ? '(move Enchantment)' : '') : `(${game.mantra === 'placed' ? 'on a ghost' : game.mantra === 'cooldown' ? 'back next turn' : 'gone'})`}
+        {canPlace ? (bastion && game.mantra === 'placed' ? '(move Enchantment)' : '') : say(game, `(${game.mantra === 'placed' ? 'on a ghost' : game.mantra === 'cooldown' ? 'back next turn' : 'gone'})`)}
       </button>,
     )
   }

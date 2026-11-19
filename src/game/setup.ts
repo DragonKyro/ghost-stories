@@ -4,7 +4,7 @@
 import { baseGhostIds, bastionMonsterIds, bastionWarlordIds, blackSecretGhostIds, incarnationIds, whiteMoonGhostIds } from './catalogue'
 import { OPPOSITE } from './geometry'
 import { nextInt, seedRng, shuffle } from './rng'
-import { COLOR_NAME, difficultyName, isBastion, powerName, tileName } from './rules'
+import { COLOR_NAME, difficultyName, isBastion, powerName, startingQi, tileName } from './rules'
 import {
   BASE_TILES,
   CENTER_TILE,
@@ -94,7 +94,7 @@ export function createGame(config: GameConfig): GameState {
 
   // --- Taoists / Heroes. ---
   const difficulty = config.difficulty
-  const startQi = !bastion && difficulty === 'initiation' ? 4 : 3
+  const startQi = startingQi(config)
   const taoSupply: Record<TaoColor, number> = { red: TAO_PER_COLOR, blue: TAO_PER_COLOR, green: TAO_PER_COLOR, yellow: TAO_PER_COLOR, black: TAO_PER_COLOR }
   const taoists = {} as Record<Color, Taoist>
   for (const c of COLORS) {

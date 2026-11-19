@@ -10,6 +10,7 @@ import { useUiStore } from '@/store/uiStore'
 import { AbilityIcon, GhostCardArt, TileArt } from '@/ui/art'
 import { ABILITY_TEXT, GROUP_TEXT, tileHelp } from './text'
 import { familyName } from '@/game/whiteMoon'
+import { say } from '@/game/vocab'
 
 export function Inspector({ game, tile, stacked = false }: { game: GameState; tile: number; stacked?: boolean }) {
   const inspect = useUiStore((u) => u.inspect)
@@ -53,8 +54,8 @@ export function Inspector({ game, tile, stacked = false }: { game: GameState; ti
         <small>{label}</small>
         <AbilityIcon kind={a.kind} group={a.group} size={22} />
         <span>
-          {ABILITY_TEXT[a.kind]}
-          {a.group ? GROUP_TEXT : ''}
+          {say(game, ABILITY_TEXT[a.kind])}
+          {a.group ? say(game, GROUP_TEXT) : ''}
         </span>
       </div>
     ))

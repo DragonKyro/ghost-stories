@@ -59,7 +59,7 @@ export function applyYang(s: GameState, a: YangAction): void {
       if (problem) throw new Error(problem)
       if (t.underground) throw new Error('No villager can help you in the catacombs (the Yin-Yang still works).')
       const tile = s.village[t.tile!]!
-      if (tile.haunted) throw new Error(`${tileName(s, tile.kind)} is ${isBastion(s) ? 'in the Grasp of Evil' : 'haunted'}: its action is blocked.`)
+      if (tile.haunted) throw new Error(`${tileName(s, tile.kind)} is haunted: its action is blocked.`)
       if (tile.kind !== a.params.kind) throw new Error(`You are standing on the ${tileName(s, tile.kind)}.`)
       if (shadowOnTile(s, tile.idx)) throw new Error('The Shadow of Wu-Feng blocks this tile.')
       if (!isBastion(s)) s.yang.moved = true
@@ -222,7 +222,7 @@ function usePower(s: GameState, c: Color, use: PowerUse): void {
     }
     case 'bottomlessPockets':
       if (takeTao(s, c, use.color) === 0) throw new Error(`No ${use.color} token is left in the supply.`)
-      ev(s, 'power', `${powerName(s, 'bottomlessPockets')}: ${COLOR_NAME[c]} takes a ${use.color} ${bastion ? 'Equipment' : 'Tao'} token.`, { color: c })
+      ev(s, 'power', `${powerName(s, 'bottomlessPockets')}: ${COLOR_NAME[c]} takes a ${use.color} Tao token.`, { color: c })
       break
     case 'enfeeblementMantra': {
       // Black Secret blood brother OR Last Bastion (Mylfaar) can move the placed Mantra / Enchantment.

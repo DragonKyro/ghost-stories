@@ -1,7 +1,20 @@
 :root {
   --bg: #1a1410;
   --bg-elevated: #241b15;
+  --bg-glow: #33261b;   /* centre of the screen backgrounds */
+  --bg-deep: #0f0b08;   /* their edges, tooltips */
+  --surface: #1d1611;   /* side / bottom panels, dialogs */
+  --surface-low: #1f1712;
+  --surface-high: #2a2018; /* chips, hovers, the current log turn */
+  --surface-hint: #2a2016;
+  --plate-top: #2e231a;
+  --btn: #2f2419;
+  --btn-hover: #3a2c1e;
+  --line: #4a3a2c;      /* button / chip borders */
+  --line-soft: #33281f;
+  --slot: #6b5640;      /* dashed empty slots */
   --ink: #f4e9d6;
+  --text-soft: #d9ccb5;
   --ink-muted: #8a7e6b;
   --rule: #3a2e25;
   --accent: #d4a857;
@@ -16,6 +29,29 @@
   color-scheme: dark;
   color: var(--ink);
   background: var(--bg);
+}
+
+/* Last Bastion: cool slate and iron, gold leaf (App sets data-variant on <html>). */
+:root[data-variant='bastion'] {
+  --bg: #13161d;
+  --bg-elevated: #1c212b;
+  --bg-glow: #2a2a33;
+  --bg-deep: #090b10;
+  --surface: #171b23;
+  --surface-low: #191e27;
+  --surface-high: #252c38;
+  --surface-hint: #212834;
+  --plate-top: #262d39;
+  --btn: #262d39;
+  --btn-hover: #313a4a;
+  --line: #3b4454;
+  --line-soft: #2a313d;
+  --slot: #525c6e;
+  --ink: #eee8dc;
+  --text-soft: #d0d3d9;
+  --ink-muted: #8d93a0;
+  --rule: #2d3441;
+  --accent: #e2b65a;
 }
 
 * { box-sizing: border-box; }

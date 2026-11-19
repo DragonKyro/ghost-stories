@@ -289,8 +289,8 @@ export const playerCount = (s: GameState): number => COLORS.filter((c) => !s.boa
 
 export const isSolo = (s: GameState): boolean => playerCount(s) === 1
 
-/** Starting Qi: also the cap is NOT applied — the rules set no maximum. */
-export const startingQi = (s: GameState): number => (!isBastion(s) && s.config.difficulty === 'initiation' ? 4 : 3)
+/** Starting Qi / Life (there is no maximum): 4 on Ghost Stories' Initiation, else 3. */
+export const startingQi = (config: GameConfig): number => (!isBastion(config) && config.difficulty === 'initiation' ? 4 : 3)
 
 /**
  * Who answers "the players' choice" questions this turn: the active Taoist,
@@ -303,10 +303,6 @@ export function decider(s: GameState): Color {
     if (s.taoists[c].alive) return c
   }
   return s.active
-}
-
-export function tileOfKind(s: GameState, kind: TileKind): TileIdx | null {
-  return s.village.find((t) => t.kind === kind)?.idx ?? null
 }
 
 /**
@@ -326,13 +322,6 @@ export function combatSpacesFor(s: GameState, c: Color, tile: TileIdx): GhostRef
     ]
   }
   return facedSpaces(tile)
-}
-
-/** Ghost spaces the Taoist faces from where they stand (none from the catacombs). */
-export function reachableSpaces(s: GameState, c: Color): GhostRef[] {
-  const t = s.taoists[c]
-  if (!t.alive || t.tile == null || t.underground) return []
-  return combatSpacesFor(s, c, t.tile)
 }
 
 /** Taoists standing on the same village tile (or catacomb space) as `c`, `c` included. */
@@ -394,9 +383,5 @@ export function heldColors(t: Taoist): TaoColor[] {
 }
 
 export const taoCount = (t: Taoist): number => Object.values(t.tao).reduce((n, v) => n + v, 0)
-
-export function spaceLabel(s: GameState, ref: GhostRef): string {
-  return `${boardName(s, ref.board)} board, space ${ref.space + 1}`
-}
 
 export const ALL_SPACES: GhostRef[] = COLORS.flatMap((board) => SPACES.map((space) => ({ board, space: space as SpaceIdx })))

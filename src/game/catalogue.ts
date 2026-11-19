@@ -234,9 +234,6 @@ const WARLORDS: GhostCard[] = [
     'On arrival, discards the token on the Standard. While in play, white Combat die faces are not wild.'),
 ]
 
-/** Black Secret skeleton tokens: resistance 1 in the colour of their board, no abilities. */
-export const SKELETON_IDS = ['skeleton', 'bones'] as const
-
 const ALL = new Map<string, GhostCard>()
 for (const card of [...BASE_COLORED, ...BASE_BLACK, ...WHITE_MOON, ...BLACK_SECRET, ...INCARNATIONS, ...BASTION_COLORED, ...BASTION_BLACK, ...WARLORDS]) {
   if (ALL.has(card.id)) throw new Error(`duplicate ghost id ${card.id}`)
@@ -278,6 +275,8 @@ export const incarnationIds = (): string[] => INCARNATIONS.map((c) => c.id)
 export const bastionMonsterIds = (): string[] => [...BASTION_COLORED, ...BASTION_BLACK].map((c) => c.id)
 export const bastionWarlordIds = (): string[] => WARLORDS.map((c) => c.id)
 export const allCards = (): GhostCard[] => [...ALL.values()]
+/** Every Ghost Stories card (base game and expansions), in catalogue order — the Last Bastion cards come after them. */
+export const ghostStoriesCards = (): GhostCard[] => [...BASE_COLORED, ...BASE_BLACK, ...WHITE_MOON, ...BLACK_SECRET, ...INCARNATIONS]
 
 export function totalResistance(card: GhostCard): number {
   return Object.values(card.resistance).reduce((n, v) => n + (v ?? 0), 0)

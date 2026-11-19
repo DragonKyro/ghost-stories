@@ -8,7 +8,7 @@
 //   Yang phase — the Taoist (see yang.ts); neutral / possessed boards have none.
 
 import { getCard } from './catalogue'
-import { lineOf, spacesLeftToRight } from './geometry'
+import { spacesLeftToRight } from './geometry'
 import {
   ask,
   CURSE_TEXT,
@@ -261,9 +261,8 @@ function curse(s: GameState, ctx: CurseContext): void {
   }
   const face = rollCurse(s)
   if (s.whiteMoon) s.whiteMoon.suLingEvent = true
-  const dieLabel = isBastion(s) ? 'Corruption die' : 'curse die'
-  const who = ctx.roller ? COLOR_NAME[ctx.roller] : `For ${boardName(s, ctx.board)}, the ${dieLabel}`
-  ev(s, 'curse', ctx.roller ? `${who} rolls the ${dieLabel} (${ctx.why}): ${CURSE_TEXT[face]}.` : `${who} (${ctx.why}): ${CURSE_TEXT[face]}.`, {
+  const who = ctx.roller ? COLOR_NAME[ctx.roller] : `For ${boardName(s, ctx.board)}, the curse die`
+  ev(s, 'curse', ctx.roller ? `${who} rolls the curse die (${ctx.why}): ${CURSE_TEXT[face]}.` : `${who} (${ctx.why}): ${CURSE_TEXT[face]}.`, {
     curse: face,
     color: ctx.roller ?? ctx.board,
   })
@@ -310,21 +309,22 @@ function overrun(s: GameState): void {
   const c = s.active
   if (s.boards[c].spaces.every(Boolean)) {
     if (isBastion(s)) {
+      const full = `${s.boards[c].neutral ? `The neutral ${c} Horde board` : `${COLOR_NAME[c]}'s Horde board`} is full`
       if (c === 'red') {
-        ev(s, 'overrun', `${boardName(s, c)}'s Horde board is full: lose 1 Life token, and no Horde card is drawn.`, { color: c })
+        ev(s, 'overrun', `${full}: lose 1 Life token, and no Horde card is drawn.`, { color: c })
         loseQi(s, c, 'red Horde board full')
       } else if (c === 'green') {
         const bot = s.deck.pop()
         if (bot) {
           s.discard.push(bot)
-          ev(s, 'overrun', `${boardName(s, c)}'s Horde board is full: ${getCard(bot).name} at the bottom of the deck is discarded.`, { color: c, card: bot })
+          ev(s, 'overrun', `${full}: ${getCard(bot).name} at the bottom of the deck is discarded.`, { color: c, card: bot })
           if (getCard(bot).incarnation) loseGame(s, 'deckExhausted')
         } else {
-          ev(s, 'overrun', `${boardName(s, c)}'s Horde board is full: the Horde deck is empty!`, { color: c })
+          ev(s, 'overrun', `${full}: the Horde deck is empty!`, { color: c })
           loseGame(s, 'deckExhausted')
         }
       } else if (c === 'yellow') {
-        ev(s, 'overrun', `${boardName(s, c)}'s Horde board is full: roll the Corruption die.`, { color: c })
+        ev(s, 'overrun', `${full}: roll the Corruption die.`, { color: c })
         now(s, {
           k: 'curse',
           ctx: { roller: s.taoists[c].alive ? c : null, board: c, haunt: { kind: 'front', ref: { board: 'yellow', space: 1 } }, why: 'yellow Horde board full' },
@@ -332,7 +332,7 @@ function overrun(s: GameState): void {
       } else {
         const target = s.taoists[c].alive ? c : decider(s)
         s.taoists[target].immobilized = true
-        ev(s, 'overrun', `${boardName(s, c)}'s Horde board is full: ${COLOR_NAME[target]} loses their next movement.`, { color: c })
+        ev(s, 'overrun', `${full}: ${COLOR_NAME[target]} loses their next movement.`, { color: c })
       }
       return
     }
@@ -489,5 +489,3 @@ function nextTurn(s: GameState): void {
 }
 
 /** Haunt the first active tile on a ghost's line (exported for curses on exorcism). */
-export const firstActiveInLine = (s: GameState, ref: import('./types').GhostRef) =>
-  lineOf(ref).find((t) => !s.village[t]!.haunted) ?? null

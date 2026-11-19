@@ -36,7 +36,7 @@ The Esoteric Order of Gamers rules summary in [`ghost stories rules.pdf`](./ghos
 - [x] Rules engine following the summary: Ghost Stories base game, White Moon, Black Secret (deterministic, seeded dice, step-by-step prompts)
 - [x] Last Bastion rules engine, 8 Heroes, 9 Bastion tiles, 50 Monsters & 10 Warlords, home screen & lobby game selector (no expansions)
 - [x] AI: a neural network per monk, trained by self-play, plays solo Ghost Stories games (about 45% wins on Normal, 53% on Initiation); a rules-based search AI plays everything else (including Last Bastion and Wu-Feng)
-- [x] Game screen and hand-drawn ink-painting art set
+- [x] Game screen and two hand-drawn art sets: Chinese ink painting for Ghost Stories, heraldic storybook fantasy for Last Bastion (fortress tiles, 60 Horde cards, four hero figures, the Grasp of Evil, board effects and its own theme)
 - [x] Online multiplayer on Firebase Realtime Database
 - [x] Rulebook with search (covering both Ghost Stories and Last Bastion)
 - [x] End-of-game stats (Qi over the game, ghosts and hauntings, who exorcised what, dice luck)

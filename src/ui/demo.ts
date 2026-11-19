@@ -1,4 +1,4 @@
-// Dev aid: ?demo=<steps>[&seed=N][&wm][&bs][&players=N] starts a game on this
+// Dev aid: ?demo=<steps>[&seed=N][&wm][&bs][&lb][&players=N] starts a game on this
 // device and lets the AI play `steps` moves for every seat, then hands red to
 // the person at the screen (for screenshots and quick testing).
 
@@ -21,6 +21,7 @@ export function startDemoFromUrl(): boolean {
     seats,
     seed: Number(q.get('seed') || 3),
     firstPlayer: 'red',
+    ...(q.has('lb') ? { variant: 'bastion' as const } : {}),
     ...(q.has('wm') ? { whiteMoon: { portal: 'center', randomTiles: false } } : {}),
     ...(q.has('bs') ? { blackSecret: { wuFeng: 'ai', side: 'a' } } : {}),
   }
