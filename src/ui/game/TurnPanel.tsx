@@ -27,7 +27,7 @@ import { ARTIFACT_NAME, ARTIFACT_TEXT, familyName } from '@/game/whiteMoon'
 import { CENTER_TILE, CORNER_TILE, TAO_COLORS, type Color, type Corner, type GameState, type TaoColor } from '@/game/types'
 import { useGameStore } from '@/store/gameStore'
 import { useUiStore, type HelpDraft } from '@/store/uiStore'
-import { PowerIcon, TaoToken } from '@/ui/art'
+import { PowerIcon, StandardToken, TaoToken } from '@/ui/art'
 import { tileHelp } from './text'
 import { say } from '@/game/vocab'
 import { fireHelp, startHelp } from './interaction'
@@ -365,12 +365,24 @@ function ClimbToggle() {
   )
 }
 
-export function ColorChips({ game, onPick, allowed }: { game: GameState; onPick: (c: TaoColor) => void; allowed?: (c: TaoColor) => boolean }) {
+/** One chip per colour, from the token supply; `unlimited`: a set of its own (Last Bastion's Standard tokens). */
+export function ColorChips({
+  game,
+  onPick,
+  allowed,
+  unlimited = false,
+}: {
+  game: GameState
+  onPick: (c: TaoColor) => void
+  allowed?: (c: TaoColor) => boolean
+  unlimited?: boolean
+}) {
   return (
     <div className="gs-chips">
       {TAO_COLORS.map((col) => (
-        <button key={col} className="gs-chip" disabled={game.taoSupply[col] <= 0 || (allowed ? !allowed(col) : false)} onClick={() => onPick(col)}>
-          <TaoToken color={col} size={16} /> {col} <span className="gs-mini">({game.taoSupply[col]})</span>
+        <button key={col} className="gs-chip" disabled={(!unlimited && game.taoSupply[col] <= 0) || (allowed ? !allowed(col) : false)} onClick={() => onPick(col)}>
+          {unlimited ? <StandardToken color={col} size={16} /> : <TaoToken color={col} size={16} />} {col}
+          {!unlimited && <span className="gs-mini">({game.taoSupply[col]})</span>}
         </button>
       ))}
     </div>
@@ -466,19 +478,39 @@ function HelpDraftPanel({ game, draft }: { game: GameState; draft: HelpDraft }) 
       body = (
         <>
           <p>{tileHelp(game, 'circleOfPrayer')}</p>
-          <ColorChips game={game} onPick={(color) => fire({ kind: 'circleOfPrayer', color })} />
+          <ColorChips game={game} unlimited={bastion} onPick={(color) => fire({ kind: 'circleOfPrayer', color })} />
         </>
       )
       break
     case 'teaHouse':
       if (bastion) {
-        body = (
+        const hero = draft.taoist ? game.taoists[draft.taoist] : null
+        body = hero ? (
           <>
-            <p>Grant a Hero of your choice 1 Life token:</p>
+            <p>
+              {COLOR_NAME[hero.color]} gains 1 Life token and may move 1 space: click an adjacent tile on the board, or
+            </p>
+            <div className="gs-btnrow">
+              {hero.immobilized && (
+                <button className="gs-btn" onClick={() => fire({ kind: 'teaHouse', taoist: hero.color, to: hero.tile })}>
+                  Stand back up (their move)
+                </button>
+              )}
+              <button className="gs-btn" onClick={() => fire({ kind: 'teaHouse', taoist: hero.color })}>
+                No movement
+              </button>
+              <button className="gs-btn small" onClick={() => set({ taoist: null })}>
+                Another Hero
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p>Grant a Hero of your choice 1 Life token and 1 optional movement:</p>
             <div className="gs-btnrow">
               {livingTaoists(game).map((h) => (
-                <button key={h.color} className="gs-btn" onClick={() => fire({ kind: 'teaHouse', taoist: h.color })}>
-                  +1 Life to {COLOR_NAME[h.color]} ({h.qi})
+                <button key={h.color} className="gs-btn" onClick={() => set({ taoist: h.color })}>
+                  {COLOR_NAME[h.color]} ({h.qi} Life)
                 </button>
               ))}
             </div>
@@ -517,8 +549,15 @@ function HelpDraftPanel({ game, draft }: { game: GameState; draft: HelpDraft }) 
           )}
           {bastion && (
             <>
-              <p>Or take 1 available Equipment token from the reserve:</p>
-              <ColorChips game={game} onPick={(color) => fire({ kind: 'cemetery', color, to: c })} />
+              <p>Or give 1 available Equipment token from the reserve to a Hero:</p>
+              <div className="gs-btnrow">
+                {livingTaoists(game).map((h) => (
+                  <button key={h.color} className={`gs-btn small ${(draft.taoist ?? c) === h.color ? 'on' : ''}`} onClick={() => set({ taoist: h.color })}>
+                    {COLOR_NAME[h.color]}
+                  </button>
+                ))}
+              </div>
+              <ColorChips game={game} onPick={(color) => fire({ kind: 'cemetery', color, to: draft.taoist ?? c })} />
             </>
           )}
           {game.whiteMoon && game.whiteMoon.dead.length > 0 && (
@@ -609,6 +648,24 @@ function HelpDraftPanel({ game, draft }: { game: GameState; draft: HelpDraft }) 
       break
     }
     case 'nightWatchman':
+      if (bastion) {
+        const picks = draft.picks ?? { tiles: [], ghosts: [] }
+        const n = picks.tiles.length + picks.ghosts.length
+        const names = [
+          ...picks.tiles.map((i) => tileName(game, game.village[i]!.kind)),
+          ...picks.ghosts.map((r) => cardName(game, r)),
+        ]
+        body = (
+          <>
+            <p>{tileHelp(game, 'nightWatchman')}</p>
+            <p className="gs-mini">{n === 0 ? 'Click the figures on the board.' : `Picked: ${names.join(', ')}.`}</p>
+            <button className="gs-btn primary" disabled={n === 0} onClick={() => fire({ kind: 'nightWatchman', tiles: picks.tiles, ghosts: picks.ghosts })}>
+              Remove {n === 2 ? 'both figures' : n === 1 ? 'the figure' : 'figures'}
+            </button>
+          </>
+        )
+        break
+      }
       body = (
         <>
           <p>{tileHelp(game, 'nightWatchman')}</p>

@@ -60,6 +60,7 @@ export const PROMPT_KIND: Record<PromptKind, number> = {
   bonecrackerPayer: 7, exorcism: 8, herbalist: 9, devour: 10, suLing: 11, suLingCrystal: 12, inherit: 13,
   barrier: 14, restoreTile: 15, wuFengGhost: 16, wuFengIncarnation: 17, wuFengDemon: 18, wuFengShadow: 19,
   wuFengSkeleton: 20, wuFengFreeCurse: 21, wuFengCurseTarget: 22, shadowAttack: 23, mantraQi: 24, mantraTarget: 25,
+  chooseHero: 26,
 }
 export const N_PROMPT_KIND = 32
 
@@ -68,7 +69,7 @@ export const RESPONSE_KIND: Record<Response['kind'], number> = {
   bonecrackerPayer: 7, reroll: 8, commit: 9, herbalistTake: 10, devour: 11, suLing: 12, suLingCrystal: 13,
   inherit: 14, barrier: 15, restoreTile: 16, wuFengGhost: 17, wuFengIncarnation: 18, wuFengDemon: 19,
   wuFengShadow: 20, wuFengSkeleton: 21, wuFengFreeCurse: 22, wuFengCurseTarget: 23, shadowAttack: 24,
-  mantraQi: 25, mantraTarget: 26,
+  mantraQi: 25, mantraTarget: 26, chooseHero: 27,
 }
 export const N_RESPONSE_KIND = 32
 

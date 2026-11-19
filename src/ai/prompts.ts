@@ -5,7 +5,7 @@ import { applyAction } from '@/game/engine'
 import { bestCommit, cheapestSpend, type SpendPlan } from '@/game/exorcism'
 import { facedSpaces, lineOf, oppositeSpace, refKey } from '@/game/geometry'
 import { isSkeleton, getCard } from '@/game/catalogue'
-import { ghostAt, hauntedCount, heldColors, livingTaoists, taoCount, cardAt, whiteIsWild } from '@/game/rules'
+import { ghostAt, hauntedCount, heldColors, isBastion, livingTaoists, taoCount, cardAt, whiteIsWild } from '@/game/rules'
 import { barrierTargets, suLingOptions } from '@/game/whiteMoon'
 import type { Color, DieFace, ExorcismRoll, GameState, GhostRef, Prompt, TaoColor } from '@/game/types'
 import { COLORS, TAO_COLORS } from '@/game/types'
@@ -55,6 +55,15 @@ export function answerPrompt(s: GameState, p: Prompt): Response {
     }
     case 'bonecrackerPayer':
       return { kind: 'bonecrackerPayer', taoist: [...p.options].sort((a, b) => taoCount(s.taoists[b]) - taoCount(s.taoists[a]))[0]! }
+    case 'chooseHero':
+      // Discard: whoever holds the most Equipment. Laid down: whoever plays last (most time to stand up).
+      return {
+        kind: 'chooseHero',
+        taoist:
+          p.effect === 'discard'
+            ? [...p.options].sort((a, b) => taoCount(s.taoists[b]) - taoCount(s.taoists[a]))[0]!
+            : [...p.options].sort((a, b) => turnsAway(s, b) - turnsAway(s, a))[0]!,
+      }
     case 'exorcism':
       return answerExorcism(s, p.roll)
     case 'herbalist': {
@@ -107,6 +116,11 @@ export function answerPrompt(s: GameState, p: Prompt): Response {
   }
 }
 
+/** How many turns until `c` plays (0 = now). */
+function turnsAway(s: GameState, c: Color): number {
+  return (COLORS.indexOf(c) - COLORS.indexOf(s.active) + 4) % 4
+}
+
 function usefulFaces(s: GameState, targets: GhostRef[]): (d: DieFace) => boolean {
   const colors = new Set<string>()
   for (const r of targets) {
@@ -131,7 +145,7 @@ export function bestPlacement(s: GameState, card: string, options: GhostRef[]): 
     let v = 0
     if (buddha) {
       if (!def.incarnation) return 100 // destroyed on arrival, its abilities never apply
-      v += def.incarnation === 'uncatchable' ? 30 : -W.buddhaOnBoard
+      v += def.incarnation === 'uncatchable' && !isBastion(s) ? 30 : -W.buddhaOnBoard
     }
     const n = b.spaces.filter(Boolean).length
     v -= crowdCost(n + 1) - crowdCost(n)

@@ -13,7 +13,7 @@ import {
 } from '@/game/blackSecret'
 import { getCard } from '@/game/catalogue'
 import { CURSE_TEXT } from '@/game/ops'
-import { COLOR_NAME, heldColors, isBastion, livingTaoists, seatName, TILE_NAME } from '@/game/rules'
+import { COLOR_NAME, heldColors, isBastion, livingTaoists, seatName, taoCount, TILE_NAME } from '@/game/rules'
 import { say } from '@/game/vocab'
 import { ARTIFACT_NAME, barrierTargets, familyName } from '@/game/whiteMoon'
 import { COLORS, TAO_COLORS, type Color, type GameState, type Prompt, type TaoColor } from '@/game/types'
@@ -53,7 +53,9 @@ function titleOf(game: GameState, p: Prompt): string {
     case 'incarnationReward':
       return 'The incarnation’s reward'
     case 'bonecrackerPayer':
-      return 'Bonecracker'
+      return isBastion(game) ? 'Kragor the Skullcrusher' : 'Bonecracker'
+    case 'chooseHero':
+      return p.effect === 'discard' ? 'Who discards an Equipment token?' : 'Whose figure is laid down?'
     case 'herbalist':
       return `${COLOR_NAME[p.taoist]}: Herbalist's Shop`
     case 'devour':
@@ -169,6 +171,24 @@ function Answer({ game, p }: { game: GameState; p: Prompt }) {
             {p.options.map((c) => (
               <button key={c} className="gs-btn" onClick={() => r({ kind: 'bonecrackerPayer', taoist: c })}>
                 {COLOR_NAME[c]}
+              </button>
+            ))}
+          </div>
+        </div>
+      )
+    case 'chooseHero':
+      return (
+        <div className="gs-actions">
+          <p>
+            {p.effect === 'discard'
+              ? `A neutral board's effect (${p.why}): a Hero of your choice discards 1 Equipment token.`
+              : `A neutral board's effect (${p.why}): a Hero of your choice is laid down — standing up replaces their next movement.`}
+          </p>
+          <div className="gs-btnrow">
+            {p.options.map((c) => (
+              <button key={c} className="gs-btn" onClick={() => r({ kind: 'chooseHero', taoist: c })}>
+                {COLOR_NAME[c]}
+                {p.effect === 'discard' ? ` (${taoCount(game.taoists[c])})` : ''}
               </button>
             ))}
           </div>

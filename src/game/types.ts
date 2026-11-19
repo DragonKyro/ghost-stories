@@ -464,6 +464,12 @@ export type Prompt =
   | { kind: 'incarnationReward'; owner: Seat }
   /** Bonecracker on a neutral board: which Taoist discards? */
   | { kind: 'bonecrackerPayer'; owner: Seat; options: Color[] }
+  /**
+   * Last Bastion: a neutral board's effect falls on a Hero of the players'
+   * choice — discard an Equipment token (Corruption die), or be laid down
+   * (the blue Horde board full).
+   */
+  | { kind: 'chooseHero'; owner: Seat; options: Color[]; effect: 'discard' | 'layDown'; why: string }
   /** Gods' Favorite on a curse die: the context is kept on the queue (a `curseFace` effect). */
   /** An exorcism roll is on the table: reroll (Gods' Favorite) or commit. */
   | { kind: 'exorcism'; owner: Seat; roll: ExorcismRoll }

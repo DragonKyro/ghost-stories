@@ -27,7 +27,7 @@ const CORRUPTION_LABEL: Record<CurseFace, string> = {
   blank: 'no effect',
   haunt: 'a Bastion tile falls into the Grasp of Evil',
   ghost: 'a Horde card comes into play',
-  loseTao: 'lose all Equipment tokens',
+  loseTao: 'lose 1 Equipment token',
   loseQi: 'lose 1 Life token',
 }
 

@@ -19,6 +19,8 @@ export interface HelpDraft {
   board?: Color
   carry?: boolean
   climb?: boolean
+  /** Last Bastion, Divine Fountain: the Grasp of Evil figures picked so far (up to 2). */
+  picks?: { tiles: TileIdx[]; ghosts: GhostRef[] }
 }
 
 export type Selecting =

@@ -578,17 +578,13 @@ export function CorruptionSymbolG({ face, fill = CORRUPT_LIGHT, ...at }: At & { 
       )
       break
     case 'loseTao':
-      // Every Equipment token lost: a stack of token rims, struck out.
+      // One Equipment token lost: a token rim, struck out.
       body = (
         <>
-          {[18, 50, 82].map((x) => (
-            <g key={x}>
-              <circle cx={x} cy={50} r={15} fill={fill} />
-              <circle cx={x} cy={50} r={6} fill={VOID} opacity={0.75} />
-            </g>
-          ))}
-          <path d="M14 86L86 14" stroke="#1a1020" strokeWidth={16} strokeLinecap="round" />
-          <path d="M14 86L86 14" stroke={BAN} strokeWidth={9} strokeLinecap="round" />
+          <circle cx={50} cy={50} r={30} fill={fill} />
+          <circle cx={50} cy={50} r={12} fill={VOID} opacity={0.75} />
+          <path d="M18 82L82 18" stroke="#1a1020" strokeWidth={16} strokeLinecap="round" />
+          <path d="M18 82L82 18" stroke={BAN} strokeWidth={9} strokeLinecap="round" />
         </>
       )
       break

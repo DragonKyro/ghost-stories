@@ -193,10 +193,12 @@ export interface PowerIconProps extends ArtBaseProps {
   size?: number
   /** Greyed out: the power is blocked / the board is possessed. */
   inactive?: boolean
+  /** The board it sits on, which rims the medallion (default: the power's own board; Last Bastion heroes sit anywhere). */
+  color?: Color
 }
 
-export function PowerIcon({ power, size = 40, inactive = false, title, ...rest }: PowerIconProps) {
-  const color = POWER_COLOR[power]
+export function PowerIcon({ power, size = 40, inactive = false, color: board, title, ...rest }: PowerIconProps) {
+  const color = board ?? POWER_COLOR[power]
   return (
     <ArtSvg width={size} height={size} viewBox="0 0 100 100" title={title ?? POWER_NAME[power]} {...rest}>
       <g opacity={inactive ? 0.45 : 1}>

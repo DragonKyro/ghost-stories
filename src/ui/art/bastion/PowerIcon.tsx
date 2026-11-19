@@ -164,8 +164,8 @@ function body(power: PowerId): ReactNode {
   }
 }
 
-export function HeroPowerIcon({ power, size = 40, inactive = false, title, ...rest }: PowerIconProps) {
-  const color = POWER_COLOR[power]
+export function HeroPowerIcon({ power, size = 40, inactive = false, color: board, title, ...rest }: PowerIconProps) {
+  const color = board ?? POWER_COLOR[power]
   return (
     <ArtSvg width={size} height={size} viewBox="0 0 100 100" title={title ?? BASTION_POWER_NAME[power]} {...rest}>
       <g opacity={inactive ? 0.42 : 1}>

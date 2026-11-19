@@ -203,8 +203,16 @@ export function ExorcismPanel({ game, roll, owner, mine }: { game: GameState; ro
               >
                 Cheapest
               </button>
-              <button className="gs-btn" onClick={() => commit(true)} title="Spend nothing: the exorcism fails (not allowed when the dice alone succeed).">
-                Give up
+              <button
+                className="gs-btn"
+                onClick={() => commit(true)}
+                title={
+                  isBastion(game)
+                    ? 'Choose not to win this combat: nothing is spent, and no exit effect applies.'
+                    : 'Spend nothing: the exorcism fails (not allowed when the dice alone succeed).'
+                }
+              >
+                {isBastion(game) ? "Don't vanquish" : 'Give up'}
               </button>
             </div>
           ) : (

@@ -248,6 +248,8 @@ function responses(s: GameState, p: Prompt, seat: Color): Response[] {
       return p.options.map((taoist) => ({ kind: 'qiPayer', taoist }))
     case 'bonecrackerPayer':
       return p.options.map((taoist) => ({ kind: 'bonecrackerPayer', taoist }))
+    case 'chooseHero':
+      return p.options.map((taoist) => ({ kind: 'chooseHero', taoist }))
     case 'discardTao': {
       const t = s.taoists[p.taoist]
       const held = TAO_COLORS.filter((x) => t.tao[x] > 0)

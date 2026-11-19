@@ -248,8 +248,9 @@ export function commitExorcism(s: GameState, roll: ExorcismRoll, r: Extract<Resp
     throw new Error('The dice and tokens spent do not cover that exorcism.')
   }
 
-  if (roll.mode === 'exorcism' || roll.mode === 'demon') {
-    // "If the dice are sufficient to exorcise a ghost, you must exorcise it."
+  // Ghost Stories: "If the dice are sufficient to exorcise a ghost, you must exorcise it."
+  // Last Bastion's FAQ: a Hero may choose not to win a combat (to dodge an exit effect).
+  if ((roll.mode === 'exorcism' || roll.mode === 'demon') && !isBastion(s)) {
     const all = requirementsFor(s, roll, roll.targets, roll.demons)
     const dicePower = (rs: Requirement[]) => covers(rs, roll.dice, wild, zero(), 0)
     const beaten = all.filter((q) => dicePower([q]))

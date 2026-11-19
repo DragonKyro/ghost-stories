@@ -286,6 +286,7 @@ function writeResponse(ctx: Ctx, r: CandRow, x: Response): void {
       return
     case 'qiPayer':
     case 'bonecrackerPayer':
+    case 'chooseHero':
     case 'inherit':
       r.point('seat1', ctx.seatSlot(x.taoist))
       return

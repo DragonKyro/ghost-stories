@@ -19,6 +19,7 @@ import {
   gainQi,
   hauntInFront,
   hauntTile,
+  layDown,
   loseGame,
   loseQi,
   now,
@@ -284,9 +285,12 @@ function curseFace(s: GameState, ctx: CurseContext, face: CurseFace): void {
       return now(s, { k: 'arrival', why: 'curse die' })
     case 'loseTao':
       if (isBastion(s)) {
-        const target = t.alive ? ctx.board : livingTaoists(s).find((x) => taoCount(x) > 0)?.color
-        if (!target) return ev(s, 'note', 'Nobody has an Equipment token to discard.')
-        return now(s, { k: 'loseTao', taoist: target, count: 1, why: 'Corruption die' })
+        if (t.alive) return now(s, { k: 'loseTao', taoist: ctx.board, count: 1, why: 'Corruption die' })
+        // A neutral board: a Hero of the players' choice (who has a token) discards.
+        const options = livingTaoists(s).filter((x) => taoCount(x) > 0).map((x) => x.color)
+        if (options.length === 0) return ev(s, 'note', 'Nobody has an Equipment token to discard.')
+        if (options.length === 1) return now(s, { k: 'loseTao', taoist: options[0]!, count: 1, why: 'Corruption die' })
+        return ask(s, { kind: 'chooseHero', owner: decider(s), options, effect: 'discard', why: 'Corruption die' })
       }
       if (!t.alive) return ev(s, 'note', 'Losing Tao tokens has no effect on a neutral or possessed board.')
       {
@@ -330,9 +334,11 @@ function overrun(s: GameState): void {
           ctx: { roller: s.taoists[c].alive ? c : null, board: c, haunt: { kind: 'front', ref: { board: 'yellow', space: 1 } }, why: 'yellow Horde board full' },
         })
       } else {
-        const target = s.taoists[c].alive ? c : decider(s)
-        s.taoists[target].immobilized = true
-        ev(s, 'overrun', `${full}: ${COLOR_NAME[target]} loses their next movement.`, { color: c })
+        ev(s, 'overrun', `${full}: a Hero loses their next movement.`, { color: c })
+        // A neutral board: the players choose whose figure is laid down.
+        const options = s.taoists[c].alive ? [c] : livingTaoists(s).map((x) => x.color)
+        if (options.length === 1) layDown(s, options[0]!, 'blue Horde board full')
+        else if (options.length > 1) ask(s, { kind: 'chooseHero', owner: decider(s), options, effect: 'layDown', why: 'blue Horde board full' })
       }
       return
     }

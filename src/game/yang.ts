@@ -351,7 +351,7 @@ function placeBuddhas(s: GameState, c: Color, spaces: GhostRef[]): void {
   const faced = new Set(facedSpaces(t.tile!).map(refKey))
   const keys = new Set<string>()
   for (const ref of spaces) {
-    if (!faced.has(refKey(ref)) && !(bastion && ref.board === c)) throw new Error('Place a Buddha on a space your Taoist faces.')
+    if (bastion ? ref.board !== c : !faced.has(refKey(ref))) throw new Error(bastion ? 'The Trap goes on your own Horde board.' : 'Place a Buddha on a space your Taoist faces.')
     if (ghostAt(s, ref)) throw new Error('A Buddha goes on an empty ghost space.')
     if (s.boards[ref.board].buddhas[ref.space]) throw new Error('There is already a Buddha there.')
     keys.add(refKey(ref))
@@ -376,6 +376,7 @@ function yinYang(s: GameState, c: Color, use: Extract<Action, { type: 'yinYang' 
   const tile = s.village[use.tile]
   if (!tile) throw new Error('No such tile.')
   if (use.kind === 'flip') {
+    if (bastion) throw new Error('A Call to Arms activates a tile; it does not free one from the Grasp of Evil.')
     if (!tile.haunted) throw new Error('That tile is not haunted.')
     t.yinYang = false
     ev(s, 'yinYang', `${COLOR_NAME[c]} spends their ${bastion ? 'Call to Arms' : 'Yin-Yang'} to restore the ${tileName(s, tile.kind)}.`, { color: c, tile: tile.idx })

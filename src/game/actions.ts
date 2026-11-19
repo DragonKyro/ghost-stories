@@ -88,6 +88,7 @@ export type Response =
   | { kind: 'qiOrYinYang'; choice: 'qi' | 'yinYang' }
   | { kind: 'incarnationReward'; qi: Color | null; yinYang: Color | null }
   | { kind: 'bonecrackerPayer'; taoist: Color }
+  | { kind: 'chooseHero'; taoist: Color }
   /** Gods' Favorite: reroll these dice (indices into the roll). */
   | { kind: 'reroll'; dice: number[] }
   /** Finish an exorcism: spend tokens / crystals, and say which targets are exorcised. */

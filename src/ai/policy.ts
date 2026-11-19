@@ -6,7 +6,7 @@
 
 import type { Action, HelpParams } from '@/game/actions'
 import { isSkeleton } from '@/game/catalogue'
-import { adjacentTiles, facedSpaces, isAdjacent, isCorner, refKey } from '@/game/geometry'
+import { adjacentTiles, facedSpaces, isAdjacent, isCorner, lineOf, refKey } from '@/game/geometry'
 import {
   borrowablePowers,
   cardAt,
@@ -157,8 +157,8 @@ function pavilionOptions(s: GameState, c: Color): Array<{ params: HelpParams; va
   const free: GhostRef[] = []
   for (const b of COLORS) for (const i of [0, 1, 2] as const) if (!s.boards[b].spaces[i]) free.push({ board: b, space: i })
   if (free.length === 0) return []
-  // The second half: a normal move for another Taoist (solo: yourself).
-  const movers = isSolo(s) ? [c] : livingTaoists(s).filter((x) => x.color !== c && x.tile != null && !x.underground).map((x) => x.color)
+  // The second half: a normal move for another Taoist (solo: yourself). Last Bastion's Tower moves Horde cards only.
+  const movers = isBastion(s) ? [] : isSolo(s) ? [c] : livingTaoists(s).filter((x) => x.color !== c && x.tile != null && !x.underground).map((x) => x.color)
   let mover: Color | null = null
   let moverTo: TileIdx | null = null
   let moverValue = -Infinity
@@ -173,7 +173,7 @@ function pavilionOptions(s: GameState, c: Color): Array<{ params: HelpParams; va
       }
     }
   }
-  if (isSolo(s) && mover == null) return []
+  if (isSolo(s) && mover == null && !isBastion(s)) return []
   const out: Array<{ params: HelpParams; value: number }> = []
   for (const g of ghostsInPlay(s)) {
     if (isSkeleton(g.ghost.card)) continue
@@ -184,10 +184,12 @@ function pavilionOptions(s: GameState, c: Color): Array<{ params: HelpParams; va
       const buddha = s.boards[to.board].buddhas[to.space]
       let v: number
       if (g.card.incarnation) {
-        if (g.card.incarnation === 'uncatchable' && buddha) v = 25
+        // (Ghost Stories' Uncatchable can only be exorcised on a Buddha; Last Bastion's Kraal is a plain Warlord.)
+        const uncatchable = g.card.incarnation === 'uncatchable' && !isBastion(s)
+        if (uncatchable && buddha) v = 25
         else if (g.card.incarnation === 'howlingNightmare' && !s.boards[OPP[to.board]].spaces[to.space] && s.boards[OPP[from.board]].spaces[from.space]) v = 20
         else continue
-        if (buddha && g.card.incarnation !== 'uncatchable') v -= W.buddhaOnBoard
+        if (buddha && !uncatchable) v -= W.buddhaOnBoard
       } else if (buddha) {
         v = removalValue(s, from, h) - W.buddhaOnBoard
       } else {
@@ -220,12 +222,23 @@ export function helpOptions(s: GameState, c: Color, tile: TileIdx): Array<{ para
       const need = colourNeeds(s)
       const score = (col: TaoColor | null) => (col ? (need[col] > 0 ? W.circle * (1 + Math.min(4, need[col]) * 0.5) : W.circle * 0.5) : 0)
       const cur = vt.circleToken
-      return TAO_COLORS.filter((col) => col !== cur && s.taoSupply[col] > 0)
+      // (Last Bastion's Standard tokens are their own set, always available.)
+      return TAO_COLORS.filter((col) => col !== cur && (isBastion(s) || s.taoSupply[col] > 0))
         .map((col) => ({ params: { kind, color: col } as HelpParams, value: score(col) - score(cur) }))
         .filter((o) => o.value > 0)
     }
-    case 'buddhistTemple':
-      return s.templeBuddhas > 0 ? [{ params: { kind }, value: W.buddhaHeld * (t.buddhas > 0 ? 0.6 : 1) }] : []
+    case 'buddhistTemple': {
+      if (s.templeBuddhas <= 0) return []
+      if (isBastion(s)) {
+        // Last Bastion: the Trap goes straight onto a free space of your Horde board — the one guarding the most valuable line.
+        const free = ([0, 1, 2] as const).map((space) => ({ board: c, space })).filter((r) => !ghostAt(s, r) && !s.boards[c].buddhas[r.space])
+        if (free.length === 0) return []
+        const guard = (r: GhostRef) => lineOf(r).reduce((n, i) => n + (W.tileHaunted[s.village[i]!.kind] ?? 0), 0)
+        const best = [...free].sort((a, b) => guard(b) - guard(a))[0]!
+        return [{ params: { kind, space: best }, value: W.buddhaHeld }]
+      }
+      return [{ params: { kind }, value: W.buddhaHeld * (t.buddhas > 0 ? 0.6 : 1) }]
+    }
     case 'cemetery': {
       const dead = COLORS.filter((x) => !s.boards[x].neutral && !s.taoists[x].alive && !s.taoists[x].deadForever)
       if (isBastion(s)) {

@@ -36,8 +36,15 @@ export function setupProblem(config: GameConfig): string | null {
   if (players.length === 2 && OPPOSITE[players[0]!] !== players[1]) {
     return 'In a 2 player game, the players must sit facing each other (red & green, or blue & yellow).'
   }
+  if (isBastion(config)) {
+    const heroes = players.map((c) => config.powers?.[c]).filter((p): p is PowerId => !!p)
+    if (new Set(heroes).size !== heroes.length) return 'Two players cannot play the same Hero.'
+  }
   return null
 }
+
+/** Last Bastion's 8 Hero boards (one per Ghost Stories power). */
+const ALL_HEROES: readonly PowerId[] = Object.values(POWERS_BY_COLOR).flat()
 
 export function createGame(config: GameConfig): GameState {
   const problem = setupProblem(config)
@@ -68,12 +75,23 @@ export function createGame(config: GameConfig): GameState {
     ladder: !!config.blackSecret,
   }))
 
-  // --- Boards: random side each (Ghost Stories solo: red shows the Dance of the Spires). ---
+  // --- Boards. Ghost Stories: a random side each (solo: red shows the Dance of the Spires).
+  // Last Bastion: each player takes any of the 8 Hero boards, chosen or at random, no two alike;
+  // a neutral board has no Hero (it gets one of the rest, never used or shown).
   const boards = {} as Record<Color, PlayerBoard>
+  let heroPool = ALL_HEROES.filter((p) => !players.some((c) => config.powers?.[c] === p))
   for (const c of COLORS) {
     let power: PowerId
     const forced = config.powers?.[c]
-    if (!bastion && solo && c === 'red') power = 'danceOfTheSpires'
+    if (bastion) {
+      if (forced && players.includes(c)) power = forced
+      else {
+        let i: number
+        ;[rng, i] = nextInt(rng, heroPool.length)
+        power = heroPool[i]!
+        heroPool = heroPool.filter((p) => p !== power)
+      }
+    } else if (solo && c === 'red') power = 'danceOfTheSpires'
     else if (forced && POWERS_BY_COLOR[c].includes(forced)) power = forced
     else {
       let side: number
@@ -220,7 +238,9 @@ export function createGame(config: GameConfig): GameState {
   })
   s.events.push({
     kind: 'setup',
-    text: `${bastion ? 'Heroes' : 'Powers'}: ${COLORS.map((c) => `${COLOR_NAME[c]} — ${powerName(config, boards[c].power)}${boards[c].neutral ? ' (neutral)' : ''}`).join('; ')}.`,
+    text: bastion
+      ? `Heroes: ${players.map((c) => `${COLOR_NAME[c]} — ${powerName(config, boards[c].power)}`).join('; ')}.`
+      : `Powers: ${COLORS.map((c) => `${COLOR_NAME[c]} — ${powerName(config, boards[c].power)}${boards[c].neutral ? ' (neutral)' : ''}`).join('; ')}.`,
   })
   s.events.push({ kind: 'setup', text: `${bastion ? 'Bastion' : 'Village'}: ${village.map((t) => tileName(config, t.kind)).join(', ')}.` })
 

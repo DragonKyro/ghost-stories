@@ -29,6 +29,9 @@ const WORDS: Rule[] = [
   [/\bTao die\b/g, 'Combat die'],
   [/\b[Cc]urse die\b/g, 'Corruption die'],
   [/\bTao supply\b/g, 'Equipment reserve'],
+  // The Corruption die's Equipment face takes 1 token (flow.ts#curseFace), not all of them.
+  [/\blose all Tao tokens\b/g, 'lose 1 Equipment token'],
+  [/\bDiscard all your Tao tokens\b/g, 'Discard 1 Equipment token'],
   [/\bTao\b/g, 'Equipment'],
   [/\bQi\b/g, 'Life'],
   [/\bYin-Yang\b/g, 'Call to Arms'],

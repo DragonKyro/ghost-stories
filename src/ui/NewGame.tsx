@@ -193,7 +193,7 @@ export function NewGame() {
                     <Segmented small value={p.kind} options={KIND_OPTIONS} onChange={(k) => setKind(i, k)} />
                   </div>
                   <div className="gs-ng-power">
-                    <PowerPicker variant={variant} color={p.color} value={power ?? null} disabled={forced} onChange={(v) => setPower(p.color, v)} />
+                    <PowerPicker variant={variant} color={p.color} value={power ?? null} disabled={forced} taken={others.map((o) => powers[o]).filter((x): x is PowerId => !!x)} onChange={(v) => setPower(p.color, v)} />
                   </div>
                   {players.length > 1 ? (
                     <button className="gs-ng-remove" onClick={() => removePlayer(i)} aria-label={`Remove ${COLOR_NAME[p.color]}`} title="Remove this player">
@@ -308,7 +308,8 @@ export function NewGame() {
                 ))}
               </select>
             </label>
-            {neutral.map((c) => {
+            {/* Last Bastion: a neutral board has no Hero. */}
+            {!bastion && neutral.map((c) => {
               const forced = !bastion && solo && c === 'red'
               return (
                 <label key={c} className="gs-ng-row" style={colorVars(c)}>
@@ -364,23 +365,32 @@ function Segmented<T extends string>({
   )
 }
 
-/** Which side of a board is up: random, or one of its two powers/heroes. */
+/** All 8 Last Bastion heroes, in board order. */
+const ALL_HEROES: readonly PowerId[] = Object.values(POWERS_BY_COLOR).flat()
+
+/**
+ * Ghost Stories: which side of a board is up — random, or one of its two
+ * powers. Last Bastion: any of the 8 heroes (not one another player took).
+ */
 function PowerPicker({
   variant,
   color,
   value,
   disabled,
+  taken = [],
   onChange,
 }: {
   variant: GameVariant
   color: Color
   value: PowerId | null
   disabled: boolean
+  taken?: readonly PowerId[]
   onChange: (p: PowerId | null) => void
 }) {
+  const options = variant === 'bastion' ? ALL_HEROES : POWERS_BY_COLOR[color]
   return (
     <span className="gs-ng-powerpick">
-      {value ? <PowerIcon power={value} size={22} /> : <span className="gs-ng-randomicon" aria-hidden>?</span>}
+      {value ? <PowerIcon power={value} color={color} size={22} /> : <span className="gs-ng-randomicon" aria-hidden>?</span>}
       <select
         className="gs-ng-select"
         value={value ?? ''}
@@ -390,9 +400,10 @@ function PowerPicker({
         onChange={(e) => onChange((e.target.value || null) as PowerId | null)}
       >
         <option value="">{variant === 'bastion' ? 'Random hero' : 'Random side'}</option>
-        {POWERS_BY_COLOR[color].map((p) => (
-          <option key={p} value={p}>
+        {options.map((p) => (
+          <option key={p} value={p} disabled={taken.includes(p)}>
             {powerName(variant, p)}
+            {taken.includes(p) ? ' (taken)' : ''}
           </option>
         ))}
       </select>

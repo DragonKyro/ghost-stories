@@ -20,6 +20,7 @@ describe('bastionText', () => {
     ['Green regains their Yin-Yang.', 'Green regains their Call to Arms.'],
     ['All 12 ghost spaces are occupied.', 'All 12 Horde spaces are occupied.'],
     ['A Buddha returns to the Temple.', 'A Trap returns to the Dwarven Quarry.'],
+    ['Red rolls the curse die (Doom Herald): lose all Tao tokens.', 'Red rolls the Corruption die (Doom Herald): lose 1 Equipment token.'],
   ])('%s', (gs, lb) => {
     expect(bastionText(gs)).toBe(lb)
   })

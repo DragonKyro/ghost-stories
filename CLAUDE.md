@@ -60,6 +60,17 @@ Same layering and multiplayer model as the sibling [`catan/`](../catan/) project
 - White Moon: family death curses / rewards and artifacts are our own designs on the summary's hints (Sheng's death haunts a tile, Xiang's kills a villager, one-member families give artifacts — Chang's is Moon Dust). Artifacts are one-shot items used between Yang steps. Pre-saved villagers in 1–3 player games are picked at random.
 - Black Secret: an incarnation that finds no room stays in Wu-Feng's hand as an owed summon (`pendingSummons`) and comes in at the next arrival; it blocks the win meanwhile. The Restore-ladders Mantra picks the first eligible tiles; the pre-saved one-member-family artifact (White Moon, 1–3 players) goes to the first player seat. Curse token effects, Bloody Mantra effects, catacomb board colours / entrances and the token layer mix are our own designs on the summary's rules; the 5 new incarnations and 10 new ghosts aren't printed in the summary (the new ghosts are ours; Wu-Feng draws from the base 10 incarnations).
 
+Last Bastion (`variant: 'bastion'`) follows its rulebook; the Power Description booklet isn't in `docs/`, so tiles / Heroes / Horde boards follow `BASTION_TILE_HELP`, `BASTION_POWER_TEXT` and the card texts. Where the rulebook leaves it open:
+
+- Heroes: any of the 8 at any board, no two alike (`setup.ts#ALL_HEROES`); a neutral board has none.
+- A Hero may decline to win a combat (FAQ); the "dice alone must exorcise" rule is Ghost Stories only.
+- Deck defeat only when a Horde card must be drawn from the empty deck (`flow.ts#arrival`), not when the deck runs out with a Warlord in play.
+- Standard tokens are their own set (not Equipment). A tile in the Grasp of Evil sends its icon-zone figure to the reserve until freed: the Standard keeps its token but doesn't work; a Call to Arms can't use the Standard, the Quarry (Trap at home) or the Trebuchet there (`tiles.ts#graspedFigureProblem`).
+- The Dwarven Quarry places the Trap at once on a free space of the activating Hero's own Horde board; a Warlord arriving on it sends it back to the Quarry (Kraal included — the Ghost Stories Uncatchable rules don't apply).
+- Neutral boards' effects fall on a Hero of the players' choice (`chooseHero` prompt: the Corruption die's Equipment face, the blue board full; Life loss via `qiPayer`).
+- Recurring effects resolve in a fixed order (Kragor, Grasp of Evil advances, Corruption rolls, the Archdaemon) instead of the active player's choice — it doesn't change outcomes in practice.
+- The Corruption die's Equipment face takes 1 token; the green board full discards the deck's bottom card (a Warlord there loses the game).
+
 When you change one of these, update the rulebook's "About this version" topic too.
 
 ## Multiplayer

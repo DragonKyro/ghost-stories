@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { applyAction, createGame, setupProblem } from './engine'
-import { covers } from './exorcism'
+import { covers, ghostRequirement } from './exorcism'
+import { hauntTile, unhaunt } from './ops'
 import { boardPowerActive, isWuFengCard } from './rules'
 import { act, config, game, putGhost, ref, respond, rigCurse, rigDice, tileKindAt, yangFor } from './testUtil'
 import type { GameConfig, GameState } from './types'
@@ -662,10 +663,11 @@ describe('Last Bastion (variant: bastion)', () => {
     expect(s.taoists.red.tile).toBe(1)
 
     // Call to Arms activates a tile even when it is in the Grasp of Evil (haunted).
-    tileKindAt(s, 8, 'circleOfPrayer')
+    tileKindAt(s, 8, 'teaHouse')
     s.village[8]!.haunted = true
-    s = act(s, { type: 'yinYang', by: 'red', use: { kind: 'help', tile: 8, params: { kind: 'circleOfPrayer', color: 'blue' } } })
-    expect(s.village[8]!.circleToken).toBe('blue')
+    const life = s.taoists.green.qi
+    s = act(s, { type: 'yinYang', by: 'red', use: { kind: 'help', tile: 8, params: { kind: 'teaHouse', taoist: 'green' } } })
+    expect(s.taoists.green.qi).toBe(life + 1)
     expect(s.taoists.red.yinYang).toBe(false)
   })
 
@@ -796,3 +798,138 @@ function finishYin(s: GameState): GameState {
 function yangFor2(s: GameState): GameState {
   return s
 }
+
+describe('Last Bastion rules audit', () => {
+  const lb = (patch: Partial<GameConfig> = {}) => finishYin(createGame(config({ variant: 'bastion', ...patch })))
+  const duoSeats = { red: 'human', blue: 'neutral', green: 'human', yellow: 'neutral' } as const
+
+  it('setup: any Hero at any board, no two alike; a neutral board has no Hero', () => {
+    const s = createGame(config({ variant: 'bastion', powers: { red: 'strengthOfMountain', blue: 'godsFavorite' } }))
+    expect(s.boards.red.power).toBe('strengthOfMountain')
+    expect(s.boards.blue.power).toBe('godsFavorite')
+    const all = (['red', 'blue', 'green', 'yellow'] as const).map((c) => s.boards[c].power)
+    expect(new Set(all).size).toBe(4)
+    expect(setupProblem(config({ variant: 'bastion', powers: { red: 'secondWind', blue: 'secondWind' } }))).toMatch(/same Hero/)
+    const duo = createGame(config({ variant: 'bastion', seats: { ...duoSeats } }))
+    const heroes = duo.events.find((e) => e.text.startsWith('Heroes:'))!.text
+    expect(heroes).toMatch(/Red — .*; Green — /)
+    expect(heroes).not.toMatch(/Blue|Yellow|neutral/)
+  })
+
+  it('an empty deck is not a defeat until a Horde card must be drawn', () => {
+    let s = yangFor(lb(), 'red')
+    putGhost(s, ref('red', 0), 'lb-wf-vampireLord')
+    s.deck = []
+    s = act(s, { type: 'move', by: 'red', to: 1 })
+    expect(s.phase).toBe('yang')
+    expect(s.outcome).toBeNull()
+    // Blue's Horde phase draws from the empty deck: now it is lost.
+    s = act(s, { type: 'endTurn', by: 'red' })
+    expect(s.outcome).toEqual({ result: 'loss', reason: 'deckExhausted' })
+  })
+
+  it('a Hero may choose not to win a combat (Ghost Stories still forces it)', () => {
+    for (const variant of ['bastion', 'ghostStories'] as const) {
+      let s = yangFor(variant === 'bastion' ? lb() : createGame(config()), 'red')
+      s.taoists.red.tile = 0
+      putGhost(s, ref('red', 0), variant === 'bastion' ? 'lb-red-6' : 'red-6')
+      rigDice(s, ['red', 'red', 'red'])
+      s = act(s, { type: 'exorcise', by: 'red', targets: [ref('red', 0)] })
+      const decline = () => respond(s, { kind: 'commit', spend: [], crystals: [], exorcise: [], demons: [] })
+      if (variant === 'bastion') expect(decline().boards.red.spaces[0]).not.toBeNull()
+      else expect(decline).toThrow(/must be exorcised/)
+    }
+  })
+
+  it('the Standard has its own tokens, and waits out the Grasp of Evil', () => {
+    let s = yangFor(lb(), 'red')
+    tileKindAt(s, 4, 'circleOfPrayer')
+    s.taoists.red.tile = 4
+    s.taoSupply.green = 0
+    s = act(s, { type: 'help', by: 'red', params: { kind: 'circleOfPrayer', color: 'green' } })
+    expect(s.village[4]!.circleToken).toBe('green')
+    expect(s.taoSupply.green).toBe(0)
+    // In the Grasp of Evil the token stays but does nothing; once the tile is freed it works again.
+    putGhost(s, ref('green', 0), 'lb-green-3')
+    const need = () => ghostRequirement(s, ref('green', 0), 'exorcism').base.green
+    expect(need()).toBe(1)
+    hauntTile(s, 4, 'test')
+    expect(s.village[4]!.circleToken).toBe('green')
+    expect(need()).toBe(2)
+    unhaunt(s, 4, 'test')
+    expect(need()).toBe(1)
+  })
+
+  it('a Call to Arms cannot reach the Standard, Quarry or Trebuchet in the Grasp of Evil (their figure is in the reserve)', () => {
+    const s = yangFor(lb(), 'red')
+    putGhost(s, ref('blue', 0), 'lb-blue-1')
+    const tries: Array<[import('./types').TileKind, import('./actions').HelpParams]> = [
+      ['circleOfPrayer', { kind: 'circleOfPrayer', color: 'red' }],
+      ['buddhistTemple', { kind: 'buddhistTemple', space: ref('red', 0) }],
+      ['taoistAltar', { kind: 'taoistAltar', ghost: ref('blue', 0) }],
+    ]
+    for (const [kind, params] of tries) {
+      const x = structuredClone(s)
+      tileKindAt(x, 8, kind)
+      x.village[8]!.haunted = true
+      expect(() => act(x, { type: 'yinYang', by: 'red', use: { kind: 'help', tile: 8, params } })).toThrow(/reserve/)
+    }
+  })
+
+  it('the Dwarven Quarry puts the Trap on a free space of your own Horde board at once', () => {
+    let s = yangFor(lb(), 'red')
+    tileKindAt(s, 1, 'buddhistTemple')
+    s.taoists.red.tile = 1
+    expect(() => act(s, { type: 'help', by: 'red', params: { kind: 'buddhistTemple' } })).toThrow(/free space/)
+    expect(() => act(s, { type: 'help', by: 'red', params: { kind: 'buddhistTemple', space: ref('blue', 0) } })).toThrow(/own Horde board/)
+    s = act(s, { type: 'help', by: 'red', params: { kind: 'buddhistTemple', space: ref('red', 2) } })
+    expect(s.boards.red.buddhas[2]).toBe(true)
+    expect(s.templeBuddhas).toBe(0)
+  })
+
+  it('no Ghost Stories leftovers: no Taoist Altar restore at the Trebuchet, no Yin-Yang flip', () => {
+    const s = yangFor(lb(), 'red')
+    tileKindAt(s, 1, 'taoistAltar')
+    s.taoists.red.tile = 1
+    s.village[5]!.haunted = true
+    expect(() => act(s, { type: 'help', by: 'red', params: { kind: 'taoistAltar', tile: 5 } })).toThrow(/Monster/)
+    expect(() => act(s, { type: 'yinYang', by: 'red', use: { kind: 'flip', tile: 5 } })).toThrow(/Call to Arms/)
+  })
+
+  it('Blightlord Kraal is a plain Warlord: arriving on the Trap sends it back to the Quarry', () => {
+    let s = yangFor(lb(), 'red')
+    s.boards.green.buddhas[0] = true
+    s.templeBuddhas = 0
+    for (const sp of [1, 2] as const) putGhost(s, ref('green', sp), 'lb-green-2')
+    // Blue draws Kraal (green): the only free green space holds the Trap.
+    s.deck = ['lb-wf-uncatchable', 'lb-red-1', 'lb-red-1', ...s.deck.filter((c) => c !== 'lb-red-1')]
+    s = act(s, { type: 'endTurn', by: 'red' })
+    expect(s.boards.green.spaces[0]?.card).toBe('lb-wf-uncatchable')
+    expect(s.boards.green.buddhas[0]).toBe(false)
+    expect(s.templeBuddhas).toBe(1)
+  })
+
+  it("a neutral board's effects fall on a Hero of the players' choice", () => {
+    // Blue Horde board full on a neutral board: whose figure is laid down?
+    let s = yangFor(lb({ seats: { ...duoSeats } }), 'red')
+    for (const sp of [0, 1, 2] as const) putGhost(s, ref('blue', sp), 'lb-blue-1')
+    s = act(s, { type: 'endTurn', by: 'red' })
+    expect(s.prompt?.kind).toBe('chooseHero')
+    s = respond(s, { kind: 'chooseHero', taoist: 'green' })
+    expect(s.taoists.green.immobilized).toBe(true)
+    expect(s.taoists.red.immobilized).toBeFalsy()
+
+    // The Corruption die's Equipment face on a neutral board: who discards?
+    let y = yangFor(lb({ seats: { ...duoSeats } }), 'green')
+    for (const sp of [0, 1, 2] as const) putGhost(y, ref('yellow', sp), 'lb-yellow-1')
+    y.taoists.red.tao.red = 2
+    y.taoists.green.tao.green = 2
+    rigCurse(y, ['loseTao'])
+    y = act(y, { type: 'endTurn', by: 'green' })
+    expect(y.prompt?.kind).toBe('chooseHero')
+    expect(y.events.some((e) => /Corruption die.*lose 1 Equipment token/.test(e.text))).toBe(true)
+    y = respond(y, { kind: 'chooseHero', taoist: 'red' })
+    expect(y.taoists.red.tao.red).toBe(1)
+    expect(y.taoists.green.tao.green).toBe(2)
+  })
+})

@@ -137,7 +137,10 @@ export function hauntTile(s: GameState, tile: TileIdx, why: string): boolean {
     if (wmHauntAbsorbed(s, tile, why)) return false
   }
   t.haunted = true
-  if (t.circleToken) {
+  // Ghost Stories: the Tao token on the Circle goes back to the supply. Last
+  // Bastion: the Standard (with its token) waits in the reserve and comes back
+  // when the tile is freed; it doesn't work meanwhile (exorcism.ts).
+  if (t.circleToken && !isBastion(s)) {
     s.taoSupply[t.circleToken] += 1
     t.circleToken = null
   }
@@ -198,6 +201,12 @@ export function loseQi(s: GameState, board: Color, why: string): void {
   }
   // "Any loss of Qi points must be taken by a player of your choice."
   ask(s, { kind: 'qiPayer', owner: decider(s), options, board, why })
+}
+
+/** Last Bastion: lay a Hero's figure down — standing up replaces their next movement. */
+export function layDown(s: GameState, c: Color, why: string): void {
+  s.taoists[c].immobilized = true
+  ev(s, 'note', `${COLOR_NAME[c]}'s figure is laid down (${why}): standing up replaces their next movement.`, { color: c })
 }
 
 export function gainQi(s: GameState, c: Color, n: number, why: string): void {
@@ -292,7 +301,7 @@ export function placeCard(s: GameState, card: string, ref: GhostRef): void {
       ev(s, 'buddha', `${def.name} arrives on a Buddha (${where}) and is destroyed. The Buddha returns to the Temple.`, { ref, card })
       return
     }
-    if (def.incarnation !== 'uncatchable') {
+    if (def.incarnation !== 'uncatchable' || isBastion(s)) {
       b.buddhas[ref.space] = false
       s.templeBuddhas += 1
       ev(s, 'buddha', `The Buddha on ${where} returns to the Temple: incarnations ignore Buddhas.`, { ref })
@@ -313,8 +322,9 @@ export function placeCard(s: GameState, card: string, ref: GhostRef): void {
   if (def.incarnation === 'nameless') {
     const circle = s.village.find((t) => t.kind === 'circleOfPrayer')
     if (circle?.circleToken) {
-      s.taoSupply[circle.circleToken] += 1
-      ev(s, 'note', `Nameless discards the ${circle.circleToken} Tao token on the Circle of Prayer.`)
+      // (Last Bastion's Standard tokens are their own set, not Equipment.)
+      if (!isBastion(s)) s.taoSupply[circle.circleToken] += 1
+      ev(s, 'note', `${def.name} discards the ${circle.circleToken} Tao token on the Circle of Prayer.`)
       circle.circleToken = null
     }
   }
@@ -362,7 +372,7 @@ export function moveGhost(s: GameState, from: GhostRef, to: GhostRef): void {
       ev(s, 'buddha', `${def.name} is moved onto a Buddha (${where}) and destroyed. The Buddha returns to the Temple.`, { ref: to, card: g.card })
       return
     }
-    if (def.incarnation !== 'uncatchable') {
+    if (def.incarnation !== 'uncatchable' || isBastion(s)) {
       dest.buddhas[to.space] = false
       s.templeBuddhas += 1
       ev(s, 'buddha', `The Buddha on ${where} returns to the Temple.`, { ref: to })
@@ -432,7 +442,10 @@ export function checkLoss(s: GameState): boolean {
   if (livingTaoists(s).length === 0) reason = 'allDead'
   else if (hauntedCount(s) >= 3) reason = 'thirdHaunting'
   else if (s.whiteMoon && s.whiteMoon.dead.length >= 12) reason = 'villagers'
-  else if (s.deck.length === 0 && (incarnationInPlay(s) || pendingIncarnation(s) || (s.blackSecret?.pendingSummons ?? 0) > 0)) reason = 'deckExhausted'
+  // Ghost Stories: the deck is exhausted the moment its last card is drawn with an incarnation
+  // left. Last Bastion loses only when a Horde card must be drawn from the empty deck (flow.ts#arrival).
+  else if (!isBastion(s) && s.deck.length === 0 && (incarnationInPlay(s) || pendingIncarnation(s) || (s.blackSecret?.pendingSummons ?? 0) > 0))
+    reason = 'deckExhausted'
   if (!reason) return false
   endGame(s, { result: 'loss', reason })
   return true

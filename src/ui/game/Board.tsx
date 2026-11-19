@@ -269,11 +269,14 @@ function PlayerPlate({ game, color, compact = false, fx }: { game: GameState; co
                 : who ?? ''}
         </span>
       </div>
-      <div className={`gs-power ${powerOn ? '' : 'off'}`} title={`${powerName(game, b.power)}: ${powerText(game, b.power)}`}>
-        <PowerIcon power={b.power} size={22} />
-        <span>{powerName(game, b.power)}</span>
-        {!powerOn && <InactiveMarker size={14} title="Power inactive" />}
-      </div>
+      {/* A Last Bastion neutral board has no Hero. */}
+      {!(bastion && b.neutral) && (
+        <div className={`gs-power ${powerOn ? '' : 'off'}`} title={`${powerName(game, b.power)}: ${powerText(game, b.power)}`}>
+          <PowerIcon power={b.power} color={color} size={22} />
+          <span>{powerName(game, b.power)}</span>
+          {!powerOn && <InactiveMarker size={14} title="Power inactive" />}
+        </div>
+      )}
       {b.neutral ? (
         <div className="gs-row">
           {bastion ? (
@@ -336,11 +339,11 @@ function CompactPlate({ game, color, powerOn, who, fx }: { game: GameState; colo
     <div
       className={`gs-plate compact ${game.active === color ? 'active' : ''} ${!t.alive && !b.neutral ? 'dead' : ''}`}
       style={{ ...colorVars(color), flex: 1 }}
-      title={`${COLOR_NAME[color]}${who ? ` (${who})` : ''} — ${powerName(game, b.power)}`}
+      title={`${COLOR_NAME[color]}${who ? ` (${who})` : ''}${isBastion(game) && b.neutral ? ' — neutral' : ` — ${powerName(game, b.power)}`}`}
     >
       <Fx fx={fx} kind={fx.plates.get(color)} />
       <div className="gs-plate-head">
-        <PowerIcon power={b.power} size={14} style={{ opacity: powerOn ? 1 : 0.35 }} />
+        {!(isBastion(game) && b.neutral) && <PowerIcon power={b.power} color={color} size={14} style={{ opacity: powerOn ? 1 : 0.35 }} />}
         <span>{COLOR_NAME[color]}</span>
       </div>
       {b.neutral ? (
