@@ -12,7 +12,7 @@
 import type { Action, HelpParams } from '@/game/actions'
 import { applyAction } from '@/game/engine'
 import { adjacentTiles, facedSpaces, isAdjacent } from '@/game/geometry'
-import { ghostAt, hasPower, livingTaoists } from '@/game/rules'
+import { ghostAt, hasPower, isBastion, livingTaoists } from '@/game/rules'
 import { beforeMove, step2Problem } from '@/game/yang'
 import type { Color, GameState, GhostRef } from '@/game/types'
 import { CENTER_TILE } from '@/game/types'
@@ -83,10 +83,12 @@ export function candidatePlans(s: GameState, c: Color): Candidate[] {
       out.push(...twin.sort((a, b) => b.pre - a.pre).slice(0, 2))
     }
   }
-  // Yin-Yang: restore a tile, or a villager's help from anywhere.
+  // Yin-Yang / Call to Arms: restore a tile, or a villager's / tile's help from anywhere.
   if (t.yinYang && !t.underground) {
-    const haunted = s.village.filter((x) => x.haunted)
-    for (const h of haunted.slice(0, 3)) out.push({ plan: [{ type: 'yinYang', by: c, use: { kind: 'flip', tile: h.idx } }], pre: -W.yinYang + (haunted.length >= 2 ? 40 : 10) })
+    if (!isBastion(s)) {
+      const haunted = s.village.filter((x) => x.haunted)
+      for (const h of haunted.slice(0, 3)) out.push({ plan: [{ type: 'yinYang', by: c, use: { kind: 'flip', tile: h.idx } }], pre: -W.yinYang + (haunted.length >= 2 ? 40 : 10) })
+    }
     const remote: Candidate[] = []
     for (let tile = 0; tile < 9; tile++) {
       for (const h of helpOptions(s, c, tile)) {

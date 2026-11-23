@@ -148,11 +148,94 @@ const INCARNATIONS: GhostCard[] = [
     'On arrival, discards the Tao token on the Circle of Prayer. While in play, white die faces are not wild.'),
 ]
 
-/** Black Secret skeleton tokens: resistance 1 in the colour of their board, no abilities. */
-export const SKELETON_IDS = ['skeleton', 'bones'] as const
+// ---------------------------------------------------------------------------
+// Last Bastion — 50 Monster cards (10 per colour) and 10 Warlord cards
+// ---------------------------------------------------------------------------
+
+const BASTION_TEMPLATES: Template[] = [
+  ...COLOR_TEMPLATES,
+  (c, n, name) => ghost(`lb-${c}-${n}`, name, c, 2, [a('addGhost')], [], [a('rewardTao1')]),
+]
+
+const BASTION_COLOR_NAMES: Record<'red' | 'green' | 'blue' | 'yellow', { special: AbilityKind; names: string[] }> = {
+  red: {
+    special: 'powerBlocker',
+    names: ['Hellhound', 'Incubus', 'Butcher', 'magma Golem', 'Newborn Vampire', 'Chaos Berserker', 'Demon Flayer', 'Cinder Gargoyle', 'Blood Fiend', 'Infernal Herald'].map(
+      (s) => s[0]!.toUpperCase() + s.slice(1),
+    ),
+  },
+  green: {
+    special: 'dieCaptor',
+    names: ['Goblin Scout', 'Orc Raider', 'Orc Shaman', 'Cave Troll', 'Venom Wyvern', 'Briar Beast', 'Swamp Basilisk', 'Feral Ogre', 'Spore Goliath', 'Warchief Grimgor'],
+  },
+  blue: {
+    special: 'diceImmune',
+    names: ['Hollow Summoner', 'Frost Wraith', 'Siren of the Deep', 'Ice Revenant', 'Abyssal Leviathan', 'Mist Banshee', 'Rime Colossus', 'Tide Stalker', 'Glacial Lich', 'Tempest Djinn'],
+  },
+  yellow: {
+    special: 'taoBlocker',
+    names: ['Risen Thrall', 'Carrion Ghoul', 'Plague Bearer', 'Crypt Stalker', 'Bone Catapult', 'Dread Necromancer', 'Blight Abomination', 'Flesh Golem', 'Cursed Mummy', 'Lich Acolyte'],
+  },
+}
+
+const BASTION_COLORED: GhostCard[] = (Object.keys(BASTION_COLOR_NAMES) as Array<keyof typeof BASTION_COLOR_NAMES>).flatMap((c) =>
+  BASTION_TEMPLATES.map((t, i) => {
+    const base = t(c, i + 1, BASTION_COLOR_NAMES[c].names[i]!, BASTION_COLOR_NAMES[c].special)
+    return { ...base, id: `lb-${c}-${i + 1}` }
+  }),
+)
+
+const BASTION_BLACK: GhostCard[] = [
+  ghost('lb-black-1', 'Dark Acolyte', 'black', 1, [], [a('tormentor')], [a('curse')]),
+  ghost('lb-black-2', 'Shadow Assassin', 'black', 2, [a('addGhost')], [a('haunter')], []),
+  ghost('lb-black-3', 'Doom Herald', 'black', 2, [a('loseQi', true)], [], [a('rewardQiOrYinYang')]),
+  ghost('lb-black-4', 'Obsidian Gargoyle', 'black', 2, [], [a('taoBlocker')], [a('rewardTao1')]),
+  ghost('lb-black-5', 'Chain Tormentor', 'black', 2, [], [a('dieCaptor')], [a('loseTao')]),
+  ghost('lb-black-6', 'Nefarious Cannon', 'black', 3, [a('hauntTile')], [a('tormentor')], [a('curse')]),
+  ghost('lb-black-7', 'High Inquisitor', 'black', 3, [], [a('powerBlocker', true)], [a('rewardTao2')]),
+  ghost('lb-black-8', 'Siege Behemoth', 'black', 3, [a('haunterDirect')], [a('haunter')], [a('loseTao'), a('rewardQiOrYinYang')]),
+  ghost('lb-black-9', 'Void Golem', 'black', 3, [], [a('diceImmune')], [a('rewardTao2')]),
+  ghost('lb-black-10', 'Baleful Sorcerer', 'black', 2, [a('loseQi')], [a('haunter')], [a('rewardTao1')]),
+]
+
+function warlord(
+  id: IncarnationId,
+  name: string,
+  color: TaoColor,
+  resistance: Partial<Record<TaoColor, number>>,
+  left: Ability[],
+  center: Ability[],
+  right: Ability[],
+  text: string,
+): GhostCard {
+  return { id: `lb-wf-${id}`, name, color, resistance, left, center, right, incarnation: id, text }
+}
+
+const WARLORDS: GhostCard[] = [
+  warlord('howlingNightmare', 'Gorgoroth the Dread', 'red', { red: 4 }, [], [], [REWARD],
+    'Can only be combated while the Horde space facing it on the opposite board is empty.'),
+  warlord('uncatchable', 'Blightlord Kraal', 'green', { green: 4 }, [a('addGhost')], [], [REWARD],
+    'On arrival, draws another Horde card into play. Reward: 1 Life token and 1 Call to Arms token.'),
+  warlord('deathArmy', 'Archdaemon of Torment', 'black', { black: 4 }, [], [], [a('curse'), REWARD],
+    'While in play, the active player rolls the Corruption die every turn, and again when it is vanquished.'),
+  warlord('forgottenOnes', 'Grand Magister Malakor', 'yellow', { yellow: 4 }, [], [], [REWARD],
+    'While in play, no Hero can use their Hero power.'),
+  warlord('bonecracker', 'Kragor the Skullcrusher', 'blue', { blue: 4 }, [], [], [REWARD],
+    'On arrival every Hero discards 1 Equipment token; its host discards another at the start of each of its Horde phases.'),
+  warlord('darkMistress', 'Priestess of the Baleful Queen', 'black', { black: 4 }, [], [a('taoBlocker')], [REWARD],
+    'While in play, Equipment tokens cannot be used in Combat (the Standard still works).'),
+  warlord('creepingHorror', 'Colossus of the Abyss', 'green', { green: 4 }, [], [a('dieCaptor')], [REWARD],
+    'Locks 1 Combat die until vanquished: Combat actions roll one die fewer.'),
+  warlord('vampireLord', 'Crimson Warlord', 'red', { red: 4 }, [], [a('haunter')], [REWARD],
+    'Advances a Grasp of Evil figure toward the Bastion each Horde phase (resistance 4).'),
+  warlord('hopeKiller', 'Herald of Despair', 'black', { red: 2, blue: 2, green: 2, yellow: 2 }, [], [], [a('curse'), REWARD],
+    'Resistance 8: two of each colour. Roll the Corruption die when vanquished.'),
+  warlord('nameless', 'Avatar of the Baleful Queen', 'black', { red: 1, blue: 1, green: 1, yellow: 1, black: 1 }, [], [], [REWARD],
+    'On arrival, discards the token on the Standard. While in play, white Combat die faces are not wild.'),
+]
 
 const ALL = new Map<string, GhostCard>()
-for (const card of [...BASE_COLORED, ...BASE_BLACK, ...WHITE_MOON, ...BLACK_SECRET, ...INCARNATIONS]) {
+for (const card of [...BASE_COLORED, ...BASE_BLACK, ...WHITE_MOON, ...BLACK_SECRET, ...INCARNATIONS, ...BASTION_COLORED, ...BASTION_BLACK, ...WARLORDS]) {
   if (ALL.has(card.id)) throw new Error(`duplicate ghost id ${card.id}`)
   ALL.set(card.id, card)
 }
@@ -189,7 +272,11 @@ export const baseGhostIds = (): string[] => [...BASE_COLORED, ...BASE_BLACK].map
 export const whiteMoonGhostIds = (): string[] => WHITE_MOON.map((c) => c.id)
 export const blackSecretGhostIds = (): string[] => BLACK_SECRET.map((c) => c.id)
 export const incarnationIds = (): string[] => INCARNATIONS.map((c) => c.id)
+export const bastionMonsterIds = (): string[] => [...BASTION_COLORED, ...BASTION_BLACK].map((c) => c.id)
+export const bastionWarlordIds = (): string[] => WARLORDS.map((c) => c.id)
 export const allCards = (): GhostCard[] => [...ALL.values()]
+/** Every Ghost Stories card (base game and expansions), in catalogue order — the Last Bastion cards come after them. */
+export const ghostStoriesCards = (): GhostCard[] => [...BASE_COLORED, ...BASE_BLACK, ...WHITE_MOON, ...BLACK_SECRET, ...INCARNATIONS]
 
 export function totalResistance(card: GhostCard): number {
   return Object.values(card.resistance).reduce((n, v) => n + (v ?? 0), 0)

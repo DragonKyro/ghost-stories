@@ -16,6 +16,7 @@ import {
   seatsHeldBy,
   setBlackSecretEdit,
   setDifficultyEdit,
+  setVariantEdit,
   setWhiteMoonEdit,
 } from './lobby'
 
@@ -244,5 +245,30 @@ describe('lobbyToConfig', () => {
     expect(lobbySeatUuids(l)).toEqual({ red: HOST, blue: null, green: null, yellow: null, wufeng: GUEST })
     const aiWuFeng = edit(l, (x) => hostSetSeatEdit(x, 'wufeng', 'ai'))
     expect(lobbyToConfig(aiWuFeng).blackSecret).toEqual({ wuFeng: 'ai', side: 'b' })
+  })
+
+  it('Last Bastion lobby: disables expansions, clears Wu-Feng, and sets variant: bastion in config', () => {
+    let l = edit(
+      base(),
+      (x) => hostSetSeatEdit(x, 'blue', 'ai'),
+      (x) => hostSetSeatEdit(x, 'green', 'ai'),
+      (x) => hostSetSeatEdit(x, 'yellow', 'ai'),
+      (x) => setWhiteMoonEdit(x, { enabled: true }),
+      (x) => setBlackSecretEdit(x, { enabled: true }),
+      (x) => claimSeatEdit(x, 'wufeng', GUEST, 'Gus'),
+      (x) => setVariantEdit(x, 'bastion'),
+    )
+    expect(l.variant).toBe('bastion')
+    expect(l.whiteMoon.enabled).toBe(false)
+    expect(l.blackSecret.enabled).toBe(false)
+    expect(l.wuFeng.kind).toBe('open')
+    expect(setWhiteMoonEdit(l, { enabled: true })).toBeNull()
+    expect(setBlackSecretEdit(l, { enabled: true })).toBeNull()
+    expect(lobbyToConfig(l)).toEqual({
+      variant: 'bastion',
+      difficulty: 'normal',
+      seats: { red: 'human', blue: 'ai', green: 'ai', yellow: 'ai' },
+      seed: 42,
+    })
   })
 })

@@ -18,12 +18,16 @@ import {
   borrowablePowers,
   boardName,
   COLOR_NAME,
+  combatSpacesFor,
   exorcismBlocker,
   exorcismDice,
   ghostAt,
   hasPower,
+  isBastion,
+  powerName,
   POWER_NAME,
   shadowOnTile,
+  tileName,
   TILE_NAME,
 } from './rules'
 import { doTileAction } from './tiles'
@@ -54,13 +58,16 @@ export function applyYang(s: GameState, a: YangAction): void {
       const problem = step2Problem(s, 'help')
       if (problem) throw new Error(problem)
       if (t.underground) throw new Error('No villager can help you in the catacombs (the Yin-Yang still works).')
-      const tile = s.village[t.tile]!
-      if (tile.haunted) throw new Error(`${TILE_NAME[tile.kind]} is haunted: its villager is gone.`)
-      if (tile.kind !== a.params.kind) throw new Error(`You are standing on the ${TILE_NAME[tile.kind]}.`)
+      const tile = s.village[t.tile!]!
+      if (tile.haunted) throw new Error(`${tileName(s, tile.kind)} is haunted: its action is blocked.`)
+      if (tile.kind !== a.params.kind) throw new Error(`You are standing on the ${tileName(s, tile.kind)}.`)
       if (shadowOnTile(s, tile.idx)) throw new Error('The Shadow of Wu-Feng blocks this tile.')
-      s.yang.moved = true
+      if (!isBastion(s)) s.yang.moved = true
       s.yang.helps += 1
-      ev(s, 'help', `${COLOR_NAME[a.by]} asks the villager of the ${TILE_NAME[tile.kind]} for help.`, { color: a.by, tile: tile.idx })
+      ev(s, 'help', `${COLOR_NAME[a.by]} ${isBastion(s) ? `activates the ${tileName(s, tile.kind)}` : `asks the villager of the ${TILE_NAME[tile.kind]} for help`}.`, {
+        color: a.by,
+        tile: tile.idx,
+      })
       return doTileAction(s, a.by, tile.idx, a.params)
     }
     case 'exorcise':
@@ -109,7 +116,7 @@ export function step2Problem(s: GameState, kind: 'help' | 'exorcise' | 'save'): 
     if (isEx && ex === 0) return null
     if (!isEx && help + save === 0) return null
   }
-  if (hasPower(s, c, 'secondWind')) {
+  if (!isBastion(s) && hasPower(s, c, 'secondWind')) {
     if (isEx && help + save === 0 && ex < 2) return null
     if (kind === 'help' && ex === 0 && save === 0 && help < 2) return null
     if (kind === 'save' && ex === 0 && help === 0 && save < 2) return null
@@ -120,7 +127,9 @@ export function step2Problem(s: GameState, kind: 'help' | 'exorcise' | 'save'): 
 /** "Before your move": no move yet and nothing from steps 2–3. */
 export function beforeMove(s: GameState): boolean {
   const y = s.yang
-  return !!y && !y.moved && !y.step3 && y.helps + y.exorcisms + y.saves + y.demonExorcisms === 0
+  if (!y) return false
+  if (isBastion(s)) return !y.moved && !y.step3
+  return !y.moved && !y.step3 && y.helps + y.exorcisms + y.saves + y.demonExorcisms === 0
 }
 
 function enterStep3(s: GameState): void {
@@ -136,6 +145,7 @@ function enterStep3(s: GameState): void {
 export function canMove(s: GameState): boolean {
   const y = s.yang
   if (!y) return false
+  if (isBastion(s)) return !y.moved && !y.step3
   if (beforeMove(s)) return true
   // Black Secret: the Dance of the Peaks "allows you to move twice and change levels after each movement".
   return !!s.blackSecret && hasPower(s, s.active, 'danceOfTheSpires') && y.moves === 1 && y.helps + y.exorcisms + y.saves + y.demonExorcisms === 0 && !y.step3
@@ -143,9 +153,16 @@ export function canMove(s: GameState): boolean {
 
 function move(s: GameState, c: Color, to: number, carryFrom: number | null): void {
   const y = s.yang!
-  const fly = hasPower(s, c, 'danceOfTheSpires')
-  if (!canMove(s)) throw new Error('You can only move once, as the first step of your Yang phase.')
+  const fly = !isBastion(s) && hasPower(s, c, 'danceOfTheSpires')
+  if (!canMove(s)) throw new Error('You can only move once during your turn.')
   const t = s.taoists[c]
+  if (isBastion(s) && t.immobilized) {
+    t.immobilized = false
+    y.moved = true
+    y.moves += 1
+    ev(s, 'move', `${COLOR_NAME[c]} stands back up on the ${tileName(s, s.village[t.tile!]!.kind)} (replacing their movement).`, { color: c, tile: t.tile! })
+    return
+  }
   if (t.underground) {
     bsMoveUnderground(s, c, to)
     y.moves += 1
@@ -165,28 +182,34 @@ function move(s: GameState, c: Color, to: number, carryFrom: number | null): voi
   y.moved = true
   y.moves += 1
   const how = backAndForth ? ' and back' : fly && !isAdjacent(from, to) ? ' (Dance of the Spires)' : ''
-  ev(s, 'move', `${COLOR_NAME[c]} ${backAndForth ? 'flies out' : 'moves to the ' + TILE_NAME[s.village[to]!.kind]}${how}.`, { color: c, tile: to })
+  ev(s, 'move', `${COLOR_NAME[c]} ${backAndForth ? 'flies out' : 'moves to the ' + tileName(s, s.village[to]!.kind)}${how}.`, { color: c, tile: to })
 }
 
 // ---------------------------------------------------------------------------
-// Powers used before the move, and power tokens
+// Powers used before the move (or during the Hero phase in Last Bastion), and power tokens
 // ---------------------------------------------------------------------------
 
 function usePower(s: GameState, c: Color, use: PowerUse): void {
   const y = s.yang!
-  if (!beforeMove(s)) throw new Error(`${POWER_NAME[use.power]} is used before your move.`)
-  if (!hasPower(s, c, use.power)) throw new Error(`You can't use ${POWER_NAME[use.power]} now.`)
-  if (y.usedPowers.includes(use.power)) throw new Error(`${POWER_NAME[use.power]} has already been used this turn.`)
+  const bastion = isBastion(s)
+  if (!bastion && !beforeMove(s)) throw new Error(`${powerName(s, use.power)} is used before your move.`)
+  if (!hasPower(s, c, use.power)) throw new Error(`You can't use ${powerName(s, use.power)} now.`)
+  if (y.usedPowers.includes(use.power)) throw new Error(`${powerName(s, use.power)} has already been used this turn.`)
   switch (use.power) {
     case 'danceOfTheTwinWinds': {
-      if (use.taoist === c) throw new Error('Twin Winds moves another Taoist.')
+      if (!bastion && use.taoist === c) throw new Error('Twin Winds moves another Taoist.')
       const o = s.taoists[use.taoist]
-      if (!o.alive || o.tile == null) throw new Error('That Taoist cannot be moved.')
+      if (!o.alive || o.tile == null) throw new Error('That character cannot be moved.')
+      if (bastion && o.immobilized) {
+        o.immobilized = false
+        ev(s, 'power', `${powerName(s, 'danceOfTheTwinWinds')}: ${COLOR_NAME[use.taoist]} stands back up.`, { color: c })
+        break
+      }
       if (o.underground) {
         bsMoveUnderground(s, use.taoist, use.to, true)
         if (use.climb) bsLevelChange(s, use.taoist)
       } else {
-        if (!isAdjacent(o.tile, use.to)) throw new Error('Twin Winds moves a Taoist 1 space.')
+        if (!isAdjacent(o.tile, use.to)) throw new Error(`${powerName(s, 'danceOfTheTwinWinds')} moves a character 1 space.`)
         if (use.carry) {
           if (!s.whiteMoon) throw new Error('Villagers only move in White Moon.')
           wmCarry(s, use.taoist, o.tile, use.to, o.tile, false)
@@ -194,17 +217,17 @@ function usePower(s: GameState, c: Color, use: PowerUse): void {
         o.tile = use.to
         if (use.climb) bsLevelChange(s, use.taoist)
       }
-      ev(s, 'power', `Dance of the Twin Winds: ${COLOR_NAME[c]} moves ${COLOR_NAME[use.taoist]} to the ${TILE_NAME[s.village[use.to]!.kind]}.`, { color: c })
+      ev(s, 'power', `${powerName(s, 'danceOfTheTwinWinds')}: ${COLOR_NAME[c]} moves ${COLOR_NAME[use.taoist]} to the ${tileName(s, s.village[use.to]!.kind)}.`, { color: c })
       break
     }
     case 'bottomlessPockets':
-      if (takeTao(s, c, use.color) === 0) throw new Error(`No ${use.color} Tao token is left in the supply.`)
-      ev(s, 'power', `Bottomless Pockets: ${COLOR_NAME[c]} takes a ${use.color} Tao token.`, { color: c })
+      if (takeTao(s, c, use.color) === 0) throw new Error(`No ${use.color} token is left in the supply.`)
+      ev(s, 'power', `${powerName(s, 'bottomlessPockets')}: ${COLOR_NAME[c]} takes a ${use.color} Tao token.`, { color: c })
       break
     case 'enfeeblementMantra': {
-      // Black Secret: a blood brother "has the option of placing or moving the same Mantra marker".
+      // Black Secret blood brother OR Last Bastion (Mylfaar) can move the placed Mantra / Enchantment.
       const viaBrother = !(s.boards[c].power === 'enfeeblementMantra' && boardPowerActive(s, c)) && bloodBrotherPower(s, c) === 'enfeeblementMantra'
-      const moving = s.mantra === 'placed' && viaBrother
+      const moving = s.mantra === 'placed' && (viaBrother || bastion)
       if (s.mantra !== 'ready' && !moving) {
         throw new Error(
           s.mantra === 'placed'
@@ -223,14 +246,35 @@ function usePower(s: GameState, c: Color, use: PowerUse): void {
         name = `the ${use.demon}`
       } else {
         const g = use.ghost ? ghostAt(s, use.ghost) : null
-        if (!use.ghost || !g) throw new Error('There is no ghost there.')
+        if (!use.ghost || !g) throw new Error('There is no target there.')
         if (isSkeleton(g.card)) throw new Error('Skeletons are not ghosts: the Mantra goes on a ghost card.')
         if (moving) clearMantra(s)
         g.mantra = true
         name = cardOnBoard(g.card, use.ghost.board).name
       }
       s.mantra = 'placed'
-      ev(s, 'power', `Enfeeblement Mantra ${moving ? 'moved to' : 'on'} ${name}: its resistance drops by 1.`, { color: c, ref: use.ghost })
+      ev(s, 'power', `${bastion ? "Mylfaar's Enchantment" : 'Enfeeblement Mantra'} ${moving ? 'moved to' : 'on'} ${name}: its resistance drops by 1.`, {
+        color: c,
+        ref: use.ghost,
+      })
+      break
+    }
+    case 'secondWind': {
+      if (!bastion) throw new Error('Second Wind is passive in Ghost Stories.')
+      if (y.moved) throw new Error('Teagaan must forego his movement to remove a Grasp of Evil figure.')
+      if (use.tile != null) {
+        const target = s.village[use.tile]
+        if (!target?.haunted) throw new Error('That Bastion tile does not have a Grasp of Evil figure.')
+        unhaunt(s, use.tile, 'Teagaan')
+      } else if (use.ghost) {
+        const g = ghostAt(s, use.ghost)
+        if (!g || !g.figure) throw new Error('That Horde card does not have a Grasp of Evil figure on it.')
+        g.figure = 'card'
+        ev(s, 'power', `Teagaan removes the Grasp of Evil figure from ${cardOnBoard(g.card, use.ghost.board).name}.`, { color: c, ref: use.ghost })
+      } else {
+        throw new Error('Choose a Bastion tile or Horde card with a Grasp of Evil figure.')
+      }
+      y.moved = true
       break
     }
   }
@@ -265,36 +309,39 @@ function exorcise(s: GameState, c: Color, targets: GhostRef[], demons: string[])
   const problem = step2Problem(s, 'exorcise')
   if (problem) throw new Error(problem)
   const t = s.taoists[c]
+  const bastion = isBastion(s)
   if (demons.length > 0 || t.underground) {
     if (targets.length > 0) throw new Error('From the catacombs you can only exorcise demons.')
     s.yang!.moved = true
     s.yang!.demonExorcisms += 1
     return bsExorciseDemons(s, c, demons)
   }
-  if (targets.length === 0) throw new Error('Choose a ghost to exorcise.')
-  if (targets.length > 2) throw new Error('At most two ghosts at once (from a corner tile).')
-  if (targets.length === 2 && !isCorner(t.tile!)) throw new Error('Only a Taoist on a corner tile can exorcise two ghosts with one roll.')
-  if (targets.length === 2 && sameRef(targets[0]!, targets[1]!)) throw new Error('Choose two different ghosts.')
-  const faced = new Set(facedSpaces(t.tile!).map(refKey))
+  if (targets.length === 0) throw new Error(bastion ? 'Choose a Monster or Warlord to combat.' : 'Choose a ghost to exorcise.')
+  if (targets.length > 2) throw new Error('At most two targets at once.')
+  const canTwo = isCorner(t.tile!) || (bastion && hasPower(s, c, 'danceOfTheSpires'))
+  if (targets.length === 2 && !canTwo) throw new Error('Only a corner tile (or Twindalli) can target two cards with one roll.')
+  if (targets.length === 2 && sameRef(targets[0]!, targets[1]!)) throw new Error('Choose two different targets.')
+  const faced = new Set(combatSpacesFor(s, c, t.tile!).map(refKey))
   for (const ref of targets) {
-    if (!faced.has(refKey(ref))) throw new Error('You can only exorcise a ghost on a space facing your tile.')
+    if (!faced.has(refKey(ref))) throw new Error(bastion ? 'You can only combat a Horde card on a space you can reach.' : 'You can only exorcise a ghost on a space facing your tile.')
     const blocker = exorcismBlocker(s, ref)
     if (blocker) throw new Error(blocker)
   }
-  s.yang!.moved = true
+  if (!bastion) s.yang!.moved = true
   s.yang!.exorcisms += 1
   const dice = rollDice(s, exorcismDice(s, c))
   const names = targets.map((r) => cardOnBoard(ghostAt(s, r)!.card, r.board).name).join(' and ')
-  ev(s, 'exorcise', `${COLOR_NAME[c]} attempts to exorcise ${names}.`, { color: c })
+  ev(s, 'exorcise', `${COLOR_NAME[c]} ${bastion ? 'enters combat against' : 'attempts to exorcise'} ${names}.`, { color: c })
   openRoll(s, { mode: 'exorcism', actor: c, targets, demons: [], dice, canReroll: hasPower(s, c, 'godsFavorite') })
 }
 
 // ---------------------------------------------------------------------------
-// Step 3: Buddhas
+// Step 3: Buddhas / Trap
 // ---------------------------------------------------------------------------
 
 function placeBuddhas(s: GameState, c: Color, spaces: GhostRef[]): void {
   const t = s.taoists[c]
+  const bastion = isBastion(s)
   if (t.underground) throw new Error('You must face the ghost space from the village.')
   if (spaces.length === 0 || spaces.length > 2) throw new Error('Place one Buddha (two from a corner tile).')
   const ready = t.buddhas - s.yang!.newBuddhas
@@ -304,41 +351,44 @@ function placeBuddhas(s: GameState, c: Color, spaces: GhostRef[]): void {
   const faced = new Set(facedSpaces(t.tile!).map(refKey))
   const keys = new Set<string>()
   for (const ref of spaces) {
-    if (!faced.has(refKey(ref))) throw new Error('Place a Buddha on a space your Taoist faces.')
+    if (bastion ? ref.board !== c : !faced.has(refKey(ref))) throw new Error(bastion ? 'The Trap goes on your own Horde board.' : 'Place a Buddha on a space your Taoist faces.')
     if (ghostAt(s, ref)) throw new Error('A Buddha goes on an empty ghost space.')
     if (s.boards[ref.board].buddhas[ref.space]) throw new Error('There is already a Buddha there.')
     keys.add(refKey(ref))
   }
   if (keys.size !== spaces.length) throw new Error('Choose two different spaces.')
-  enterStep3(s)
+  if (!bastion) enterStep3(s)
   for (const ref of spaces) {
     s.boards[ref.board].buddhas[ref.space] = true
     t.buddhas -= 1
-    ev(s, 'buddha', `${COLOR_NAME[c]} places a Buddha on ${boardName(s, ref.board)} space ${ref.space + 1}.`, { color: c, ref })
+    ev(s, 'buddha', `${COLOR_NAME[c]} places ${bastion ? 'the Trap' : 'a Buddha'} on ${boardName(s, ref.board)} space ${ref.space + 1}.`, { color: c, ref })
   }
 }
 
 // ---------------------------------------------------------------------------
-// Yin-Yang
+// Yin-Yang / Call to Arms
 // ---------------------------------------------------------------------------
 
 function yinYang(s: GameState, c: Color, use: Extract<Action, { type: 'yinYang' }>['use']): void {
   const t = s.taoists[c]
-  if (!t.yinYang) throw new Error('You have no Yin-Yang token.')
+  const bastion = isBastion(s)
+  if (!t.yinYang) throw new Error(bastion ? 'You have no Call to Arms token.' : 'You have no Yin-Yang token.')
   const tile = s.village[use.tile]
   if (!tile) throw new Error('No such tile.')
   if (use.kind === 'flip') {
+    if (bastion) throw new Error('A Call to Arms activates a tile; it does not free one from the Grasp of Evil.')
     if (!tile.haunted) throw new Error('That tile is not haunted.')
     t.yinYang = false
-    ev(s, 'yinYang', `${COLOR_NAME[c]} spends their Yin-Yang to restore the ${TILE_NAME[tile.kind]}.`, { color: c, tile: tile.idx })
-    unhaunt(s, tile.idx, 'Yin-Yang')
+    ev(s, 'yinYang', `${COLOR_NAME[c]} spends their ${bastion ? 'Call to Arms' : 'Yin-Yang'} to restore the ${tileName(s, tile.kind)}.`, { color: c, tile: tile.idx })
+    unhaunt(s, tile.idx, bastion ? 'Call to Arms' : 'Yin-Yang')
     return
   }
-  if (tile.haunted) throw new Error(`${TILE_NAME[tile.kind]} is haunted: its villager is gone.`)
+  // In Last Bastion, Call to Arms can activate a Bastion tile even if it is in the Grasp of Evil.
+  if (tile.haunted && !bastion) throw new Error(`${TILE_NAME[tile.kind]} is haunted: its villager is gone.`)
   if (tile.kind !== use.params.kind) throw new Error('Those are not that tile’s parameters.')
   if (shadowOnTile(s, tile.idx)) throw new Error('The Shadow of Wu-Feng blocks this tile.')
   t.yinYang = false
-  ev(s, 'yinYang', `${COLOR_NAME[c]} spends their Yin-Yang: help from the ${TILE_NAME[tile.kind]} (${tilePlace(tile.idx)}).`, {
+  ev(s, 'yinYang', `${COLOR_NAME[c]} spends their ${bastion ? 'Call to Arms' : 'Yin-Yang'}: ${bastion ? `activates the ${tileName(s, tile.kind)}` : `help from the ${TILE_NAME[tile.kind]}`} (${tilePlace(tile.idx)}).`, {
     color: c,
     tile: tile.idx,
   })

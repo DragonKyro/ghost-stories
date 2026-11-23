@@ -2,7 +2,7 @@
 // score them. Pure (no DOM / store / network).
 
 import type { Action } from '@/game/actions'
-import { playerCount } from '@/game/rules'
+import { isBastion, playerCount } from '@/game/rules'
 import { applyAction, createGame, waitingFor } from '@/game/engine'
 import type { Color, GameConfig, GameState, Seat, SeatKind } from '@/game/types'
 import { chooseAction } from '../index'
@@ -52,7 +52,7 @@ export function nnChooseAction(net: Net, s: GameState, seat: Seat): Action | nul
  * trained on more setups.
  */
 export function networkPlays(s: GameState): boolean {
-  return playerCount(s) === 1 && !s.whiteMoon && !s.blackSecret && (s.config.difficulty === 'initiation' || s.config.difficulty === 'normal')
+  return !isBastion(s) && playerCount(s) === 1 && !s.whiteMoon && !s.blackSecret && (s.config.difficulty === 'initiation' || s.config.difficulty === 'normal')
 }
 
 /**

@@ -8,7 +8,7 @@
 //   Yang phase — the Taoist (see yang.ts); neutral / possessed boards have none.
 
 import { getCard } from './catalogue'
-import { lineOf, spacesLeftToRight } from './geometry'
+import { spacesLeftToRight } from './geometry'
 import {
   ask,
   CURSE_TEXT,
@@ -19,6 +19,8 @@ import {
   gainQi,
   hauntInFront,
   hauntTile,
+  layDown,
+  loseGame,
   loseQi,
   now,
   placeCard,
@@ -35,6 +37,7 @@ import {
   ghostsInPlay,
   hasPower,
   heldColors,
+  isBastion,
   livingTaoists,
   suLingAt,
   taoCount,
@@ -198,16 +201,18 @@ function yinSteps(s: GameState): void {
 }
 
 function bonecracker(s: GameState, uid: number): void {
-  if (!findGhost(s, uid)) return
+  const g = findGhost(s, uid)
+  if (!g || g.ghost.net) return
   const t = s.taoists[s.active]
+  const why = g.card.name
   if (t.alive) {
-    now(s, { k: 'loseTao', taoist: t.color, count: 1, why: 'Bonecracker' })
+    now(s, { k: 'loseTao', taoist: t.color, count: 1, why })
     return
   }
   // On a neutral / possessed board, the players choose who discards.
   const options = livingTaoists(s).filter((x) => taoCount(x) > 0).map((x) => x.color)
-  if (options.length === 0) return ev(s, 'note', 'Bonecracker: nobody has a Tao token to discard.')
-  if (options.length === 1) return now(s, { k: 'loseTao', taoist: options[0]!, count: 1, why: 'Bonecracker' })
+  if (options.length === 0) return ev(s, 'note', `${why}: nobody has a token to discard.`)
+  if (options.length === 1) return now(s, { k: 'loseTao', taoist: options[0]!, count: 1, why })
   ask(s, { kind: 'bonecrackerPayer', owner: decider(s), options })
 }
 
@@ -218,6 +223,7 @@ function bonecracker(s: GameState, uid: number): void {
 function haunter(s: GameState, uid: number): void {
   const g = findGhost(s, uid)
   if (!g) return
+  if (g.ghost.net) return ev(s, 'note', `The Net holds ${g.card.name}: its effect is cancelled.`)
   if (suLingAt(s, g.ref)) return ev(s, 'suLing', `Su-Ling holds ${g.card.name} back: its haunting figure stays put.`)
   const name = g.card.name
   if (g.ghost.figure !== 'stone') {
@@ -235,6 +241,7 @@ function haunter(s: GameState, uid: number): void {
 function tormentor(s: GameState, uid: number): void {
   const g = findGhost(s, uid)
   if (!g) return
+  if (g.ghost.net) return ev(s, 'note', `The Net holds ${g.card.name}: no die is rolled.`)
   if (suLingAt(s, g.ref)) return ev(s, 'suLing', `Su-Ling holds ${g.card.name} back: no curse die.`)
   const c = s.active
   now(s, {
@@ -248,8 +255,8 @@ function tormentor(s: GameState, uid: number): void {
 // ---------------------------------------------------------------------------
 
 function curse(s: GameState, ctx: CurseContext): void {
-  // Strength of a Mountain: "you never roll the curse die". Neutral-board rolls have no roller.
-  if (ctx.roller && hasPower(s, ctx.roller, 'strengthOfMountain')) {
+  // Strength of a Mountain: "you never roll the curse die" (in Last Bastion, Kazgin only ignores exit effects).
+  if (!isBastion(s) && ctx.roller && hasPower(s, ctx.roller, 'strengthOfMountain')) {
     ev(s, 'power', `Strength of a Mountain: ${COLOR_NAME[ctx.roller]} does not roll the curse die (${ctx.why}).`, { color: ctx.roller })
     return
   }
@@ -261,7 +268,7 @@ function curse(s: GameState, ctx: CurseContext): void {
     color: ctx.roller ?? ctx.board,
   })
   now(s, { k: 'curseFace', ctx, face })
-  // The Gods' Favorite: may reroll the curse die once and must keep the second result.
+  // The Gods' Favorite / Feng-Li: may reroll the curse / Corruption die once and must keep the second result.
   if (ctx.roller && hasPower(s, ctx.roller, 'godsFavorite')) ask(s, { kind: 'curseReroll', owner: ctx.roller, face })
 }
 
@@ -277,6 +284,14 @@ function curseFace(s: GameState, ctx: CurseContext, face: CurseFace): void {
     case 'ghost':
       return now(s, { k: 'arrival', why: 'curse die' })
     case 'loseTao':
+      if (isBastion(s)) {
+        if (t.alive) return now(s, { k: 'loseTao', taoist: ctx.board, count: 1, why: 'Corruption die' })
+        // A neutral board: a Hero of the players' choice (who has a token) discards.
+        const options = livingTaoists(s).filter((x) => taoCount(x) > 0).map((x) => x.color)
+        if (options.length === 0) return ev(s, 'note', 'Nobody has an Equipment token to discard.')
+        if (options.length === 1) return now(s, { k: 'loseTao', taoist: options[0]!, count: 1, why: 'Corruption die' })
+        return ask(s, { kind: 'chooseHero', owner: decider(s), options, effect: 'discard', why: 'Corruption die' })
+      }
       if (!t.alive) return ev(s, 'note', 'Losing Tao tokens has no effect on a neutral or possessed board.')
       {
         const n = discardAllTao(s, ctx.board)
@@ -297,6 +312,36 @@ type CurseFace = import('./types').CurseFace
 function overrun(s: GameState): void {
   const c = s.active
   if (s.boards[c].spaces.every(Boolean)) {
+    if (isBastion(s)) {
+      const full = `${s.boards[c].neutral ? `The neutral ${c} Horde board` : `${COLOR_NAME[c]}'s Horde board`} is full`
+      if (c === 'red') {
+        ev(s, 'overrun', `${full}: lose 1 Life token, and no Horde card is drawn.`, { color: c })
+        loseQi(s, c, 'red Horde board full')
+      } else if (c === 'green') {
+        const bot = s.deck.pop()
+        if (bot) {
+          s.discard.push(bot)
+          ev(s, 'overrun', `${full}: ${getCard(bot).name} at the bottom of the deck is discarded.`, { color: c, card: bot })
+          if (getCard(bot).incarnation) loseGame(s, 'deckExhausted')
+        } else {
+          ev(s, 'overrun', `${full}: the Horde deck is empty!`, { color: c })
+          loseGame(s, 'deckExhausted')
+        }
+      } else if (c === 'yellow') {
+        ev(s, 'overrun', `${full}: roll the Corruption die.`, { color: c })
+        now(s, {
+          k: 'curse',
+          ctx: { roller: s.taoists[c].alive ? c : null, board: c, haunt: { kind: 'front', ref: { board: 'yellow', space: 1 } }, why: 'yellow Horde board full' },
+        })
+      } else {
+        ev(s, 'overrun', `${full}: a Hero loses their next movement.`, { color: c })
+        // A neutral board: the players choose whose figure is laid down.
+        const options = s.taoists[c].alive ? [c] : livingTaoists(s).map((x) => x.color)
+        if (options.length === 1) layDown(s, options[0]!, 'blue Horde board full')
+        else if (options.length > 1) ask(s, { kind: 'chooseHero', owner: decider(s), options, effect: 'layDown', why: 'blue Horde board full' })
+      }
+      return
+    }
     ev(s, 'overrun', `${boardName(s, c)}'s board is overrun by 3 ghosts: lose 1 Qi, and no ghost arrives.`, { color: c })
     loseQi(s, c, 'board overrun')
     return
@@ -308,7 +353,14 @@ function overrun(s: GameState): void {
 /** "Bring a ghost into play": draw the top card and place it by the placement rules. */
 export function arrival(s: GameState, why: string): void {
   if (s.blackSecret) return bsArrival(s, why)
-  if (s.deck.length === 0) return ev(s, 'note', 'The ghost deck is empty: no ghost can come.')
+  if (s.deck.length === 0) {
+    if (isBastion(s)) {
+      ev(s, 'note', 'A Horde card must be drawn while the deck is empty!')
+      loseGame(s, 'deckExhausted')
+      return
+    }
+    return ev(s, 'note', 'The ghost deck is empty: no ghost can come.')
+  }
   if (freeSpaces(s).length === 0) {
     ev(s, 'note', 'All 12 ghost spaces are occupied: the active player loses 1 Qi instead.')
     return loseQi(s, s.active, 'no room for a ghost')
@@ -443,5 +495,3 @@ function nextTurn(s: GameState): void {
 }
 
 /** Haunt the first active tile on a ghost's line (exported for curses on exorcism). */
-export const firstActiveInLine = (s: GameState, ref: import('./types').GhostRef) =>
-  lineOf(ref).find((t) => !s.village[t]!.haunted) ?? null

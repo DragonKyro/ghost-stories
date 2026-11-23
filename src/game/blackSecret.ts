@@ -10,7 +10,7 @@
 // levels, refills).
 
 import type { Response, ShadowChoice } from './actions'
-import { cardOnBoard, getCard, isSummonCard, totalResistance } from './catalogue'
+import { getCard, isSummonCard, totalResistance } from './catalogue'
 import { isAdjacent, refKey } from './geometry'
 import { openRoll, type Requirement } from './exorcism'
 import { placementOptions } from './flow'
@@ -859,5 +859,4 @@ export function bsRespond(s: GameState, r: Response): boolean {
   }
 }
 
-export const bsCardOnBoard = cardOnBoard
 export type { GhostRef }

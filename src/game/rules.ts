@@ -5,7 +5,10 @@ import { facedSpaces, OPPOSITE, sameRef } from './geometry'
 import type {
   AbilityKind,
   Color,
+  Difficulty,
+  GameConfig,
   GameState,
+  GameVariant,
   GhostCard,
   GhostInstance,
   GhostRef,
@@ -18,6 +21,15 @@ import type {
   TileKind,
 } from './types'
 import { COLORS, SPACES } from './types'
+
+/** Is this game / config playing Last Bastion rather than Ghost Stories? */
+export function isBastion(s?: { config?: GameConfig; variant?: GameVariant } | GameVariant | null): boolean {
+  if (!s) return false
+  if (typeof s === 'string') return s === 'bastion'
+  if ('variant' in s && s.variant) return s.variant === 'bastion'
+  if ('config' in s && s.config) return s.config.variant === 'bastion'
+  return false
+}
 
 // ---------------------------------------------------------------------------
 // Names
@@ -40,6 +52,24 @@ export const TILE_NAME: Record<TileKind, string> = {
   calligrapher: 'Calligrapher',
 }
 
+export const BASTION_TILE_NAME: Record<TileKind, string> = {
+  circleOfPrayer: 'Standard',
+  buddhistTemple: 'Dwarven Quarry',
+  cemetery: 'Dispensary',
+  taoistAltar: 'Trebuchet',
+  herbalistShop: 'Market',
+  sorcerersHut: 'Tomb of the Ancient Kings',
+  nightWatchman: 'Divine Fountain',
+  pavilion: "Strategist's Tower",
+  teaHouse: 'Tavern',
+  kungFuSchool: 'Kung-Fu School',
+  calligrapher: 'Calligrapher',
+}
+
+export function tileName(s: Parameters<typeof isBastion>[0], kind: TileKind): string {
+  return isBastion(s) ? BASTION_TILE_NAME[kind] : TILE_NAME[kind]
+}
+
 export const POWER_NAME: Record<PowerId, string> = {
   danceOfTheSpires: 'Dance of the Spires',
   danceOfTheTwinWinds: 'Dance of the Twin Winds',
@@ -51,6 +81,21 @@ export const POWER_NAME: Record<PowerId, string> = {
   enfeeblementMantra: 'Enfeeblement Mantra',
 }
 
+export const BASTION_POWER_NAME: Record<PowerId, string> = {
+  danceOfTheSpires: 'Twindalli',
+  danceOfTheTwinWinds: 'Elmer & Chestnut',
+  heavenlyGust: 'Sindara',
+  secondWind: 'Teagaan',
+  godsFavorite: 'Feng-Li',
+  strengthOfMountain: 'Kazgin',
+  bottomlessPockets: 'Arne & Soko',
+  enfeeblementMantra: 'Mylfaar',
+}
+
+export function powerName(s: Parameters<typeof isBastion>[0], power: PowerId): string {
+  return isBastion(s) ? BASTION_POWER_NAME[power] : POWER_NAME[power]
+}
+
 export const POWER_TEXT: Record<PowerId, string> = {
   danceOfTheSpires: 'During your move, you can fly to any village tile.',
   danceOfTheTwinWinds: 'Before your move, you can move 1 other Taoist 1 space.',
@@ -60,6 +105,30 @@ export const POWER_TEXT: Record<PowerId, string> = {
   strengthOfMountain: 'You roll a fourth (grey) die when exorcising, and you never roll the curse die.',
   bottomlessPockets: 'Before your move, take a Tao token of any colour from the supply.',
   enfeeblementMantra: 'Before your move, place the Mantra on any ghost: its resistance drops by 1. Take it back when that ghost leaves play.',
+}
+
+export const BASTION_POWER_TEXT: Record<PowerId, string> = {
+  danceOfTheSpires: 'Combat up to 2 Horde cards orthogonal to your tile (even from the central tile, adjacent or not).',
+  danceOfTheTwinWinds: 'Once per turn during your Hero phase, move yourself or another hero 1 extra space.',
+  heavenlyGust: 'During your Hero phase, both activate your Bastion tile and enter Combat, in either order.',
+  secondWind: 'Forego your movement to remove 1 Grasp of Evil figure from a Bastion tile or Horde card.',
+  godsFavorite: 'Reroll any of your Combat dice (in Combat or at the Market) and the Corruption die once. Keep the second result.',
+  strengthOfMountain: 'Roll a fourth (grey) die in Combat, and never suffer negative exit effects from Horde cards you defeat.',
+  bottomlessPockets: 'Once per turn during your Hero phase, take 1 Equipment token of any colour from the reserve.',
+  enfeeblementMantra: 'Once per turn during your Hero phase, place or move the Enchantment token onto any Horde card: its resistance drops by 1.',
+}
+
+export function powerText(s: Parameters<typeof isBastion>[0], power: PowerId): string {
+  return isBastion(s) ? BASTION_POWER_TEXT[power] : POWER_TEXT[power]
+}
+
+export const DIFFICULTY_LABEL_BY_VARIANT: Record<GameVariant, Record<Difficulty, string>> = {
+  ghostStories: { initiation: 'Initiation', normal: 'Normal', nightmare: 'Nightmare', hell: 'Hell' },
+  bastion: { initiation: 'Novice', normal: 'Normal', nightmare: 'Difficult', hell: 'Heroic' },
+}
+
+export function difficultyName(s: Parameters<typeof isBastion>[0], d: Difficulty): string {
+  return DIFFICULTY_LABEL_BY_VARIANT[isBastion(s) ? 'bastion' : 'ghostStories'][d]
 }
 
 /** "Red", "the neutral blue board", "Red (dead)". */
@@ -127,6 +196,8 @@ export function suLingAt(s: GameState, ref: GhostRef): boolean {
 
 /** Does this ghost's centre-stone ability `kind` currently work? */
 export function centerActive(s: GameState, ref: GhostRef, kind: AbilityKind): boolean {
+  const g = ghostAt(s, ref)
+  if (!g || g.net) return false
   const card = cardAt(s, ref)
   if (!card || !card.center.some((a) => a.kind === kind)) return false
   return !suLingAt(s, ref)
@@ -159,10 +230,10 @@ export function isDiceImmune(s: GameState, ref: GhostRef): boolean {
 // Powers
 // ---------------------------------------------------------------------------
 
-/** A board's own power works: not possessed, no power blocker on it (or a group one anywhere). */
+/** A board's own power works: not possessed, not wounded (Last Bastion), no power blocker on it (or a group one anywhere). */
 export function boardPowerActive(s: GameState, c: Color): boolean {
   const b = s.boards[c]
-  if (b.possessed) return false
+  if (b.possessed || s.taoists[c].wounded) return false
   if (s.blackSecret?.cursedBoards.includes(c)) return false
   return !ghostsInPlay(s).some((g) => {
     if (!centerActive(s, g.ref, 'powerBlocker')) return false
@@ -218,8 +289,8 @@ export const playerCount = (s: GameState): number => COLORS.filter((c) => !s.boa
 
 export const isSolo = (s: GameState): boolean => playerCount(s) === 1
 
-/** Starting Qi: also the cap is NOT applied — the rules set no maximum. */
-export const startingQi = (s: GameState): number => (s.config.difficulty === 'initiation' ? 4 : 3)
+/** Starting Qi / Life (there is no maximum): 4 on Ghost Stories' Initiation, else 3. */
+export const startingQi = (config: GameConfig): number => (!isBastion(config) && config.difficulty === 'initiation' ? 4 : 3)
 
 /**
  * Who answers "the players' choice" questions this turn: the active Taoist,
@@ -234,15 +305,23 @@ export function decider(s: GameState): Color {
   return s.active
 }
 
-export function tileOfKind(s: GameState, kind: TileKind): TileIdx | null {
-  return s.village.find((t) => t.kind === kind)?.idx ?? null
-}
-
-/** Ghost spaces the Taoist faces from where they stand (none from the catacombs). */
-export function reachableSpaces(s: GameState, c: Color): GhostRef[] {
-  const t = s.taoists[c]
-  if (!t.alive || t.tile == null || t.underground) return []
-  return facedSpaces(t.tile)
+/**
+ * Ghost/Horde spaces `c` can target in exorcism/combat from `tile`.
+ * In Last Bastion, Twindalli (`danceOfTheSpires`) can target all 4 spaces
+ * orthogonal to `tile` (even from the central tile).
+ */
+export function combatSpacesFor(s: GameState, c: Color, tile: TileIdx): GhostRef[] {
+  if (isBastion(s) && hasPower(s, c, 'danceOfTheSpires')) {
+    const row = Math.floor(tile / 3) as SpaceIdx
+    const col = (tile % 3) as SpaceIdx
+    return [
+      { board: 'red', space: col },
+      { board: 'blue', space: row },
+      { board: 'green', space: col },
+      { board: 'yellow', space: row },
+    ]
+  }
+  return facedSpaces(tile)
 }
 
 /** Taoists standing on the same village tile (or catacomb space) as `c`, `c` included. */
@@ -277,9 +356,9 @@ export function exorcismBlocker(s: GameState, ref: GhostRef): string | null {
   const card = cardOnBoard(g.card, ref.board)
   if (card.incarnation === 'howlingNightmare') {
     const opp = { board: OPPOSITE[ref.board], space: ref.space }
-    if (ghostAt(s, opp)) return 'Howling Nightmare: the ghost space facing it on the opposite board must be empty.'
+    if (ghostAt(s, opp)) return `${card.name}: the space facing it on the opposite board must be empty.`
   }
-  if (card.incarnation === 'uncatchable' && !s.boards[ref.board].buddhas[ref.space]) {
+  if (!isBastion(s) && card.incarnation === 'uncatchable' && !s.boards[ref.board].buddhas[ref.space]) {
     return 'Uncatchable can only be exorcised on a space with a Buddha.'
   }
   return null
@@ -304,9 +383,5 @@ export function heldColors(t: Taoist): TaoColor[] {
 }
 
 export const taoCount = (t: Taoist): number => Object.values(t.tao).reduce((n, v) => n + v, 0)
-
-export function spaceLabel(s: GameState, ref: GhostRef): string {
-  return `${boardName(s, ref.board)} board, space ${ref.space + 1}`
-}
 
 export const ALL_SPACES: GhostRef[] = COLORS.flatMap((board) => SPACES.map((space) => ({ board, space: space as SpaceIdx })))

@@ -46,7 +46,3 @@ export function shuffle<T>(state: RngState, arr: readonly T[]): [RngState, T[]] 
 }
 
 /** Pick one element. Returns [next-state, element, index]. */
-export function pick<T>(state: RngState, arr: readonly T[]): [RngState, T, number] {
-  const [next, idx] = nextInt(state, arr.length)
-  return [next, arr[idx], idx]
-}

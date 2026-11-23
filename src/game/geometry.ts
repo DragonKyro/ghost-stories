@@ -12,7 +12,6 @@ export const colOf = (t: TileIdx): number => t % 3
 export const rowOf = (t: TileIdx): number => Math.floor(t / 3)
 export const tileAt = (col: number, row: number): TileIdx => row * 3 + col
 
-export const ALL_TILES: readonly TileIdx[] = [0, 1, 2, 3, 4, 5, 6, 7, 8]
 
 /** King's-move neighbours (diagonals included) on the 3×3 grid. */
 export function adjacentTiles(t: TileIdx): TileIdx[] {

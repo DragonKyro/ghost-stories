@@ -1,8 +1,8 @@
 // Hot-seat hand-off between players sharing a device, and the end of the game.
 
 import { useEffect, useRef } from 'react'
-import { LOSS_TEXT } from '@/game/ops'
-import { COLOR_NAME } from '@/game/rules'
+import { lossText } from '@/game/ops'
+import { COLOR_NAME, isBastion } from '@/game/rules'
 import type { GameState } from '@/game/types'
 import { useGameStore } from '@/store/gameStore'
 import { useLogStore } from '@/store/logStore'
@@ -43,16 +43,25 @@ export function GameOverOverlay({ game }: { game: GameState }) {
   const entries = useLogStore((l) => l.entries)
   const exorcised = entries.filter((e) => e.kind === 'exorcised').length
   const win = game.outcome?.result === 'win'
+  const bastion = isBastion(game)
   return (
     <div className="gs-overlay">
       <div className="gs-dialog">
         <div className="gs-logo">
-          <Logo width={260} />
+          <Logo width={260} variant={bastion ? 'bastion' : 'ghostStories'} />
         </div>
         <h2 style={{ color: win ? '#f3dc95' : '#e0563f', marginTop: 10 }}>{win ? 'Victory' : 'Defeat'}</h2>
-        <p>{win ? 'The last incarnation of Wu-Feng is exorcised. The village is saved!' : game.outcome?.result === 'loss' ? `The village falls: ${LOSS_TEXT[game.outcome.reason]}` : ''}</p>
+        <p>
+          {win
+            ? bastion
+              ? 'The last Warlord is vanquished. The Bastion stands!'
+              : 'The last incarnation of Wu-Feng is exorcised. The village is saved!'
+            : game.outcome?.result === 'loss'
+              ? `${bastion ? 'The Bastion falls' : 'The village falls'}: ${lossText(game, game.outcome.reason)}`
+              : ''}
+        </p>
         <p className="gs-mini">
-          {game.turn} turns · {exorcised} ghosts exorcised · {game.deck.length} cards left in the deck
+          {game.turn} turns · {exorcised} {bastion ? 'monsters vanquished' : 'ghosts exorcised'} · {game.deck.length} cards left in the deck
         </p>
         <div className="gs-btnrow" style={{ justifyContent: 'center', marginTop: 12 }}>
           <button className="gs-btn primary" onClick={() => useUiStore.getState().setShowStats(true)}>

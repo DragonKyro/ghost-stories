@@ -6,6 +6,7 @@ import { COLOR_DARK, COLOR_HEX, COLOR_LIGHT } from './palette'
 import type { TaoColor } from '@/game/types'
 import { GhostDefs } from './ghostDefs'
 import { TileDefs } from './tileDefs'
+import { BastionDefs } from './bastion/defs'
 
 /** Named watercolour washes: url(#gs-wash-<key>). */
 export const WASHES = {
@@ -356,6 +357,7 @@ export function ArtDefs() {
         </filter>
 
         <TileDefs />
+        <BastionDefs />
         <GhostDefs />
       </defs>
     </svg>

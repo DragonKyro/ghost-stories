@@ -14,6 +14,8 @@ import {
   cardAt,
   COLOR_NAME,
   ghostAt,
+  hasPower,
+  isBastion,
   isDiceImmune,
   taoBlocked,
   taoistsWith,
@@ -246,8 +248,9 @@ export function commitExorcism(s: GameState, roll: ExorcismRoll, r: Extract<Resp
     throw new Error('The dice and tokens spent do not cover that exorcism.')
   }
 
-  if (roll.mode === 'exorcism' || roll.mode === 'demon') {
-    // "If the dice are sufficient to exorcise a ghost, you must exorcise it."
+  // Ghost Stories: "If the dice are sufficient to exorcise a ghost, you must exorcise it."
+  // Last Bastion's FAQ: a Hero may choose not to win a combat (to dodge an exit effect).
+  if ((roll.mode === 'exorcism' || roll.mode === 'demon') && !isBastion(s)) {
     const all = requirementsFor(s, roll, roll.targets, roll.demons)
     const dicePower = (rs: Requirement[]) => covers(rs, roll.dice, wild, zero(), 0)
     const beaten = all.filter((q) => dicePower([q]))
@@ -286,18 +289,25 @@ export function commitExorcism(s: GameState, roll: ExorcismRoll, r: Extract<Resp
   // Discard the ghosts, then queue right-stone abilities: every curse first, then every reward.
   const curses: Effect[] = []
   const rewards: Effect[] = []
+  const ignoreExitCurses = isBastion(s) && hasPower(s, roll.actor, 'strengthOfMountain')
   for (const ref of targets) {
+    const g = ghostAt(s, ref)
+    const netted = !!g?.net
     const card = cardAt(s, ref)!
     removeGhost(s, ref)
     ev(s, 'exorcised', `${card.name} is exorcised!`, { color: roll.actor, ref, card: card.id })
-    if (roll.mode !== 'exorcism') continue // Kung-Fu School / Mystic Barrier: no right stone
+    if (roll.mode !== 'exorcism' || netted) continue // Kung-Fu School / Mystic Barrier / Netted Monster: no right stone
     for (const ab of card.right) {
       switch (ab.kind) {
         case 'curse':
-          curses.push({ k: 'curse', ctx: { roller: roll.actor, board: roll.actor, haunt: { kind: 'front', ref }, why: `${card.name}'s curse` } })
+          if (!ignoreExitCurses) {
+            curses.push({ k: 'curse', ctx: { roller: roll.actor, board: roll.actor, haunt: { kind: 'front', ref }, why: `${card.name}'s curse` } })
+          }
           break
         case 'loseTao':
-          curses.push({ k: 'loseTao', taoist: roll.actor, count: 1, why: `${card.name}'s curse` })
+          if (!ignoreExitCurses) {
+            curses.push({ k: 'loseTao', taoist: roll.actor, count: 1, why: `${card.name}'s curse` })
+          }
           break
         case 'rewardQiOrYinYang':
           rewards.push({ k: 'qiOrYinYang', taoist: roll.actor })

@@ -3,33 +3,21 @@
 // night), a portrait builder (face + robe), and the haunted-side effects.
 // All coordinates are in the tile's 240×240 viewBox; the scene is y 0–192.
 import type { ReactNode } from 'react'
-import { blob, brush, smooth, strokes, type Pt } from '../brush'
+import { blob, brush, circ, ell, rect, smooth, strokes, type Pt } from '../brush'
 import { HAND_PATH } from '../glyphs'
 import { INK, INK_FADED } from '../palette'
 import type { WashKey } from '../ArtDefs'
 
+/** The scene's height in the 240-unit tile: the action strip fills y 192–240 (both art sets). */
 export const SCENE_H = 192
 /** Night silhouette fill. */
 export const SIL = '#120e19'
 /** Night rim / far-silhouette tone. */
 export const SIL_FAR = '#2a2436'
-export const NIGHT_PALE = '#9b92ad'
 export const SPECTRE = '#dfe8e2'
 
-// ---------------------------------------------------------------------------
-// Small path helpers.
-// ---------------------------------------------------------------------------
-export function circ(cx: number, cy: number, r: number): string {
-  const f = (n: number) => Math.round(n * 10) / 10
-  return `M${f(cx - r)} ${f(cy)}a${f(r)} ${f(r)} 0 1 0 ${f(2 * r)} 0a${f(r)} ${f(r)} 0 1 0 ${f(-2 * r)} 0Z`
-}
-export function ell(cx: number, cy: number, rx: number, ry: number): string {
-  const f = (n: number) => Math.round(n * 10) / 10
-  return `M${f(cx - rx)} ${f(cy)}a${f(rx)} ${f(ry)} 0 1 0 ${f(2 * rx)} 0a${f(rx)} ${f(ry)} 0 1 0 ${f(-2 * rx)} 0Z`
-}
-export function rect(x: number, y: number, w: number, h: number): string {
-  return `M${x} ${y}h${w}v${h}h${-w}Z`
-}
+// Small path helpers (shared with the Bastion tiles, in ../brush).
+export { circ, ell, rect }
 
 // ---------------------------------------------------------------------------
 // Two-mode layers: each path has a day paint and a night paint.

@@ -2,10 +2,9 @@
 // closes it, and applies the choice (effects then resume in engine.run).
 
 import type { Response } from './actions'
-import { getCard } from './catalogue'
 import { commitExorcism, rerollDice } from './exorcism'
 import { refKey } from './geometry'
-import { CURSE_TEXT, ev, gainQi, loseQi, now, placeCard, returnTao, rollCurse, takeTao } from './ops'
+import { CURSE_TEXT, ev, gainQi, layDown, loseQi, now, placeCard, returnTao, rollCurse, takeTao } from './ops'
 import { COLOR_NAME, seatName } from './rules'
 import { respondHerbalist } from './tiles'
 import type { Color, GameState, Seat, TaoColor } from './types'
@@ -111,6 +110,15 @@ export function applyResponse(s: GameState, by: Seat, r: Response): void {
       return
     }
 
+    case 'chooseHero': {
+      if (r.kind !== 'chooseHero') break
+      if (!p.options.includes(r.taoist)) throw new Error('Choose one of the Heroes offered.')
+      s.prompt = null
+      if (p.effect === 'discard') now(s, { k: 'loseTao', taoist: r.taoist, count: 1, why: p.why })
+      else layDown(s, r.taoist, p.why)
+      return
+    }
+
     case 'exorcism': {
       if (r.kind === 'reroll') {
         if (!p.roll.canReroll) throw new Error("The Gods' Favorite reroll has been used (or isn't available).")
@@ -155,4 +163,3 @@ function checkCount(colors: TaoColor[], n: number): void {
   if (colors.length !== n) throw new Error(`Choose exactly ${n} token${n === 1 ? '' : 's'}.`)
 }
 
-export const _unused = getCard

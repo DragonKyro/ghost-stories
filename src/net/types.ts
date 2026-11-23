@@ -2,7 +2,7 @@
 // these goes through the database as a JSON string.
 
 import type { Action } from '@/game/actions'
-import type { Color, Difficulty, GameConfig, Seat } from '@/game/types'
+import type { Color, Difficulty, GameConfig, GameVariant, Seat } from '@/game/types'
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'lobby' | 'in-game' | 'error'
 export type LocalRole = 'solo' | 'host' | 'guest' | 'spectator'
@@ -36,6 +36,8 @@ export interface LobbyBlackSecret {
 
 export interface LobbyState {
   hostUuid: string
+  /** Which game the lobby is playing: Ghost Stories (default / omitted) or Last Bastion. */
+  variant?: GameVariant
   /** The four Taoist boards (red north, blue east, green south, yellow west). */
   seats: Record<Color, LobbySeat>
   /** Black Secret's Wu-Feng player: 'open', 'human' or 'ai' (never 'neutral'). */

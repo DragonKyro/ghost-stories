@@ -1,9 +1,11 @@
 // End-of-game (and mid-game) statistics: headline numbers, Qi over the game,
 // ghosts and hauntings over time, who exorcised what, and how lucky the dice were.
+// Labels are written in Ghost Stories terms and put into the game's words (say).
 
 import { useMemo } from 'react'
-import { LOSS_TEXT } from '@/game/ops'
-import { COLOR_NAME, TILE_NAME } from '@/game/rules'
+import { lossText } from '@/game/ops'
+import { COLOR_NAME, isBastion, tileName } from '@/game/rules'
+import { say } from '@/game/vocab'
 import type { Color, CurseFace, GameState } from '@/game/types'
 import { useGameStore } from '@/store/gameStore'
 import { useLogStore } from '@/store/logStore'
@@ -27,9 +29,11 @@ export function StatsView({ game, onClose }: { game: GameState; onClose: () => v
   const st = useMemo(() => computeStats(game, entries, timeline, startedAt), [game, entries, timeline, startedAt])
   const x = st.timeline.map((p) => p.turn)
   const qiSeries: Series[] = st.players.map((c) => ({ id: c, label: COLOR_NAME[c], color: CHART_COLOR[c], values: st.timeline.map((p) => p.qi[c]) }))
+  const w = (text: string) => say(game, text)
+  const bastion = isBastion(game)
   const result = game.phase !== 'gameOver' ? 'In progress' : game.outcome?.result === 'win' ? 'Victory' : 'Defeat'
-  const reason = game.outcome?.result === 'loss' ? LOSS_TEXT[game.outcome.reason] : game.outcome?.result === 'win' ? 'the last incarnation was exorcised.' : ''
-  const tileRows = st.tiles.map((t) => ({ id: t.kind, name: TILE_NAME[t.kind], label: TILE_NAME[t.kind], value: t.uses, color: SPIRIT }))
+  const reason = game.outcome?.result === 'loss' ? lossText(game, game.outcome.reason) : game.outcome?.result === 'win' ? w('the last incarnation was exorcised.') : ''
+  const tileRows = st.tiles.map((t) => ({ id: t.kind, name: tileName(game, t.kind), label: tileName(game, t.kind), value: t.uses, color: SPIRIT }))
 
   return (
     <div className="st-screen">
@@ -46,29 +50,36 @@ export function StatsView({ game, onClose }: { game: GameState; onClose: () => v
       <div className="st-tiles">
         <StatTile label="Turns" value={st.turns} />
         <StatTile label="Time" value={formatDuration(st.durationMs)} />
-        <StatTile label="Ghosts exorcised" value={st.exorcised} sub={`of ${st.arrivals} that came into play`} />
-        <StatTile label="Qi lost" value={st.qiLost} />
-        <StatTile label="Most tiles haunted" value={`${st.maxHaunted}/3`} />
+        <StatTile label={w('Ghosts exorcised')} value={st.exorcised} sub={`of ${st.arrivals} that came into play`} />
+        <StatTile label={w('Qi lost')} value={st.qiLost} />
+        <StatTile label={bastion ? 'Most tiles in the Grasp of Evil' : 'Most tiles haunted'} value={`${st.maxHaunted}/3`} />
         {game.whiteMoon && <StatTile label="Villagers saved" value={game.whiteMoon.saved.length} sub={`${game.whiteMoon.dead.length} killed`} />}
       </div>
 
       <div className="st-grid">
         <LineChart
-          title="Qi over the game"
+          title={w('Qi over the game')}
           x={x}
           series={qiSeries}
           height={330}
           yMax={Math.max(4, ...qiSeries.flatMap((s) => s.values.map((v) => v ?? 0)))}
-          caption="At the end of each turn. A Taoist at 0 is dead."
+          caption={bastion ? 'At the end of each turn. A Hero at 0 is taken out.' : 'At the end of each turn. A Taoist at 0 is dead.'}
         />
         <div className="st-pair">
-          <LineChart title="Ghosts on the boards" x={x} series={[{ id: 'g', label: 'Ghosts', color: SPIRIT, values: st.timeline.map((p) => p.ghosts) }]} height={150} yMax={12} />
-          <LineChart title="Haunted tiles" x={x} series={[{ id: 'h', label: 'Haunted', color: SPIRIT, values: st.timeline.map((p) => p.haunted) }]} height={150} yMax={3} caption="A 3rd haunted tile loses the game." />
+          <LineChart title={w('Ghosts on the boards')} x={x} series={[{ id: 'g', label: w('Ghosts'), color: SPIRIT, values: st.timeline.map((p) => p.ghosts) }]} height={150} yMax={12} />
+          <LineChart
+            title={bastion ? 'Tiles in the Grasp of Evil' : 'Haunted tiles'}
+            x={x}
+            series={[{ id: 'h', label: bastion ? 'Grasp of Evil' : 'Haunted', color: SPIRIT, values: st.timeline.map((p) => p.haunted) }]}
+            height={150}
+            yMax={3}
+            caption={w('A 3rd haunted tile loses the game.')}
+          />
         </div>
 
         <BarList
-          title="Ghosts exorcised"
-          valueLabel="Ghosts"
+          title={w('Ghosts exorcised')}
+          valueLabel={w('Ghosts')}
           rows={[...st.perTaoist]
             .sort((a, b) => b.exorcised - a.exorcised)
             .map((t) => ({
@@ -83,20 +94,20 @@ export function StatsView({ game, onClose }: { game: GameState; onClose: () => v
 
         <div className="st-chart">
           <div className="st-chart-head">
-            <h3>Each Taoist</h3>
+            <h3>{w('Each Taoist')}</h3>
           </div>
           <div className="st-tablewrap">
             <table className="st-table">
               <thead>
                 <tr>
                   <th />
-                  <th>Exorcisms</th>
+                  <th>{w('Exorcisms')}</th>
                   <th>Success</th>
-                  <th>Ghosts</th>
-                  <th>Qi lost</th>
-                  <th>Qi gained</th>
-                  <th>Help asked</th>
-                  <th>Yin-Yang</th>
+                  <th>{w('Ghosts')}</th>
+                  <th>{w('Qi lost')}</th>
+                  <th>{w('Qi gained')}</th>
+                  <th>{bastion ? 'Tiles activated' : 'Help asked'}</th>
+                  <th>{w('Yin-Yang')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -121,7 +132,7 @@ export function StatsView({ game, onClose }: { game: GameState; onClose: () => v
         </div>
 
         <BarList
-          title={`Tao dice (${st.taoDiceTotal} rolled)`}
+          title={w(`Tao dice (${st.taoDiceTotal} rolled)`)}
           rows={st.taoDice.map((f) => ({
             id: f.face,
             name: DIE_NAME[f.face]!,
@@ -136,13 +147,13 @@ export function StatsView({ game, onClose }: { game: GameState; onClose: () => v
           }))}
         />
         <BarList
-          title={`Curse die (${st.curseTotal} rolled)`}
+          title={bastion ? `Corruption die (${st.curseTotal} rolled)` : `Curse die (${st.curseTotal} rolled)`}
           rows={st.curse.map((f) => ({
             id: f.face,
-            name: CURSE_FACE_TEXT[f.face as CurseFace],
+            name: w(CURSE_FACE_TEXT[f.face as CurseFace]),
             label: (
-              <span className="st-facelabel" title={CURSE_FACE_TEXT[f.face as CurseFace]}>
-                <CurseDie face={f.face} size={18} /> {SHORT_CURSE[f.face]}
+              <span className="st-facelabel" title={w(CURSE_FACE_TEXT[f.face as CurseFace])}>
+                <CurseDie face={f.face} size={18} /> {w(SHORT_CURSE[f.face])}
               </span>
             ),
             value: f.count,
@@ -150,8 +161,9 @@ export function StatsView({ game, onClose }: { game: GameState; onClose: () => v
             color: SPIRIT,
           }))}
           caption="The die has two blank faces."
+          labelW={bastion ? 140 : undefined}
         />
-        {tileRows.length > 0 && <BarList title="Villagers asked for help" valueLabel="Times" rows={tileRows} labelW={150} />}
+        {tileRows.length > 0 && <BarList title={bastion ? 'Bastion tiles activated' : 'Villagers asked for help'} valueLabel="Times" rows={tileRows} labelW={150} />}
       </div>
     </div>
   )

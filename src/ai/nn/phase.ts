@@ -10,7 +10,6 @@ import { incarnationInPlay, isWuFengCard } from '@/game/rules'
 import type { GameState } from '@/game/types'
 
 export type GamePhase = 'early' | 'mid' | 'late'
-export const GAME_PHASES: readonly GamePhase[] = ['early', 'mid', 'late']
 
 /** `deck0`: the deck's size at the start of the game. */
 export function gamePhase(s: GameState, deck0: number): GamePhase {

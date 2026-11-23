@@ -16,7 +16,7 @@
 
 import { create } from 'zustand'
 import { actionSeat, createGame } from '@/game/engine'
-import type { Difficulty, GameState, Seat } from '@/game/types'
+import type { Difficulty, GameState, GameVariant, Seat } from '@/game/types'
 import {
   type ChatMessage,
   type ConnectionState,
@@ -64,6 +64,7 @@ import {
   renameEdit,
   setBlackSecretEdit,
   setDifficultyEdit,
+  setVariantEdit,
   setWhiteMoonEdit,
 } from './lobby'
 
@@ -133,6 +134,7 @@ export interface NetStore {
   releaseSeat: (seat: Seat) => Promise<boolean>
   /** Host: open a seat (removing whoever sits there), give it to the AI, or leave a board neutral. */
   hostSetSeat: (seat: Seat, kind: Exclude<LobbySeatKind, 'human'>) => Promise<boolean>
+  hostSetVariant: (variant: GameVariant) => Promise<boolean>
   hostSetDifficulty: (difficulty: Difficulty) => Promise<boolean>
   hostSetWhiteMoon: (patch: Partial<LobbyWhiteMoon>) => Promise<boolean>
   hostSetBlackSecret: (patch: Partial<LobbyBlackSecret>) => Promise<boolean>
@@ -424,7 +426,8 @@ export const useNetworkStore = create<NetStore>((set, get) => {
       saveDisplayName(name)
       const my = beginSession()
       const me = get().myUuid
-      const lobby = defaultLobby(me, name, randomSeed())
+      const variant = useGameStore.getState().selectedVariant
+      const lobby = defaultLobby(me, name, randomSeed(), variant)
       sync = makeSync()
       set({
         connection: 'connecting',
@@ -585,6 +588,8 @@ export const useNetworkStore = create<NetStore>((set, get) => {
     releaseSeat: (seat) => request((l) => releaseSeatEdit(l, seat, get().myUuid)),
 
     hostSetSeat: (seat, kind) => (isHost() ? request((l) => hostSetSeatEdit(l, seat, kind)) : Promise.resolve(false)),
+
+    hostSetVariant: (variant) => (isHost() ? request((l) => setVariantEdit(l, variant)) : Promise.resolve(false)),
 
     hostSetDifficulty: (difficulty) =>
       isHost() ? request((l) => setDifficultyEdit(l, difficulty)) : Promise.resolve(false),

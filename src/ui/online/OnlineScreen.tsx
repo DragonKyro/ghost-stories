@@ -5,7 +5,8 @@
 // screen.
 
 import { useEffect, useState, type ReactNode } from 'react'
-import type { Difficulty, Seat } from '@/game/types'
+import { difficultyName } from '@/game/rules'
+import type { Difficulty, GameVariant, Seat } from '@/game/types'
 import {
   MAX_NAME_LENGTH,
   getSavedDisplayName,
@@ -48,6 +49,13 @@ const DIFFICULTY_HINT: Record<Difficulty, string> = {
   hell: 'Nightmare, without the starting Yin-Yang.',
 }
 
+const BASTION_DIFFICULTY_HINT: Record<Difficulty, string> = {
+  initiation: '3 Life each, a black Equipment token too, 4 fewer Monster cards, 1 Warlord.',
+  normal: '3 Life each, 1 Warlord.',
+  nightmare: 'Normal, with 2 Warlords alternating every 8 Monster cards.',
+  hell: 'Normal, with 3 Warlords alternating every 8 Monster cards.',
+}
+
 const PORTAL_LABEL: Record<PortalPlacement, string> = {
   center: 'Centre tile (standard)',
   edge: 'Edge tile (harder)',
@@ -78,6 +86,7 @@ function OnlineMenu() {
   const createRoom = useNetworkStore((s) => s.createRoom)
   const joinRoom = useNetworkStore((s) => s.joinRoom)
   const setUiMode = useGameStore((s) => s.setUiMode)
+  const variant = useGameStore((s) => s.selectedVariant)
   // Opened from an invite link (?room=ABCD): straight to joining that room.
   const [linkCode] = useState(roomCodeFromUrl)
   const [name, setName] = useState(getSavedDisplayName)
@@ -97,7 +106,7 @@ function OnlineMenu() {
   return (
     <div className="ol-wrap" style={{ flexDirection: 'column', alignItems: 'center' }}>
       <div className="gs-logo">
-        <Logo width={300} />
+        <Logo width={300} variant={variant} />
       </div>
       <div className="ol-card">
         <header className="ol-header">
@@ -413,27 +422,31 @@ function Table() {
 }
 
 function summary(lobby: LobbyState): string {
-  const parts = [DIFFICULTY_LABEL[lobby.difficulty]]
-  if (lobby.whiteMoon.enabled) {
+  const bastion = lobby.variant === 'bastion'
+  const parts = [bastion ? 'Last Bastion' : 'Ghost Stories', difficultyName(lobby.variant, lobby.difficulty)]
+  if (!bastion && lobby.whiteMoon.enabled) {
     parts.push(`White Moon (Portal: ${lobby.whiteMoon.portal}${lobby.whiteMoon.randomTiles ? ', random tiles' : ''})`)
   }
-  if (lobby.blackSecret.enabled) parts.push(`Black Secret (side ${lobby.blackSecret.side.toUpperCase()})`)
+  if (!bastion && lobby.blackSecret.enabled) parts.push(`Black Secret (side ${lobby.blackSecret.side.toUpperCase()})`)
   return parts.join(' · ')
 }
 
 function Settings({ lobby, isHost }: { lobby: LobbyState; isHost: boolean }) {
+  const hostSetVariant = useNetworkStore((s) => s.hostSetVariant)
   const hostSetDifficulty = useNetworkStore((s) => s.hostSetDifficulty)
   const hostSetWhiteMoon = useNetworkStore((s) => s.hostSetWhiteMoon)
   const hostSetBlackSecret = useNetworkStore((s) => s.hostSetBlackSecret)
   const wm = lobby.whiteMoon
   const bs = lobby.blackSecret
+  const bastion = lobby.variant === 'bastion'
+  const hint = (bastion ? BASTION_DIFFICULTY_HINT : DIFFICULTY_HINT)[lobby.difficulty]
 
   if (!isHost || lobby.started) {
     return (
       <div className="ol-settings">
         <h3>Game</h3>
         <p className="ol-status">{summary(lobby)}</p>
-        <p className="ol-muted">{DIFFICULTY_HINT[lobby.difficulty]}</p>
+        <p className="ol-muted">{hint}</p>
       </div>
     )
   }
@@ -441,6 +454,17 @@ function Settings({ lobby, isHost }: { lobby: LobbyState; isHost: boolean }) {
   return (
     <div className="ol-settings">
       <h3>Game</h3>
+      <label className="ol-setting">
+        <span>Version</span>
+        <select
+          className="ol-select"
+          value={bastion ? 'bastion' : 'ghostStories'}
+          onChange={(e) => void hostSetVariant(e.target.value as GameVariant)}
+        >
+          <option value="ghostStories">Ghost Stories</option>
+          <option value="bastion">Last Bastion</option>
+        </select>
+      </label>
       <label className="ol-setting">
         <span>Difficulty</span>
         <select
@@ -450,64 +474,68 @@ function Settings({ lobby, isHost }: { lobby: LobbyState; isHost: boolean }) {
         >
           {DIFFICULTIES.map((d) => (
             <option key={d} value={d}>
-              {DIFFICULTY_LABEL[d]}
+              {bastion ? difficultyName('bastion', d) : DIFFICULTY_LABEL[d]}
             </option>
           ))}
         </select>
       </label>
-      <p className="ol-muted">{DIFFICULTY_HINT[lobby.difficulty]}</p>
+      <p className="ol-muted">{hint}</p>
 
-      <label className="ol-check">
-        <input type="checkbox" checked={wm.enabled} onChange={(e) => void hostSetWhiteMoon({ enabled: e.target.checked })} />
-        <span>White Moon expansion (villagers, the Portal, moon crystals)</span>
-      </label>
-      {wm.enabled && (
+      {!bastion && (
         <>
-          <label className="ol-setting ol-setting-sub">
-            <span>Portal</span>
-            <select
-              className="ol-select"
-              value={wm.portal}
-              onChange={(e) => void hostSetWhiteMoon({ portal: e.target.value as PortalPlacement })}
-            >
-              {PORTAL_PLACEMENTS.map((p) => (
-                <option key={p} value={p}>
-                  {PORTAL_LABEL[p]}
-                </option>
-              ))}
-            </select>
+          <label className="ol-check">
+            <input type="checkbox" checked={wm.enabled} onChange={(e) => void hostSetWhiteMoon({ enabled: e.target.checked })} />
+            <span>White Moon expansion (villagers, the Portal, moon crystals)</span>
           </label>
-          <label className="ol-check ol-setting-sub">
+          {wm.enabled && (
+            <>
+              <label className="ol-setting ol-setting-sub">
+                <span>Portal</span>
+                <select
+                  className="ol-select"
+                  value={wm.portal}
+                  onChange={(e) => void hostSetWhiteMoon({ portal: e.target.value as PortalPlacement })}
+                >
+                  {PORTAL_PLACEMENTS.map((p) => (
+                    <option key={p} value={p}>
+                      {PORTAL_LABEL[p]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="ol-check ol-setting-sub">
+                <input
+                  type="checkbox"
+                  checked={wm.randomTiles}
+                  onChange={(e) => void hostSetWhiteMoon({ randomTiles: e.target.checked })}
+                />
+                <span>Draw the 9 village tiles at random from all 10</span>
+              </label>
+            </>
+          )}
+
+          <label className="ol-check">
             <input
               type="checkbox"
-              checked={wm.randomTiles}
-              onChange={(e) => void hostSetWhiteMoon({ randomTiles: e.target.checked })}
+              checked={bs.enabled}
+              onChange={(e) => void hostSetBlackSecret({ enabled: e.target.checked })}
             />
-            <span>Draw the 9 village tiles at random from all 10</span>
+            <span>Black Secret expansion (one player is Wu-Feng)</span>
           </label>
+          {bs.enabled && (
+            <label className="ol-setting ol-setting-sub">
+              <span>Catacomb board</span>
+              <select
+                className="ol-select"
+                value={bs.side}
+                onChange={(e) => void hostSetBlackSecret({ side: e.target.value === 'b' ? 'b' : 'a' })}
+              >
+                <option value="a">Side A</option>
+                <option value="b">Side B</option>
+              </select>
+            </label>
+          )}
         </>
-      )}
-
-      <label className="ol-check">
-        <input
-          type="checkbox"
-          checked={bs.enabled}
-          onChange={(e) => void hostSetBlackSecret({ enabled: e.target.checked })}
-        />
-        <span>Black Secret expansion (one player is Wu-Feng)</span>
-      </label>
-      {bs.enabled && (
-        <label className="ol-setting ol-setting-sub">
-          <span>Catacomb board</span>
-          <select
-            className="ol-select"
-            value={bs.side}
-            onChange={(e) => void hostSetBlackSecret({ side: e.target.value === 'b' ? 'b' : 'a' })}
-          >
-            <option value="a">Side A</option>
-            <option value="b">Side B</option>
-          </select>
-        </label>
       )}
     </div>
   )

@@ -3,7 +3,7 @@
   inset: 0;
   z-index: 2600;
   overflow-y: auto;
-  background: #1a1410;
+  background: var(--bg);
   padding: 18px 22px 40px;
 }
 .st-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: 1180px; margin: 0 auto 12px; }
@@ -25,7 +25,7 @@
 .st-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .st-caption { margin: 4px 0 0; font-size: 11px; color: var(--ink-muted); }
 
-.st-tip { position: absolute; z-index: 5; pointer-events: none; background: #120d0a; border: 1px solid #4a3a2c; border-radius: 6px; padding: 6px 8px; min-width: 110px; box-shadow: 0 4px 14px #0009; font-size: 12px; }
+.st-tip { position: absolute; z-index: 5; pointer-events: none; background: var(--bg-deep); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 110px; box-shadow: 0 4px 14px #0009; font-size: 12px; }
 .st-tip-x { color: var(--ink-muted); font-size: 11px; }
 .st-tip-row { display: flex; align-items: center; gap: 6px; }
 .st-tip-row strong { color: var(--ink); font-variant-numeric: tabular-nums; min-width: 16px; }

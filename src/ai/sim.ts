@@ -9,8 +9,8 @@
 // catacomb tokens, the Bloody Mantra deck) are shuffled.
 
 import type { Action } from '@/game/actions'
-import { baseGhostIds, blackSecretGhostIds, incarnationIds, isSummonCard, whiteMoonGhostIds } from '@/game/catalogue'
-import { ghostsInPlay } from '@/game/rules'
+import { baseGhostIds, bastionMonsterIds, bastionWarlordIds, blackSecretGhostIds, incarnationIds, isSummonCard, whiteMoonGhostIds } from '@/game/catalogue'
+import { ghostsInPlay, isBastion } from '@/game/rules'
 import type { CurseToken, GameState, Seat } from '@/game/types'
 import { aiRandom } from './eval'
 import { applyInPlace, clone } from './fast'
@@ -33,7 +33,7 @@ function shuffleInPlace<T>(arr: T[], rand: () => number): void {
   }
 }
 
-const isIncarnationId = (id: string) => id.startsWith('wf-')
+const isIncarnationId = (id: string) => id.startsWith('wf-') || id.startsWith('lb-wf-')
 
 /** A copy of `s` with every hidden detail re-dealt at random. */
 export function sanitize(s: GameState, seed: number): GameState {
@@ -76,8 +76,11 @@ function redealDeck(x: GameState, rand: () => number): void {
   for (const g of ghostsInPlay(x)) seen.add(g.ghost.card)
   const p = x.prompt
   if (p && (p.kind === 'placeGhost' || p.kind === 'wuFengGhost')) seen.add(p.card)
-  const pool = [...baseGhostIds(), ...(x.whiteMoon ? whiteMoonGhostIds() : []), ...(x.blackSecret ? blackSecretGhostIds() : [])].filter((id) => !seen.has(id))
-  const incPool = x.blackSecret ? [] : incarnationIds().filter((id) => !seen.has(id))
+  const bastion = isBastion(x)
+  const pool = (bastion ? bastionMonsterIds() : [...baseGhostIds(), ...(x.whiteMoon ? whiteMoonGhostIds() : []), ...(x.blackSecret ? blackSecretGhostIds() : [])]).filter(
+    (id) => !seen.has(id),
+  )
+  const incPool = x.blackSecret ? [] : (bastion ? bastionWarlordIds() : incarnationIds()).filter((id) => !seen.has(id))
   shuffleInPlace(pool, rand)
   shuffleInPlace(incPool, rand)
   let k = 0

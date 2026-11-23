@@ -10,6 +10,7 @@
 import { useMemo, useState } from 'react'
 import { TOPICS, CATEGORIES, type Topic } from './topics'
 import { useGameStore } from '@/store/gameStore'
+import { ArtVariant } from '@/ui/art'
 
 type Props = {
   /** When provided, called instead of `setUiMode('mainMenu')` on close. */
@@ -133,12 +134,13 @@ export function Rulebook({ onClose, initialTopicId }: Props) {
   )
 }
 
+/** Pictures in a topic use its own game's art, whichever game is selected. */
 function TopicBody({ topic }: { topic: Topic }) {
-  return <>{topic.body()}</>
+  return <ArtVariant variant={topic.variant}>{topic.body()}</ArtVariant>
 }
 
 /** Modal-overlay flavour for the in-game ? button. */
-export function RulebookOverlay({ onClose }: { onClose: () => void }) {
+export function RulebookOverlay({ onClose, initialTopicId }: { onClose: () => void; initialTopicId?: string }) {
   return (
     <div
       style={{
@@ -166,7 +168,7 @@ export function RulebookOverlay({ onClose }: { onClose: () => void }) {
         }}
       >
         <div style={{ width: '100%' }}>
-          <Rulebook onClose={onClose} />
+          <Rulebook onClose={onClose} initialTopicId={initialTopicId} />
         </div>
       </div>
     </div>

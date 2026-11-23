@@ -6,12 +6,11 @@
 // two sides can't drift apart. Changing any layout changes `SCHEMA_HASH`;
 // weights trained on another layout refuse to load.
 
-import { allCards } from '@/game/catalogue'
+import { ghostStoriesCards } from '@/game/catalogue'
 import type {
   AbilityKind,
   ArtifactId,
   CatacombTokenKind,
-  Corner,
   CurseEffectId,
   DemonId,
   Difficulty,
@@ -29,10 +28,6 @@ import type { ActionType, Response } from '@/game/actions'
 // Vocabularies. Records keyed by a union type make the compiler check that
 // every member has an index; the slot counts leave room to grow.
 // ---------------------------------------------------------------------------
-
-function indexOf<K extends string>(r: Record<K, number>): (k: K) => number {
-  return (k) => r[k]
-}
 
 export const TILE_KIND: Record<TileKind, number> = {
   circleOfPrayer: 0, buddhistTemple: 1, cemetery: 2, taoistAltar: 3, herbalistShop: 4, sorcerersHut: 5,
@@ -65,6 +60,7 @@ export const PROMPT_KIND: Record<PromptKind, number> = {
   bonecrackerPayer: 7, exorcism: 8, herbalist: 9, devour: 10, suLing: 11, suLingCrystal: 12, inherit: 13,
   barrier: 14, restoreTile: 15, wuFengGhost: 16, wuFengIncarnation: 17, wuFengDemon: 18, wuFengShadow: 19,
   wuFengSkeleton: 20, wuFengFreeCurse: 21, wuFengCurseTarget: 22, shadowAttack: 23, mantraQi: 24, mantraTarget: 25,
+  chooseHero: 26,
 }
 export const N_PROMPT_KIND = 32
 
@@ -73,7 +69,7 @@ export const RESPONSE_KIND: Record<Response['kind'], number> = {
   bonecrackerPayer: 7, reroll: 8, commit: 9, herbalistTake: 10, devour: 11, suLing: 12, suLingCrystal: 13,
   inherit: 14, barrier: 15, restoreTile: 16, wuFengGhost: 17, wuFengIncarnation: 18, wuFengDemon: 19,
   wuFengShadow: 20, wuFengSkeleton: 21, wuFengFreeCurse: 22, wuFengCurseTarget: 23, shadowAttack: 24,
-  mantraQi: 25, mantraTarget: 26,
+  mantraQi: 25, mantraTarget: 26, chooseHero: 27,
 }
 export const N_RESPONSE_KIND = 32
 
@@ -106,7 +102,6 @@ export const N_FAMILY = 12
 export const ARTIFACT: Record<ArtifactId, number> = { moonDust: 0, jadeTalisman: 1, dragonPearl: 2, phoenixFeather: 3 }
 export const N_ARTIFACT = 4
 export const DEMON: Record<DemonId, number> = { imp: 0, fiend: 1, archfiend: 2 }
-export const DEMON_IDS = Object.keys(DEMON) as DemonId[]
 export const CATACOMB_TOKEN: Record<CatacombTokenKind, number> = {
   dirt: 0, buddha: 1, bloodOfTheJust: 2, cursedTablet: 3, bones: 4, bloodOfSuLing: 5, urn: 6,
 }
@@ -121,16 +116,15 @@ export const MANTRA_EFFECT: Record<MantraEffectId, number> = {
   allGainQi: 0, gainTaoEach: 1, yinYangReturn: 2, unhaunt: 3, restoreLadders: 4, banishDemon: 5, discardGhosts: 6,
 }
 export const N_MANTRA_EFFECT = 8
-export const CORNER: Record<Corner, number> = { nw: 0, ne: 1, sw: 2, se: 3 }
 
-/** Ghost cards by catalogue order, then the special tokens. */
+/** Ghost cards by catalogue order, then the special tokens (the network plays Ghost Stories only, so no Last Bastion cards). */
 const SPECIAL_CARDS = ['skeleton', 'bones', 'summon'] as const
 export const N_CARD = 112
 let cardIndex: Map<string, number> | null = null
 export function cardSlot(id: string): number {
   if (!cardIndex) {
     cardIndex = new Map()
-    allCards().forEach((c, i) => cardIndex!.set(c.id, i))
+    ghostStoriesCards().forEach((c, i) => cardIndex!.set(c.id, i))
     const base = cardIndex.size
     SPECIAL_CARDS.forEach((c, i) => cardIndex!.set(c, base + i))
     if (cardIndex.size > N_CARD) throw new Error('nn schema: more ghost cards than card slots')
@@ -141,8 +135,6 @@ export function cardSlot(id: string): number {
   return i
 }
 
-export const tileKindIdx = indexOf(TILE_KIND)
-export const powerIdx = indexOf(POWER)
 
 // ---------------------------------------------------------------------------
 // Feature layouts

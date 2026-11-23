@@ -13,7 +13,7 @@ import { colOf, cornerOfSpace, isAdjacent, lineOf, refKey, rowOf } from './geome
 import { openRoll } from './exorcism'
 import { ask, ev, gainQi, hauntTile, loseQi, now, removeGhost, rollDice, unhaunt } from './ops'
 import { nextInt, shuffle } from './rng'
-import { ALL_SPACES, COLOR_NAME, decider, ghostAt, hauntedCount, livingTaoists, TILE_NAME } from './rules'
+import { ALL_SPACES, COLOR_NAME, decider, ghostAt, livingTaoists, TILE_NAME } from './rules'
 import {
   CENTER_TILE,
   COLORS,
@@ -622,4 +622,3 @@ export function wmRespond(s: GameState, r: Response): boolean {
   return false
 }
 
-export const _hauntedCount = hauntedCount

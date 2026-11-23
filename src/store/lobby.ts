@@ -7,7 +7,7 @@
 // They run inside the transaction, so they must decide from the lobby they
 // are given, never from what this device last saw.
 
-import type { Color, Difficulty, GameConfig, Seat, SeatKind } from '@/game/types'
+import type { Color, Difficulty, GameConfig, GameVariant, Seat, SeatKind } from '@/game/types'
 import type {
   LobbyBlackSecret,
   LobbySeat,
@@ -34,9 +34,10 @@ export function openSeat(): LobbySeat {
   return { ...OPEN }
 }
 
-export function defaultLobby(hostUuid: string, hostName: string, seed: number): LobbyState {
+export function defaultLobby(hostUuid: string, hostName: string, seed: number, variant?: GameVariant): LobbyState {
   return {
     hostUuid,
+    ...(variant === 'bastion' ? { variant: 'bastion' as const } : {}),
     seats: {
       red: { kind: 'human', uuid: hostUuid, name: hostName },
       blue: openSeat(),
@@ -68,25 +69,27 @@ function normalizeSeat(raw: Partial<LobbySeat> | undefined, allowNeutral: boolea
  */
 export function normalizeLobby(raw: LobbyState): LobbyState {
   const r = raw as Partial<LobbyState>
+  const bastion = r.variant === 'bastion'
   const seats = (r.seats ?? {}) as Partial<Record<Color, LobbySeat>>
   const wm = (r.whiteMoon ?? {}) as Partial<LobbyWhiteMoon>
   const bs = (r.blackSecret ?? {}) as Partial<LobbyBlackSecret>
   const lobby: LobbyState = {
     hostUuid: typeof r.hostUuid === 'string' ? r.hostUuid : '',
+    ...(bastion ? { variant: 'bastion' as const } : {}),
     seats: {
       red: normalizeSeat(seats.red, true),
       blue: normalizeSeat(seats.blue, true),
       green: normalizeSeat(seats.green, true),
       yellow: normalizeSeat(seats.yellow, true),
     },
-    wuFeng: normalizeSeat(r.wuFeng, false),
+    wuFeng: bastion ? openSeat() : normalizeSeat(r.wuFeng, false),
     difficulty: DIFFICULTIES.includes(r.difficulty as Difficulty) ? (r.difficulty as Difficulty) : 'normal',
     whiteMoon: {
-      enabled: wm.enabled === true,
+      enabled: !bastion && wm.enabled === true,
       portal: PORTAL_PLACEMENTS.includes(wm.portal as PortalPlacement) ? (wm.portal as PortalPlacement) : 'center',
       randomTiles: wm.randomTiles === true,
     },
-    blackSecret: { enabled: bs.enabled === true, side: bs.side === 'b' ? 'b' : 'a' },
+    blackSecret: { enabled: !bastion && bs.enabled === true, side: bs.side === 'b' ? 'b' : 'a' },
     seed: typeof r.seed === 'number' && Number.isFinite(r.seed) ? r.seed : 0,
   }
   if (r.started === true) lobby.started = true
@@ -188,8 +191,24 @@ export function setDifficultyEdit(lobby: LobbyState, difficulty: Difficulty): Lo
   return { ...lobby, difficulty }
 }
 
-export function setWhiteMoonEdit(lobby: LobbyState, patch: Partial<LobbyWhiteMoon>): LobbyState | null {
+export function setVariantEdit(lobby: LobbyState, variant: GameVariant): LobbyState | null {
   if (lobby.started) return null
+  const cur: GameVariant = lobby.variant === 'bastion' ? 'bastion' : 'ghostStories'
+  if (cur === variant) return null
+  const next: LobbyState = { ...lobby }
+  if (variant === 'bastion') {
+    next.variant = 'bastion'
+    next.whiteMoon = { ...lobby.whiteMoon, enabled: false }
+    next.blackSecret = { ...lobby.blackSecret, enabled: false }
+    next.wuFeng = openSeat()
+  } else {
+    delete next.variant
+  }
+  return next
+}
+
+export function setWhiteMoonEdit(lobby: LobbyState, patch: Partial<LobbyWhiteMoon>): LobbyState | null {
+  if (lobby.started || lobby.variant === 'bastion') return null
   const whiteMoon = { ...lobby.whiteMoon, ...patch }
   if (JSON.stringify(whiteMoon) === JSON.stringify(lobby.whiteMoon)) return null
   return { ...lobby, whiteMoon }
@@ -197,7 +216,7 @@ export function setWhiteMoonEdit(lobby: LobbyState, patch: Partial<LobbyWhiteMoo
 
 /** Turning Black Secret off (or on) also empties the Wu-Feng seat. */
 export function setBlackSecretEdit(lobby: LobbyState, patch: Partial<LobbyBlackSecret>): LobbyState | null {
-  if (lobby.started) return null
+  if (lobby.started || lobby.variant === 'bastion') return null
   const blackSecret = { ...lobby.blackSecret, ...patch }
   if (JSON.stringify(blackSecret) === JSON.stringify(lobby.blackSecret)) return null
   const toggled = blackSecret.enabled !== lobby.blackSecret.enabled
@@ -243,6 +262,7 @@ function seatKind(seat: LobbySeat): SeatKind {
 /** The game a (startable) lobby plays. Board sides and the first player come from the seed. */
 export function lobbyToConfig(lobby: LobbyState): GameConfig {
   const config: GameConfig = {
+    ...(lobby.variant === 'bastion' ? { variant: 'bastion' as const } : {}),
     difficulty: lobby.difficulty,
     seats: {
       red: seatKind(lobby.seats.red),
@@ -252,10 +272,10 @@ export function lobbyToConfig(lobby: LobbyState): GameConfig {
     },
     seed: lobby.seed,
   }
-  if (lobby.whiteMoon.enabled) {
+  if (lobby.variant !== 'bastion' && lobby.whiteMoon.enabled) {
     config.whiteMoon = { portal: lobby.whiteMoon.portal, randomTiles: lobby.whiteMoon.randomTiles }
   }
-  if (lobby.blackSecret.enabled) {
+  if (lobby.variant !== 'bastion' && lobby.blackSecret.enabled) {
     config.blackSecret = { wuFeng: lobby.wuFeng.kind === 'ai' ? 'ai' : 'human', side: lobby.blackSecret.side }
   }
   return config

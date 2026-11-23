@@ -14,7 +14,8 @@
 import { create } from 'zustand'
 import { applyAction, createGame } from '@/game/engine'
 import type { Action } from '@/game/actions'
-import type { Color, GameConfig, GameState } from '@/game/types'
+import type { Color, GameConfig, GameState, GameVariant } from '@/game/types'
+import { say } from '@/game/vocab'
 import { useLogStore, type LogSnapshot } from './logStore'
 
 export type UiMode = 'mainMenu' | 'newGame' | 'online' | 'rulebook' | 'inGame'
@@ -52,6 +53,8 @@ const UNDO_DEPTH = 30
 interface GameStore {
   game: GameState | null
   uiMode: UiMode
+  /** Selected game on the home screen: Ghost Stories or Last Bastion. */
+  selectedVariant: GameVariant
   /** When the game began (ms since epoch), for the game clock. */
   startedAt: number
   /** The last move that failed, shown as a toast. */
@@ -62,6 +65,7 @@ interface GameStore {
   undoStack: GameSnapshot[]
 
   setUiMode: (mode: UiMode) => void
+  setSelectedVariant: (variant: GameVariant) => void
   clearError: () => void
   setHandoff: (c: Color | null) => void
 
@@ -90,15 +94,34 @@ function undoable(before: GameState, after: GameState): boolean {
   return before.rng === after.rng && before.deck.length === after.deck.length && before.active === after.active && after.phase !== 'gameOver'
 }
 
+/** The game picked on the main menu is remembered on this device. */
+const VARIANT_KEY = 'gs-variant'
+function savedVariant(): GameVariant {
+  try {
+    return globalThis.localStorage?.getItem(VARIANT_KEY) === 'bastion' ? 'bastion' : 'ghostStories'
+  } catch {
+    return 'ghostStories'
+  }
+}
+
 export const useGameStore = create<GameStore>((set, get) => ({
   game: null,
   uiMode: 'mainMenu',
+  selectedVariant: savedVariant(),
   startedAt: 0,
   error: null,
   handoff: null,
   undoStack: [],
 
   setUiMode: (uiMode) => set({ uiMode }),
+  setSelectedVariant: (selectedVariant) => {
+    try {
+      globalThis.localStorage?.setItem(VARIANT_KEY, selectedVariant)
+    } catch {
+      // Private mode / storage full: the choice just isn't remembered.
+    }
+    set({ selectedVariant })
+  },
   clearError: () => set({ error: null }),
   setHandoff: (handoff) => set({ handoff }),
 
@@ -130,7 +153,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
     try {
       next = applyAction(cur, action)
     } catch (e) {
-      set({ error: (e as Error).message })
+      // Rule errors are written in Ghost Stories terms, like the log.
+      set({ error: say(cur, (e as Error).message) })
       return false
     }
     const at = Date.now()

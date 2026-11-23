@@ -4,29 +4,32 @@
 import type { Action, HelpParams } from '@/game/actions'
 import { climbProblem, DEMONS, demonsOn } from '@/game/blackSecret'
 import { getCard, isSkeleton } from '@/game/catalogue'
-import { adjacentTiles, facedSpaces } from '@/game/geometry'
+import { adjacentTiles } from '@/game/geometry'
 import {
   borrowablePowers,
   boardName,
   COLOR_NAME,
+  combatSpacesFor,
   exorcismBlocker,
   ghostAt,
   ghostsInPlay,
   hasPower,
+  isBastion,
   isSolo,
   livingTaoists,
-  POWER_NAME,
-  POWER_TEXT,
+  powerName,
+  powerText,
   shadowOnTile,
-  TILE_NAME,
+  tileName,
 } from '@/game/rules'
 import { beforeMove, canMove, step2Problem } from '@/game/yang'
 import { ARTIFACT_NAME, ARTIFACT_TEXT, familyName } from '@/game/whiteMoon'
 import { CENTER_TILE, CORNER_TILE, TAO_COLORS, type Color, type Corner, type GameState, type TaoColor } from '@/game/types'
 import { useGameStore } from '@/store/gameStore'
 import { useUiStore, type HelpDraft } from '@/store/uiStore'
-import { PowerIcon, TaoToken } from '@/ui/art'
-import { TILE_HELP } from './text'
+import { PowerIcon, StandardToken, TaoToken } from '@/ui/art'
+import { tileHelp } from './text'
+import { say } from '@/game/vocab'
 import { fireHelp, startHelp } from './interaction'
 import { useState, type ReactElement } from 'react'
 
@@ -45,6 +48,7 @@ export function TurnPanel({ game }: { game: GameState }) {
   const undo = useGameStore((g) => g.undo)
   const [reclaim, setReclaim] = useState(true)
   const c = game.active
+  const bastion = isBastion(game)
   const t = game.taoists[c]
   const y = game.yang!
   const tile = game.village[t.tile!]!
@@ -52,11 +56,12 @@ export function TurnPanel({ game }: { game: GameState }) {
   const helpProblem = step2Problem(game, 'help')
   const exoProblem = step2Problem(game, 'exorcise')
   const step = y.step3 ? 3 : y.moved ? 2 : 1
-  const faced = t.underground ? [] : facedSpaces(t.tile!)
+  const faced = t.underground ? [] : combatSpacesFor(game, c, t.tile!)
   const exorcisable = faced.filter((r) => ghostAt(game, r) && !exorcismBlocker(game, r))
   const blocked = faced.map((r) => exorcismBlocker(game, r)).find((x) => x && !x.startsWith('There is no'))
   const readyBuddhas = t.buddhas - y.newBuddhas
-  const buddhaSpots = faced.filter((r) => !ghostAt(game, r) && !game.boards[r.board].buddhas[r.space])
+  const buddhaSpaces = bastion ? (['0', '1', '2'] as const).map((_, sp) => ({ board: c, space: sp as 0 | 1 | 2 })) : faced
+  const buddhaSpots = t.underground ? [] : buddhaSpaces.filter((r) => !ghostAt(game, r) && !game.boards[r.board].buddhas[r.space])
 
   if (sel?.kind === 'help') return <HelpDraftPanel game={game} draft={sel.draft} />
 
@@ -64,56 +69,61 @@ export function TurnPanel({ game }: { game: GameState }) {
     t.underground
       ? 'No villager can help in the catacombs.'
       : tile.haunted
-        ? 'This tile is haunted: its villager is gone.'
+        ? bastion
+          ? 'This Bastion tile is in the Grasp of Evil: its action is blocked (Call to Arms can still use it).'
+          : 'This tile is haunted: its villager is gone.'
         : shadowOnTile(game, tile.idx)
           ? 'The Shadow of Wu-Feng blocks this tile.'
           : helpProblem ?? helpParamsProblem(game, c, tile.kind)
 
   const exoWhy =
     !t.underground && !exoProblem && exorcisable.length === 0
-      ? blocked ?? (faced.length === 0 ? 'The centre tile faces no ghost space.' : 'No ghost on the spaces you face.')
+      ? blocked ?? (faced.length === 0 ? 'The centre tile faces no space.' : `No ${bastion ? 'Monster' : 'ghost'} on the spaces you can reach.`)
       : null
   const stepClass = (n: 1 | 2 | 3) => (step === n ? 'now' : step > n ? 'done' : '')
 
   return (
     <div className="gs-card gs-turn">
-      <h3 className="gs-turn-title">{COLOR_NAME[c]} — Yang phase</h3>
+      <h3 className="gs-turn-title">
+        {COLOR_NAME[c]} — {bastion ? 'Hero phase' : 'Yang phase'}
+      </h3>
       <div className="gs-cols gs-turn-cols">
         <section className={`gs-col ${stepClass(1)}`}>
-          <h4>1 · Move</h4>
-          {before && <BeforeMove game={game} c={c} />}
+          <h4>{bastion ? 'Move & Hero power' : '1 · Move'}</h4>
+          {(before || bastion) && <BeforeMove game={game} c={c} />}
           {borrowablePowers(game, c).length > 0 && (
             <>
               <div className="gs-mini">Power tokens ({t.powerTokens}):</div>
               <div className="gs-btnrow">
                 {borrowablePowers(game, c).map((b) => (
-                  <button key={b} className="gs-btn small" title={POWER_TEXT[game.boards[b].power]} onClick={() => send({ type: 'powerToken', by: c, board: b })}>
-                    <PowerIcon power={game.boards[b].power} size={18} /> {POWER_NAME[game.boards[b].power]}
+                  <button key={b} className="gs-btn small" title={powerText(game, game.boards[b].power)} onClick={() => send({ type: 'powerToken', by: c, board: b })}>
+                    <PowerIcon power={game.boards[b].power} size={18} /> {powerName(game, game.boards[b].power)}
                   </button>
                 ))}
               </div>
             </>
           )}
-          {before && (
+          {canMove(game) && (
             <>
-              <button className={`gs-btn ${sel?.kind === 'move' ? 'on' : ''}`} onClick={() => select(sel?.kind === 'move' ? null : { kind: 'move' })}>
-                {hasPower(game, c, 'danceOfTheSpires') ? 'Fly anywhere (Dance of the Spires)' : 'Move to an adjacent tile'}
-              </button>
+              {t.immobilized ? (
+                <button className="gs-btn" onClick={() => send({ type: 'move', by: c, to: t.tile! })}>
+                  Stand back up (replaces your movement)
+                </button>
+              ) : (
+                <button className={`gs-btn ${sel?.kind === 'move' ? 'on' : ''}`} onClick={() => select(sel?.kind === 'move' ? null : { kind: 'move' })}>
+                  {!bastion && hasPower(game, c, 'danceOfTheSpires')
+                    ? 'Fly anywhere (Dance of the Spires)'
+                    : y.moves > 0
+                      ? 'Move again (Dance of the Peaks)'
+                      : 'Move to an adjacent tile'}
+                </button>
+              )}
               {game.whiteMoon && !t.underground && tile.villagers.length > 0 && (
                 <label className="gs-mini gs-check">
                   <input type="checkbox" checked={carry} onChange={(e) => setCarry(e.target.checked)} /> escort the {familyName(tile.villagers.at(-1)!)} villager
                 </label>
               )}
             </>
-          )}
-          {canMove(game) && !before && (
-            <button
-              className={`gs-btn ${sel?.kind === 'move' ? 'on' : ''}`}
-              title="Dance of the Peaks: a second move"
-              onClick={() => select(sel?.kind === 'move' ? null : { kind: 'move' })}
-            >
-              Move again (Dance of the Peaks)
-            </button>
           )}
           {game.blackSecret && !climbProblem(game, c) && (
             <button className="gs-btn" onClick={() => send({ type: 'climb', by: c })}>
@@ -125,20 +135,20 @@ export function TurnPanel({ game }: { game: GameState }) {
         </section>
 
         <section className={`gs-col ${stepClass(2)}`}>
-          <h4>2 · Help or exorcise</h4>
+          <h4>{bastion ? 'Act (Tile or Combat)' : '2 · Help or exorcise'}</h4>
           {!t.underground && (
             <button
               className="gs-btn"
               disabled={!!helpBlocked}
-              title={helpBlocked ?? TILE_HELP[tile.kind]}
+              title={helpBlocked ?? tileHelp(game, tile.kind)}
               onClick={() => startHelp(game, c, tile.idx, false)}
             >
-              Ask the villager: {TILE_NAME[tile.kind]}
+              {bastion ? `Activate: ${tileName(game, tile.kind)}` : `Ask the villager: ${tileName(game, tile.kind)}`}
             </button>
           )}
           {!t.underground && (
-            <div className="gs-why" title={helpBlocked ?? TILE_HELP[tile.kind]}>
-              {helpBlocked ?? TILE_HELP[tile.kind]}
+            <div className="gs-why" title={helpBlocked ?? tileHelp(game, tile.kind)}>
+              {helpBlocked ?? tileHelp(game, tile.kind)}
             </div>
           )}
           {!t.underground && (
@@ -148,7 +158,8 @@ export function TurnPanel({ game }: { game: GameState }) {
               title={exoWhy ?? exoProblem ?? undefined}
               onClick={() => (exorcisable.length === 1 ? send({ type: 'exorcise', by: c, targets: exorcisable }) : select({ kind: 'exorcise', picked: [] }))}
             >
-              Exorcise {exorcisable.length === 1 ? cardName(game, exorcisable[0]!) : exorcisable.length === 2 ? '(pick 1 or 2 ghosts)' : ''}
+              {bastion ? 'Combat' : 'Exorcise'}{' '}
+              {exorcisable.length === 1 ? cardName(game, exorcisable[0]!) : exorcisable.length >= 2 ? `(pick 1 or 2 ${bastion ? 'targets' : 'ghosts'})` : ''}
             </button>
           )}
           {sel?.kind === 'exorcise' && sel.picked.length > 0 && (
@@ -174,14 +185,14 @@ export function TurnPanel({ game }: { game: GameState }) {
         </section>
 
         <section className={`gs-col ${stepClass(3)}`}>
-          <h4>3 · Buddha</h4>
+          <h4>{bastion ? 'Trap & Call to Arms' : '3 · Buddha'}</h4>
           <button
             className={`gs-btn ${sel?.kind === 'buddha' ? 'on' : ''}`}
             disabled={readyBuddhas <= 0 || buddhaSpots.length === 0}
             onClick={() => (buddhaSpots.length === 1 ? send({ type: 'placeBuddha', by: c, spaces: buddhaSpots }) : select({ kind: 'buddha', picked: [] }))}
-            title="A Buddha destroys the next ghost that arrives or is moved onto its space."
+            title={bastion ? 'The Trap eliminates the next Monster placed on its space.' : 'A Buddha destroys the next ghost that arrives or is moved onto its space.'}
           >
-            Place a Buddha ({readyBuddhas} ready{t.buddhas > readyBuddhas ? `, ${t.buddhas - readyBuddhas} taken this turn` : ''})
+            {bastion ? `Place the Trap (${readyBuddhas} ready)` : `Place a Buddha (${readyBuddhas} ready${t.buddhas > readyBuddhas ? `, ${t.buddhas - readyBuddhas} taken this turn` : ''})`}
           </button>
           {game.whiteMoon && <CrystalPlacement game={game} c={c} />}
           <h4 className="gs-col-sub">Any time</h4>
@@ -189,19 +200,21 @@ export function TurnPanel({ game }: { game: GameState }) {
             <button
               className={`gs-btn small ${sel?.kind === 'yinYangTile' ? 'on' : ''}`}
               disabled={!t.yinYang}
-              title="Spend your Yin-Yang: ask the villager of any tile for help"
+              title={bastion ? 'Spend your Call to Arms: activate any Bastion tile (even in the Grasp of Evil)' : 'Spend your Yin-Yang: ask the villager of any tile for help'}
               onClick={() => select({ kind: 'yinYangTile' })}
             >
-              Yin-Yang: help anywhere
+              {bastion ? 'Call to Arms: any tile' : 'Yin-Yang: help anywhere'}
             </button>
-            <button
-              className={`gs-btn small ${sel?.kind === 'yinYangFlip' ? 'on' : ''}`}
-              disabled={!t.yinYang || !game.village.some((v) => v.haunted)}
-              title="Spend your Yin-Yang: restore a haunted tile"
-              onClick={() => select({ kind: 'yinYangFlip' })}
-            >
-              Yin-Yang: restore a tile
-            </button>
+            {!bastion && (
+              <button
+                className={`gs-btn small ${sel?.kind === 'yinYangFlip' ? 'on' : ''}`}
+                disabled={!t.yinYang || !game.village.some((v) => v.haunted)}
+                title="Spend your Yin-Yang: restore a haunted tile"
+                onClick={() => select({ kind: 'yinYangFlip' })}
+              >
+                Yin-Yang: restore a tile
+              </button>
+            )}
           </div>
           {t.artifacts.length > 0 && <Artifacts game={game} c={c} />}
         </section>
@@ -244,20 +257,29 @@ function cardName(game: GameState, r: { board: Color; space: 0 | 1 | 2 }): strin
 
 /** Why the tile's action can't be used at all right now (beyond step order). */
 function helpParamsProblem(game: GameState, c: Color, kind: string): string | null {
+  const bastion = isBastion(game)
   switch (kind) {
     case 'buddhistTemple':
-      return game.templeBuddhas > 0 ? null : 'No Buddha is left on the Temple.'
+      return game.templeBuddhas > 0 ? null : bastion ? 'The Trap figure is already placed on a Horde board.' : 'No Buddha is left on the Temple.'
     case 'cemetery':
+      if (bastion) {
+        const anyDead = (['red', 'blue', 'green', 'yellow'] as Color[]).some((x) => !game.boards[x].neutral && !game.taoists[x].alive && !game.taoists[x].deadForever)
+        const anySupply = Object.values(game.taoSupply).some((n) => n > 0)
+        return anyDead || anySupply ? null : 'No Hero is taken out and no Equipment token is left in the reserve.'
+      }
       if (isSolo(game)) return 'Solo: no aid can be requested from the Cemetery.'
       return (['red', 'blue', 'green', 'yellow'] as Color[]).some((x) => !game.boards[x].neutral && !game.taoists[x].alive) || (game.whiteMoon?.dead.length ?? 0) > 0
         ? null
         : 'Nobody is dead.'
     case 'taoistAltar':
+      if (bastion) return ghostsInPlay(game).some((g) => !g.card.incarnation) ? null : 'There is no Monster for the Trebuchet to net.'
       return game.village.some((v) => v.haunted) ? null : 'No tile is haunted.'
     case 'sorcerersHut':
-      return ghostsInPlay(game).some((g) => !g.card.incarnation && !isSkeleton(g.ghost.card)) ? null : 'There is no ghost the Sorcerer can banish.'
+      return ghostsInPlay(game).some((g) => !g.card.incarnation && !isSkeleton(g.ghost.card))
+        ? null
+        : `There is no ${bastion ? 'Monster' : 'ghost'} the ${tileName(game, 'sorcerersHut')} can eliminate.`
     case 'pavilion':
-      return ghostsInPlay(game).some((g) => !isSkeleton(g.ghost.card)) ? null : 'There is no ghost to move.'
+      return ghostsInPlay(game).some((g) => !isSkeleton(g.ghost.card)) ? null : `There is no ${bastion ? 'Horde card' : 'ghost'} to move.`
     default:
       void c
       return null
@@ -266,38 +288,43 @@ function helpParamsProblem(game: GameState, c: Color, kind: string): string | nu
 
 function BeforeMove({ game, c }: { game: GameState; c: Color }) {
   const y = game.yang!
+  const bastion = isBastion(game)
   const select = useUiStore((u) => u.select)
   const sel = useUiStore((u) => u.selecting)
   const opts: ReactElement[] = []
   if (hasPower(game, c, 'bottomlessPockets') && !y.usedPowers.includes('bottomlessPockets')) {
     opts.push(
       <div key="bp">
-        <div className="gs-mini">Bottomless Pockets — take a Tao token:</div>
+        <div className="gs-mini">{powerName(game, 'bottomlessPockets')} — take a token:</div>
         <ColorChips game={game} onPick={(color) => send({ type: 'power', by: c, use: { power: 'bottomlessPockets', color } })} />
       </div>,
     )
   }
   if (hasPower(game, c, 'enfeeblementMantra') && !y.usedPowers.includes('enfeeblementMantra')) {
+    const canPlace = game.mantra === 'ready' || (bastion && game.mantra === 'placed')
     opts.push(
       <button
         key="em"
         className={`gs-btn small ${sel?.kind === 'mantra' ? 'on' : ''}`}
-        disabled={game.mantra !== 'ready' || ghostsInPlay(game).length === 0}
-        title={game.mantra === 'placed' ? 'The Mantra is on a ghost until it leaves play.' : game.mantra === 'removed' ? 'Removed from the game.' : POWER_TEXT.enfeeblementMantra}
+        disabled={!canPlace || ghostsInPlay(game).length === 0}
+        title={powerText(game, 'enfeeblementMantra')}
         onClick={() => select({ kind: 'mantra' })}
       >
-        Enfeeblement Mantra {game.mantra === 'ready' ? '' : `(${game.mantra === 'placed' ? 'on a ghost' : game.mantra === 'cooldown' ? 'back next turn' : 'gone'})`}
+        {powerName(game, 'enfeeblementMantra')}{' '}
+        {canPlace ? (bastion && game.mantra === 'placed' ? '(move Enchantment)' : '') : say(game, `(${game.mantra === 'placed' ? 'on a ghost' : game.mantra === 'cooldown' ? 'back next turn' : 'gone'})`)}
       </button>,
     )
   }
   if (hasPower(game, c, 'danceOfTheTwinWinds') && !y.usedPowers.includes('danceOfTheTwinWinds')) {
-    const others = livingTaoists(game).filter((t) => t.color !== c)
+    const targets = bastion ? livingTaoists(game) : livingTaoists(game).filter((t) => t.color !== c)
     opts.push(
       <div key="tw">
-        <div className="gs-mini">Dance of the Twin Winds — move another Taoist 1 space:</div>
+        <div className="gs-mini">
+          {powerName(game, 'danceOfTheTwinWinds')} — move {bastion ? 'a Hero' : 'another Taoist'} 1 space:
+        </div>
         {game.blackSecret && <ClimbToggle />}
         <div className="gs-btnrow">
-          {others.map((o) => (
+          {targets.map((o) => (
             <button
               key={o.color}
               className={`gs-btn small ${sel?.kind === 'twinWinds' && sel.taoist === o.color ? 'on' : ''}`}
@@ -308,6 +335,20 @@ function BeforeMove({ game, c }: { game: GameState; c: Color }) {
           ))}
         </div>
       </div>,
+    )
+  }
+  if (bastion && hasPower(game, c, 'secondWind') && !y.moved && !y.usedPowers.includes('secondWind')) {
+    const anyGrasp = game.village.some((v) => v.haunted) || ghostsInPlay(game).some((g) => !!g.ghost.figure)
+    opts.push(
+      <button
+        key="tg"
+        className={`gs-btn small ${sel?.kind === 'teagaan' ? 'on' : ''}`}
+        disabled={!anyGrasp}
+        title={powerText(game, 'secondWind')}
+        onClick={() => select(sel?.kind === 'teagaan' ? null : { kind: 'teagaan' })}
+      >
+        Teagaan: forego Move to remove Grasp of Evil
+      </button>,
     )
   }
   if (opts.length === 0) return null
@@ -324,12 +365,24 @@ function ClimbToggle() {
   )
 }
 
-export function ColorChips({ game, onPick, allowed }: { game: GameState; onPick: (c: TaoColor) => void; allowed?: (c: TaoColor) => boolean }) {
+/** One chip per colour, from the token supply; `unlimited`: a set of its own (Last Bastion's Standard tokens). */
+export function ColorChips({
+  game,
+  onPick,
+  allowed,
+  unlimited = false,
+}: {
+  game: GameState
+  onPick: (c: TaoColor) => void
+  allowed?: (c: TaoColor) => boolean
+  unlimited?: boolean
+}) {
   return (
     <div className="gs-chips">
       {TAO_COLORS.map((col) => (
-        <button key={col} className="gs-chip" disabled={game.taoSupply[col] <= 0 || (allowed ? !allowed(col) : false)} onClick={() => onPick(col)}>
-          <TaoToken color={col} size={16} /> {col} <span className="gs-mini">({game.taoSupply[col]})</span>
+        <button key={col} className="gs-chip" disabled={(!unlimited && game.taoSupply[col] <= 0) || (allowed ? !allowed(col) : false)} onClick={() => onPick(col)}>
+          {unlimited ? <StandardToken color={col} size={16} /> : <TaoToken color={col} size={16} />} {col}
+          {!unlimited && <span className="gs-mini">({game.taoSupply[col]})</span>}
         </button>
       ))}
     </div>
@@ -381,7 +434,7 @@ function BackAndForth({ game, c }: { game: GameState; c: Color }) {
       <div className="gs-btnrow">
         {near.map((x) => (
           <button key={x} className="gs-btn small" onClick={() => send({ type: 'move', by: c, to: here, carry: { from: x } })}>
-            {familyName(game.village[x]!.villagers.at(-1)!)} from the {TILE_NAME[game.village[x]!.kind]}
+            {familyName(game.village[x]!.villagers.at(-1)!)} from the {tileName(game, game.village[x]!.kind)}
           </button>
         ))}
       </div>
@@ -415,39 +468,98 @@ function DemonFight({ game, c, problem }: { game: GameState; c: Color; problem: 
 function HelpDraftPanel({ game, draft }: { game: GameState; draft: HelpDraft }) {
   const select = useUiStore((u) => u.select)
   const c = game.active
+  const bastion = isBastion(game)
   const fire = (params: HelpParams) => fireHelp(c, draft, params)
   const set = (patch: Partial<HelpDraft>) => select({ kind: 'help', draft: { ...draft, ...patch } })
-  const title = `${draft.viaYinYang ? 'Yin-Yang → ' : ''}${TILE_NAME[draft.kind]}`
+  const title = `${draft.viaYinYang ? `${bastion ? 'Call to Arms' : 'Yin-Yang'} → ` : ''}${tileName(game, draft.kind)}`
   let body: ReactElement
   switch (draft.kind) {
     case 'circleOfPrayer':
       body = (
         <>
-          <p>Place a Tao token from the supply on the Circle: every ghost of that colour has 1 less resistance.</p>
-          <ColorChips game={game} onPick={(color) => fire({ kind: 'circleOfPrayer', color })} />
+          <p>{tileHelp(game, 'circleOfPrayer')}</p>
+          <ColorChips game={game} unlimited={bastion} onPick={(color) => fire({ kind: 'circleOfPrayer', color })} />
         </>
       )
       break
     case 'teaHouse':
-      body = (
-        <>
-          <p>Take a Tao token of your choice and gain 1 Qi. Then a ghost comes into play.</p>
-          <ColorChips game={game} onPick={(color) => fire({ kind: 'teaHouse', color })} />
-        </>
-      )
+      if (bastion) {
+        const hero = draft.taoist ? game.taoists[draft.taoist] : null
+        body = hero ? (
+          <>
+            <p>
+              {COLOR_NAME[hero.color]} gains 1 Life token and may move 1 space: click an adjacent tile on the board, or
+            </p>
+            <div className="gs-btnrow">
+              {hero.immobilized && (
+                <button className="gs-btn" onClick={() => fire({ kind: 'teaHouse', taoist: hero.color, to: hero.tile })}>
+                  Stand back up (their move)
+                </button>
+              )}
+              <button className="gs-btn" onClick={() => fire({ kind: 'teaHouse', taoist: hero.color })}>
+                No movement
+              </button>
+              <button className="gs-btn small" onClick={() => set({ taoist: null })}>
+                Another Hero
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p>Grant a Hero of your choice 1 Life token and 1 optional movement:</p>
+            <div className="gs-btnrow">
+              {livingTaoists(game).map((h) => (
+                <button key={h.color} className="gs-btn" onClick={() => set({ taoist: h.color })}>
+                  {COLOR_NAME[h.color]} ({h.qi} Life)
+                </button>
+              ))}
+            </div>
+          </>
+        )
+      } else {
+        body = (
+          <>
+            <p>Take a Tao token of your choice and gain 1 Qi. Then a ghost comes into play.</p>
+            <ColorChips game={game} onPick={(color) => fire({ kind: 'teaHouse', color })} />
+          </>
+        )
+      }
       break
     case 'cemetery': {
-      const dead = (['red', 'blue', 'green', 'yellow'] as Color[]).filter((x) => !game.boards[x].neutral && !game.taoists[x].alive)
+      const dead = (['red', 'blue', 'green', 'yellow'] as Color[]).filter(
+        (x) => !game.boards[x].neutral && !game.taoists[x].alive && !game.taoists[x].deadForever,
+      )
       body = (
         <>
-          <p>Bring the dead back with 2 Qi on the Cemetery, then roll the curse die (a haunt face haunts the Cemetery).</p>
-          <div className="gs-btnrow">
-            {dead.map((d) => (
-              <button key={d} className="gs-btn" onClick={() => fire({ kind: 'cemetery', revive: d })}>
-                Revive {COLOR_NAME[d]}
-              </button>
-            ))}
-          </div>
+          {dead.length > 0 && (
+            <>
+              <p>
+                {bastion
+                  ? 'Heal a taken-out Hero (returns wounded on the Dispensary with 3 Life and a Call to Arms):'
+                  : 'Bring the dead back with 2 Qi on the Cemetery, then roll the curse die (a haunt face haunts the Cemetery).'}
+              </p>
+              <div className="gs-btnrow">
+                {dead.map((d) => (
+                  <button key={d} className="gs-btn" onClick={() => fire({ kind: 'cemetery', revive: d })}>
+                    {bastion ? 'Heal' : 'Revive'} {COLOR_NAME[d]}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          {bastion && (
+            <>
+              <p>Or give 1 available Equipment token from the reserve to a Hero:</p>
+              <div className="gs-btnrow">
+                {livingTaoists(game).map((h) => (
+                  <button key={h.color} className={`gs-btn small ${(draft.taoist ?? c) === h.color ? 'on' : ''}`} onClick={() => set({ taoist: h.color })}>
+                    {COLOR_NAME[h.color]}
+                  </button>
+                ))}
+              </div>
+              <ColorChips game={game} onPick={(color) => fire({ kind: 'cemetery', color, to: draft.taoist ?? c })} />
+            </>
+          )}
           {game.whiteMoon && game.whiteMoon.dead.length > 0 && (
             <>
               <div className="gs-mini">…or a killed villager (onto the Cemetery):</div>
@@ -491,6 +603,15 @@ function HelpDraftPanel({ game, draft }: { game: GameState; draft: HelpDraft }) 
       body = <CalligrapherForm game={game} onFire={fire} />
       break
     case 'pavilion': {
+      if (bastion) {
+        body = (
+          <>
+            <p>Move a Horde card to any free space, or click another Horde card to swap their positions.</p>
+            <p className="gs-mini">{!draft.ghost ? '1. Click the Horde card to move.' : '2. Click any space (free to move, occupied to swap).'}</p>
+          </>
+        )
+        break
+      }
       const movers = isSolo(game) ? [c] : livingTaoists(game).filter((x) => x.color !== c && x.tile != null).map((x) => x.color)
       body = (
         <>
@@ -527,9 +648,27 @@ function HelpDraftPanel({ game, draft }: { game: GameState; draft: HelpDraft }) 
       break
     }
     case 'nightWatchman':
+      if (bastion) {
+        const picks = draft.picks ?? { tiles: [], ghosts: [] }
+        const n = picks.tiles.length + picks.ghosts.length
+        const names = [
+          ...picks.tiles.map((i) => tileName(game, game.village[i]!.kind)),
+          ...picks.ghosts.map((r) => cardName(game, r)),
+        ]
+        body = (
+          <>
+            <p>{tileHelp(game, 'nightWatchman')}</p>
+            <p className="gs-mini">{n === 0 ? 'Click the figures on the board.' : `Picked: ${names.join(', ')}.`}</p>
+            <button className="gs-btn primary" disabled={n === 0} onClick={() => fire({ kind: 'nightWatchman', tiles: picks.tiles, ghosts: picks.ghosts })}>
+              Remove {n === 2 ? 'both figures' : n === 1 ? 'the figure' : 'figures'}
+            </button>
+          </>
+        )
+        break
+      }
       body = (
         <>
-          <p>Move every haunting figure on one board back onto the cards.</p>
+          <p>{tileHelp(game, 'nightWatchman')}</p>
           <div className="gs-btnrow">
             {(['red', 'blue', 'green', 'yellow'] as Color[]).map((b) => (
               <button key={b} className="gs-btn small" onClick={() => fire({ kind: 'nightWatchman', board: b })}>
@@ -541,7 +680,7 @@ function HelpDraftPanel({ game, draft }: { game: GameState; draft: HelpDraft }) 
       )
       break
     default:
-      body = <p>{TILE_HELP[draft.kind]} Choose on the board.</p>
+      body = <p>{tileHelp(game, draft.kind)} Choose on the board.</p>
   }
   return (
     <div className="gs-card">

@@ -18,15 +18,6 @@ export function place({ x = 0, y = 0, s = 100 }: At): string {
   return `translate(${x} ${y}) scale(${s / 100})`
 }
 
-/** Wraps children (drawn in a 100-box) at a placement. */
-export function Box({ at, children, opacity }: { at: At; children: ReactNode; opacity?: number }) {
-  return (
-    <g transform={place(at)} opacity={opacity}>
-      {children}
-    </g>
-  )
-}
-
 // ---------------------------------------------------------------------------
 // 鬼 (gui, "ghost") — brushed by hand so it never depends on a CJK font.
 // ---------------------------------------------------------------------------

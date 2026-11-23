@@ -6,7 +6,8 @@ import type { CrystalSpend, TaoSpend } from '@/game/actions'
 import { DEMONS } from '@/game/blackSecret'
 import { bestCommit, covers, requirementsFor, spendersFor, spendVec } from '@/game/exorcism'
 import { refKey } from '@/game/geometry'
-import { cardAt, COLOR_NAME, taoBlocked, whiteIsWild } from '@/game/rules'
+import { cardAt, COLOR_NAME, isBastion, powerName, taoBlocked, whiteIsWild } from '@/game/rules'
+import { say } from '@/game/vocab'
 import { TAO_COLORS, type DemonId, type ExorcismRoll, type GameState, type GhostRef, type Seat, type TaoColor } from '@/game/types'
 import { useGameStore } from '@/store/gameStore'
 import { GhostCardArt, MoonCrystal, TaoDie, TaoToken } from '@/ui/art'
@@ -74,8 +75,17 @@ export function ExorcismPanel({ game, roll, owner, mine }: { game: GameState; ro
         : { kind: 'commit', spend, crystals, exorcise: targets, demons: demons as DemonId[] },
     })
 
+  const bastion = isBastion(game)
   const title =
-    roll.mode === 'kungFu' ? 'Kung-Fu School' : roll.mode === 'barrier' ? `Mystic Barrier — ${roll.barrierBoard} board` : roll.mode === 'demon' ? 'Fighting demons' : 'Exorcism'
+    roll.mode === 'kungFu'
+      ? 'Kung-Fu School'
+      : roll.mode === 'barrier'
+        ? `Mystic Barrier — ${roll.barrierBoard} board`
+        : roll.mode === 'demon'
+          ? 'Fighting demons'
+          : bastion
+            ? 'Combat'
+            : 'Exorcism'
   return (
     <div className="gs-card">
       <h3>
@@ -98,7 +108,7 @@ export function ExorcismPanel({ game, roll, owner, mine }: { game: GameState; ro
           {mine && roll.canReroll && (
             <div className="gs-btnrow" style={{ marginBottom: 6 }}>
               <button className="gs-btn small" disabled={marked.length === 0} onClick={() => dispatch({ type: 'respond', by: owner, r: { kind: 'reroll', dice: marked } })}>
-                The Gods’ Favorite: reroll {marked.length || ''} marked
+                {powerName(game, 'godsFavorite')}: reroll {marked.length || ''} marked
               </button>
               <span className="gs-mini">Click dice to mark them. You must keep the second result.</span>
             </div>
@@ -133,7 +143,7 @@ export function ExorcismPanel({ game, roll, owner, mine }: { game: GameState; ro
           <div className="gs-col">
             {canSpendTao && (
               <>
-                <h4>Spend Tao tokens{spenders.length > 1 ? ' (anyone on this tile)' : ''}</h4>
+                <h4>{say(game, 'Spend Tao tokens')}{spenders.length > 1 ? ' (anyone on this tile)' : ''}</h4>
                 {spenders.map((c) => (
                   <div key={c} className="gs-chips" style={{ marginBottom: 3 }}>
                     <span className="gs-mini" style={{ width: 46 }}>
@@ -151,7 +161,7 @@ export function ExorcismPanel({ game, roll, owner, mine }: { game: GameState; ro
                 ))}
               </>
             )}
-            {taoBlocked(game) && roll.mode !== 'barrier' && <div className="gs-why">A Tao blocker is in play: Tao tokens can't be spent (moon crystals still can).</div>}
+            {taoBlocked(game) && roll.mode !== 'barrier' && <div className="gs-why">{isBastion(game) ? "Equipment tokens can't be used in Combat while this Horde card is in play." : "A Tao blocker is in play: Tao tokens can't be spent (moon crystals still can)."}</div>}
             {crystalPool.some((p) => p.n > 0) && (
               <>
                 <h4>Moon crystals (any colour)</h4>
@@ -180,7 +190,7 @@ export function ExorcismPanel({ game, roll, owner, mine }: { game: GameState; ro
           {mine ? (
             <div className="gs-btnrow" style={{ marginTop: 6 }}>
               <button className="gs-btn primary" disabled={!ok} onClick={() => commit(false)} style={{ flex: 1 }}>
-                {roll.mode === 'barrier' || roll.mode === 'kungFu' ? 'Exorcise them' : 'Exorcise!'}
+                {roll.mode === 'barrier' || roll.mode === 'kungFu' ? 'Exorcise them' : bastion ? 'Vanquish!' : 'Exorcise!'}
               </button>
               <button
                 className="gs-btn"
@@ -193,8 +203,16 @@ export function ExorcismPanel({ game, roll, owner, mine }: { game: GameState; ro
               >
                 Cheapest
               </button>
-              <button className="gs-btn" onClick={() => commit(true)} title="Spend nothing: the exorcism fails (not allowed when the dice alone succeed).">
-                Give up
+              <button
+                className="gs-btn"
+                onClick={() => commit(true)}
+                title={
+                  isBastion(game)
+                    ? 'Choose not to win this combat: nothing is spent, and no exit effect applies.'
+                    : 'Spend nothing: the exorcism fails (not allowed when the dice alone succeed).'
+                }
+              >
+                {isBastion(game) ? "Don't vanquish" : 'Give up'}
               </button>
             </div>
           ) : (
